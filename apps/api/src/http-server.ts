@@ -18,6 +18,9 @@
 // place/send route exists at all — this phase cannot send.
 
 import { createServer } from 'node:http';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { assertAuthorised, AuthorisationError, parseCookieHeader, SESSION_COOKIE } from '@tradex/auth';
 import type { Action, Principal } from '@tradex/auth';
@@ -301,10 +304,37 @@ export function createHttpServer(deps: HttpDeps): Server {
     throw new HttpError(404, 'not found');
   };
 
+  const here = dirname(fileURLToPath(import.meta.url));
+  const distDir = join(here, '..', '..', 'apps', 'web', 'dist');
+
+  const serveStatic = (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
+    if (url.pathname.startsWith('/api/')) return false;
+    let pathname = decodeURIComponent(url.pathname);
+    if (pathname === '/') pathname = '/index.html';
+    const filePath = join(distDir, pathname);
+    try {
+      if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+        const indexPath = join(distDir, 'index.html');
+        if (existsSync(indexPath)) {
+          res.writeHead(200, { 'content-type': 'text/html' });
+          createReadStream(indexPath).pipe(res);
+          return true;
+        }
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    createReadStream(filePath).pipe(res);
+    return true;
+  };
+
   return createServer((req, res) => {
     void (async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://localhost');
+        if (serveStatic(req, res, url)) return;
         const cookies = parseCookieHeader(req.headers.cookie);
         const method = (req.method ?? 'GET').toUpperCase();
         const body = method === 'POST' || method === 'PUT' || method === 'PATCH' ? await readBody(req) : undefined;
