@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/crypto" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/exchange" },
+    { "path": "../../packages/secret" }
+  ]
+}

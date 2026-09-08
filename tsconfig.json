@@ -1,0 +1,35 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/money"
+    },
+    {
+      "path": "./packages/secret"
+    },
+    {
+      "path": "./packages/sizing"
+    },
+    {
+      "path": "./packages/crypto"
+    },
+    {
+      "path": "./packages/db"
+    },
+    {
+      "path": "./packages/auth"
+    },
+    {
+      "path": "./packages/exchange-coindcx"
+    },
+    {
+      "path": "./packages/exchange"
+    },
+    {
+      "path": "./apps/signer"
+    },
+    {
+      "path": "./apps/api"
+    }
+  ]
+}

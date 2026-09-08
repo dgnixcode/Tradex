@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/auth" },
+    { "path": "../../packages/crypto" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/exchange" },
+    { "path": "../../packages/exchange-coindcx" },
+    { "path": "../../packages/money" },
+    { "path": "../../packages/secret" },
+    { "path": "../../packages/sizing" }
+  ]
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+coverage/
+.tmpwork/
+*.log
+
+# never commit anything that could hold a credential
+secrets/
+*.pem
+*.key

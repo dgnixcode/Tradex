@@ -1,0 +1,27 @@
+HTTP/1.1 401 Unauthorized
+Date: Thu, 03 Sep 2026 18:48:09 GMT
+Content-Type: application/json; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+x-frame-options: SAMEORIGIN
+x-xss-protection: 1; mode=block
+x-content-type-options: nosniff
+x-download-options: noopen
+x-permitted-cross-domain-policies: none
+referrer-policy: strict-origin-when-cross-origin
+Cache-Control: no-cache
+x-request-id: a6bd1256-3796-4ed5-a2c4-973b8a7ce5d3
+x-runtime: 0.004780
+vary: Origin
+x-envoy-upstream-service-time: 12
+Server: cloudflare
+x-kong-upstream-latency: 13
+x-kong-proxy-latency: 0
+via: kong/3.4.2
+cf-cache-status: DYNAMIC
+set-cookie: __cf_bm=qQub0QsQ8BdgJ1OEh0r1JRyf3MpRd.ZkSal1g9kZclA-1788461288.990476-1.0.1.1-T2bQ7EhDqT4wrWjSDVOetkJvGm8LcORZeqXrDelHaqzhY4SZ2W5QfRlegzUYtDFuDcPr.Jt1zq42m5QLKbnC2EI7bP2HkJvLObmUf2tRTO.rmx5E2LVr8rOvI_yr_NGa; HttpOnly; SameSite=None; Secure; Path=/; Domain=coindcx.com; Expires=Thu, 03 Sep 2026 19:18:09 GMT
+set-cookie: _cfuvid=J33_.db7ae7dHjyD_oMRB18dEwPLQlzCiB4XlnZTeb8-1788461288.990476-1.0.1.1-95Kwe0So6zy_bzGQC5Cj9juQEoKzZd.sI3__FQbWPFI; HttpOnly; SameSite=None; Secure; Path=/; Domain=coindcx.com
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+CF-RAY: a356ed5029d1f01d-BOM
+alt-svc: h3=":443"; ma=86400
+

@@ -1,0 +1,35 @@
+{
+  "name": "tradex",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "checks": "node --env-file-if-exists=.env checks/run-all.mjs",
+    "rules": "node scripts/ci-rules.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run rules && npm run test && npm run checks",
+    "db:migrate": "node --env-file-if-exists=.env packages/db/dist/migrate.js",
+    "db:status": "node --env-file-if-exists=.env packages/db/dist/migrate.js --status",
+    "db:seed": "node --env-file-if-exists=.env db/seed-demo.mjs",
+    "checks:live": "node --env-file-if-exists=.env --env-file-if-exists=.env.live checks/run-all.mjs",
+    "api": "npm run typecheck && npm run -w @tradex/api start",
+    "web": "npm run -w @tradex/web dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1",
+    "eslint": "^10.10.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.0.0"
+  }
+}

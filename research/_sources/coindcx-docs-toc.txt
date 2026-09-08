@@ -1,0 +1,105 @@
+396:# Terms and Conditions
+539:# Introduction
+551:# Terminology
+651:# Setup
+715:# SPOT API Rate Limits
+767:# Public endpoints
+769:## Ticker
+832:## Markets
+875:## Markets details
+1018:## Trades
+1098:## Order book
+1179:## Candles
+1278:# Authentication
+1404:# User
+1406:## Get balances
+1511:## Get user info
+1618:# Sub-account Wallet Transfer
+1622:## Sub Account Transfer
+1830:## Wallet Transfer
+2019:# Order
+2043:## New order
+2319:## Create multiple orders
+2543:## Order status
+2699:## Multiple order status
+2862:## Active orders
+3044:## Account Trade history
+3215:## Active orders count
+3351:## Cancel all
+3490:## Cancel multiple By Ids
+3620:## Cancel
+3753:## Edit Price
+3916:# Lend Order
+3918:## Fetch Orders
+4062:## Lend
+4211:## Settle
+4348:# Margin Order
+4378:## Place Order
+4626:## Cancel Order
+4756:## Exit
+4886:## Edit Target
+5023:## Edit Price of Target Order
+5167:## Edit SL Price
+5304:## Edit SL Price of Trailing Stop Loss
+5441:## Add Margin
+5576:## Remove Margin
+5711:## Fetch Orders
+5965:## Query Order
+6147:# Pagination
+6230:# Spot Sockets
+6314:## Get Balance Update
+6448:## Get Order Update
+6640:## Get Trade Update
+6789:## Get Candlestick Info
+6945:## Get Depth Snapshot Info ( Order Book )
+7062:## Get Depth Update ( Order Book )
+7181:## Get Current Prices
+7291:## Get Price Stats
+7406:## Get New Trade
+7515:## Get Price Change ( LTP )
+7617:## Sample code for Socket Connection
+7779:# Futures End Points
+7781:## Glossary
+7825:## Get active instruments
+7886:## Get instrument details
+8179:## Get instrument Real-time trade history
+8250:## Get instrument orderbook
+8324:## Get instrument candlesticks
+8461:## List Orders
+8839:## Create Order
+9376:## Cancel Order
+9499:## List Positions
+9741:## Get Positions By pairs or positionid
+10011:## Update position leverage
+10186:## Add Margin
+10317:## Remove Margin
+10483:## Cancel All Open Orders
+10604:## Cancel All Open Orders for Position
+10729:## Exit Position
+10877:## Create Take Profit and Stop Loss Orders
+11208:## Get Transactions
+11445:## Get Trades
+11672:## Get Current Prices RT
+11806:## Get Pair Stats
+11993:## Get Cross Margin Details
+12175:## Wallet Transfer
+12349:## Wallet Details
+12491:## Wallet Transactions
+12647:## Edit Order
+12962:## Change Position Margin Type
+13184:## Get Currency Conversion
+13329:# Futures Sockets
+13331:## Glossary
+13375:## ACCOUNT
+13399:# Join channel
+13461:## Get Position Update
+13512:## Get Order Update
+13573:## Get Balance Update
+13610:## Get Candlestick Data
+13663:## Get Orderbook
+13708:## Get Current Prices
+13755:## Get New Trade
+13794:## Get LTP Data
+13829:## Sample code for Socket Connection
+13907:# FAQ
+14085:# Errors
