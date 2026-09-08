@@ -315,6 +315,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         await handle(ctx);
       } catch (err) {
         if (res.headersSent) { res.end(); return; }
+        console.error('request failed', err);
         if (err instanceof HttpError) {
           sendJson(res, err.status, { message: err.message });
         } else {
