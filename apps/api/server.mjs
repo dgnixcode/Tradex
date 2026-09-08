@@ -113,8 +113,8 @@ const server = createHttpServer({
   secureCookies: process.env['TRADEX_SECURE_COOKIES'] === '1',
 });
 
-server.listen(PORT, () => {
-  console.log(`Tradex API listening on http://127.0.0.1:${PORT} (order book: ${live ? 'LIVE' : 'fixtures'})`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Tradex API listening on http://0.0.0.0:${PORT} (order book: ${live ? 'LIVE' : 'fixtures'})`);
 });
 
 const shutdown = () => {
