@@ -152,5 +152,5 @@ export const confirmTrade = (groupTradeId: string, previewToken: string): Promis
     body: JSON.stringify({ previewToken }),
   });
 
-export type { PlanRequest, PreviewResult } from '@tradex/api';
+export type { PlanRequest, PreviewResult, PreviewRow } from '@tradex/api';
 export type { GroupSummary } from '@tradex/db';

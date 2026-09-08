@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { confirmTrade, fetchTrade } from '../api.ts';
-import type { PreviewResult } from '../api.ts';
+import type { PreviewResult, PreviewRow } from '../api.ts';
 import { Countdown } from '../components/Countdown.tsx';
 
 // The confirmation screen (T04.8 / 21 F3). The per-account preview table renders
@@ -39,8 +39,8 @@ export function Confirmation() {
   const result = trade.data;
   if (result === undefined) return <div className="panel">No plan found.</div>;
 
-  const skippedCount = result.rows.filter((r) => r.state === 'skipped').length;
-  const plannedCount = result.rows.filter((r) => r.state === 'planned').length;
+  const skippedCount = result.rows.filter((r: PreviewRow) => r.state === 'skipped').length;
+  const plannedCount = result.rows.filter((r: PreviewRow) => r.state === 'planned').length;
   const hasSkips = skippedCount > 0;
   const confirmed = confirm.isSuccess;
 
@@ -68,7 +68,7 @@ export function Confirmation() {
           </tr>
         </thead>
         <tbody>
-          {result.rows.map((row) => (
+          {result.rows.map((row: PreviewRow) => (
             <tr key={row.childOrderId} className={row.state === 'skipped' ? 'skipped' : ''}>
               <td>{row.accountName}</td>
               <td><span className={`badge ${row.state}`}>{row.state}</span></td>
