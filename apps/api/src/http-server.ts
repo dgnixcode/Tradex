@@ -983,7 +983,21 @@ export function createHttpServer(deps: HttpDeps): Server {
   };
 
   const here = dirname(fileURLToPath(import.meta.url));
-  const distDir = join(here, '..', '..', 'apps', 'web', 'dist');
+  const distDir = join(here, '..', '..', 'web', 'dist');
+  const staticTypes: Readonly<Record<string, string>> = {
+    '.css': 'text/css; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.ico': 'image/x-icon',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+  };
+
+  const contentTypeFor = (filePath: string): string => {
+    const extension = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+    return staticTypes[extension] ?? 'application/octet-stream';
+  };
 
   const serveStatic = (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
     if (url.pathname.startsWith('/api/')) return false;
@@ -994,7 +1008,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (!existsSync(filePath) || !statSync(filePath).isFile()) {
         const indexPath = join(distDir, 'index.html');
         if (existsSync(indexPath)) {
-          res.writeHead(200, { 'content-type': 'text/html' });
+          res.writeHead(200, { 'content-type': contentTypeFor(indexPath) });
           createReadStream(indexPath).pipe(res);
           return true;
         }
@@ -1003,7 +1017,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     } catch {
       return false;
     }
-    res.writeHead(200, { 'content-type': 'text/html' });
+    res.writeHead(200, { 'content-type': contentTypeFor(filePath) });
     createReadStream(filePath).pipe(res);
     return true;
   };
