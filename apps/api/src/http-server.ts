@@ -936,7 +936,7 @@ export function createHttpServer(deps: HttpDeps): Server {
   };
 
   const here = dirname(fileURLToPath(import.meta.url));
-  const distDir = join(here, '..', '..', 'apps', 'web', 'dist');
+  const distDir = join(here, '..', '..', 'web', 'dist');
   const staticTypes: Readonly<Record<string, string>> = {
     '.css': 'text/css; charset=utf-8',
     '.html': 'text/html; charset=utf-8',
