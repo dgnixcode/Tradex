@@ -24,7 +24,7 @@ const GROUPS: readonly NavGroup[] = [
     title: 'Trading',
     items: [
       { label: 'Trade', icon: '⚡', to: '/app', match: (p) => p === '/app' || p.startsWith('/app/trades') },
-      { label: 'Orders', icon: '📋', soon: true },
+      { label: 'Orders', icon: '📋', to: '/app/activity', match: (p) => p.startsWith('/app/activity') },
       { label: 'Positions', icon: '📊', to: '/app/positions', match: (p) => p.startsWith('/app/positions') },
     ],
   },
@@ -34,7 +34,7 @@ const GROUPS: readonly NavGroup[] = [
       { label: 'Accounts', icon: '🔗', to: '/app/accounts', match: (p) => p.startsWith('/app/accounts') },
       { label: 'Groups', icon: '🗂', to: '/app/groups', match: (p) => p.startsWith('/app/groups') },
       { label: 'Audit', icon: '🧾', to: '/app/audit', match: (p) => p.startsWith('/app/audit') },
-      { label: 'Reports', icon: '📈', soon: true },
+      { label: 'Reports', icon: '📈', to: '/app/report', match: (p) => p.startsWith('/app/report') },
     ],
   },
   {

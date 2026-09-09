@@ -1,6 +1,6 @@
 // Demo seed — a login you can actually use in the browser.
 //
-// Inserts a demo tenant, a trader user with a REAL password hash, two active
+// Inserts a demo tenant, an OWNER user with a REAL password hash, two active
 // accounts (each with an INR balance and an active credential), a group holding
 // both, and — if the database has no market snapshot yet — ingests the committed
 // markets fixture so the asset typeahead and market resolution have data.
@@ -63,11 +63,13 @@ async function main() {
     );
     await client.query('INSERT INTO tenant_limit (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING', [TENANT]);
 
-    // trader user with a real scrypt hash.
+    // owner user with a real scrypt hash. Owner, not trader, so the demo can see
+    // the owner-only surfaces (e.g. Connect an account on the Accounts page).
     const hash = await hashPassword(PASSWORD);
     await client.query(
       `INSERT INTO app_user (id, tenant_id, email, password_hash, role)
-       VALUES ($1, $2, $3, $4, 'trader') ON CONFLICT DO NOTHING`,
+       VALUES ($1, $2, $3, $4, 'owner')
+       ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role`,
       [USER, TENANT, EMAIL, hash],
     );
 

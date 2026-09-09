@@ -84,7 +84,7 @@ export async function run(assert) {
   const endpoints = [...fromHelper, ...fromRawFetch].filter((p) => p !== '');
   assert(endpoints.length >= 4, `expected at least 4 declared endpoints, found ${endpoints.length}`);
 
-  const ALLOWED = ['/group-trades', '/groups', '/assets', '/accounts', '/login', '/signup', '/logout', '/session', '/trading', '/auth', '/account', '/audit'];
+  const ALLOWED = ['/group-trades', '/groups', '/assets', '/accounts', '/login', '/signup', '/logout', '/session', '/trading', '/auth', '/account', '/audit', '/positions', '/blotter', '/analytics'];
   for (const path of endpoints) {
     const ok = ALLOWED.some((prefix) => path.startsWith(prefix));
     assert(ok, `the api client calls an unexpected path "/api${path}" — only the auth + planning read/preview/confirm surface is allowed`);

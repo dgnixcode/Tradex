@@ -133,6 +133,22 @@ export const RULES = [
       !/\.test\.ts$/.test(rel),
     test: (line) => /\.expose\s*\(/.test(stripComments(line)),
   },
+  {
+    id: 'WEB-NO-MONEY-MODULE',
+    why: 'A component must never compute money — screens only render metric/report objects (invariant N1).',
+    source: 'plan/phase-12 T12.1',
+    appliesTo: (rel) => inDir(rel, 'apps/web') && /\.(ts|tsx)$/.test(rel),
+    // Money arithmetic lives server-side (packages/money + the metric module). A
+    // web file importing one of these at runtime would let a screen re-derive a
+    // figure, which is exactly the drift N1 forbids. Type-only imports are erased
+    // and carry no arithmetic, so only a value import trips this.
+    test: (line) => {
+      const code = stripComments(line);
+      const isTypeOnly = /^\s*import\s+type\b/.test(code);
+      if (isTypeOnly) return false;
+      return /from\s+['"]@tradex\/(money|sizing|metrics|ledger)['"]/.test(code);
+    },
+  },
 ];
 
 /**

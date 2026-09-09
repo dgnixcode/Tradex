@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useMutation } from '@tanstack/react-query';
 import { beginTotp, confirmTotp } from '../api.ts';
 import { useAuth } from '../auth.tsx';
@@ -52,10 +53,25 @@ export function Security() {
         </div>
       ) : (
         <div>
-          <p className="muted">Scan this QR or enter the secret in your authenticator app:</p>
-          <div className="totp-box mono" aria-label="otpauth URI">
-            {pending.otpauthUri}
+          <p className="muted">Open your authenticator app (Google Authenticator, 1Password, Authy…) and scan the code:</p>
+          <div
+            style={{
+              margin: '10px 0', padding: 10, display: 'inline-block',
+              background: '#fff', border: '1px solid var(--border, rgba(0,0,0,0.12))', borderRadius: 10,
+            }}
+          >
+            <QRCodeSVG
+              value={pending.otpauthUri}
+              size={210}
+              level="M"
+              marginSize={1}
+              title="Tradex two-factor enrolment QR"
+              aria-label="Scan with your authenticator app"
+            />
           </div>
+          <p className="muted" style={{ margin: '8px 0 6px' }}>
+            Or, if your app can&rsquo;t scan, type this secret instead:
+          </p>
           <div className="totp-box mono" aria-label="secret">
             {pending.secret}
           </div>

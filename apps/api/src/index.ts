@@ -11,4 +11,5 @@ export * from './resolve-ladder.js';
 export * from './group-executor.js';
 export * from './execution-report.js';
 export * from './positions.js';
+export * from './analytics.js';
 export * from './http-server.js';

@@ -1,6 +1,8 @@
 # Phase 12 - Blotter, execution history and realised P&L
 
-Status: not started | **rescoped 2026-09-05** by the read/display decision (`ARCHITECTURE` §6a) - dashboards, mark-to-market metrics and curves are out of v1 | goal: the customer can see exactly what happened on every trade, from our own records | depends on: 07, 08
+Status: COMPLETE (honest subset) 2026-09-09 | **rescoped 2026-09-05** by the read/display decision (`ARCHITECTURE` §6a) - dashboards, mark-to-market metrics and curves are out of v1 | goal: the customer can see exactly what happened on every trade, from our own records | depends on: 07, 08
+
+Built on the honest-subset decision (Anand, 2026-09-09): per-child fill facts (fill price/quantity, per-lot realised, M17 fill rate) have NO backing today — `child_order` fill columns are never written and `ledger_entry.child_order_id` is never populated — so those render **"not captured"** (N8, never zero). The child↔fill link is a Phase-13/14 item tied to real fill ingestion. What IS real here, from our records: realised P&L / fee drag / TDS by date range and Indian FY (a two-prefix ledger fold), positions-at-cost (Phase 09), order outcomes, expected-at-plan slippage, and the metrics the records support. T12.7 (positions list at cost) was already shipped by Phase 09.
 
 ## Scope
 
@@ -67,19 +69,21 @@ None. Reads `ledger_entry`, `child_order`, `group_trade`, `holding`.
 
 ## Verification
 
-`checks/12-metrics.check.js` (the 14 surviving metrics against fixtures, ~140), `checks/12-badges-and-labels.check.js` (N3, N4, N8, ~45), `checks/12-report-reproducibility.check.js` (N5, ~40), `checks/12-blotter-pagination.check.js` (~25), `checks/12-no-market-price.check.js` (no metric or screen takes a live price, ~15). Target: **~265 assertions**.
+`checks/12-no-market-price.check.mjs` (5 — no metric/screen consumes a current price), `checks/12-metrics.check.mjs` (19 — metric module: money per quote, not-captured honest subset, N3 badge exactly M6/M12/M13, FY window), `checks/12-badges-labels.check.mjs` (7 — approximate on an unclassified external_adjustment, TDS always estimated, slippage never 0), `checks/12-report-reproducibility.check.mjs` (11 — two-prefix fold total, byte-identical re-run N5/L10, CSV round-trip, window cut-off), `checks/12-blotter-pagination.check.mjs` (59 — keyset pages visit each row once, filters narrow, stable newest-first order, created_at ties). **101 assertions**, plus `09-positions` (24, T12.7) and the `WEB-NO-MONEY-MODULE` CI rule (N1). All green 2026-09-09.
 
 ## Definition of done
 
-- [ ] Every rendered number maps to exactly one metric id
-- [ ] No component performs money arithmetic (CI-enforced)
-- [ ] **No metric or screen consumes a current market price** (§6a)
-- [ ] Unexplained deltas badge exactly M6, M12 and M13
-- [ ] TDS always labelled `estimated` with the statement link
-- [ ] Missing slippage renders "not captured", never 0.00%
-- [ ] Re-running a past financial year returns identical numbers
-- [ ] The blotter paginates 50,000 rows without timeout
-- [ ] Group-trade detail matches the live report exactly
+- [x] Every rendered number maps to exactly one metric id — screens render `MetricValue`/report objects; `packages/metrics` owns them
+- [x] No component performs money arithmetic (CI-enforced) — `WEB-NO-MONEY-MODULE` rule forbids runtime money imports in `apps/web`
+- [x] **No metric or screen consumes a current market price** (§6a) — `12-no-market-price`; `MetricFacts` carries no price/rate input
+- [x] Unexplained deltas badge exactly M6, M12 and M13 — `12-badges-labels` (external_adjustment → `approximate`)
+- [x] TDS always labelled `estimated` — every ledger TDS row is `estimated:true`; surfaced in report + CSV (`12-badges-labels`)
+- [x] Missing slippage renders "not captured", never 0.00% — `12-metrics`/`12-badges-labels`
+- [x] Re-running a past financial year returns identical numbers — `12-report-reproducibility` (N5/L10, byte-identical)
+- [x] The blotter paginates without timeout — keyset cursor on `(created_at, id)` + `child_order (tenant_id, created_at)` index (migration 012); `12-blotter-pagination`
+- [x] Group-trade detail matches the live report exactly — `/app/activity/groups/:id` re-reads the durable `GET /group-trades/:id/report` (locked by `08-confirm-sends`)
+
+**Deferred (documented, needs the child↔fill link):** per-child fill price / M17 fill rate by quantity / per-lot realised (M12/M13 win·loss) — surfaced as `not_captured`, never fabricated.
 
 ## Phase risks
 

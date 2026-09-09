@@ -14,6 +14,9 @@ import { Groups } from './routes/Groups.tsx';
 import { GroupDetail } from './routes/GroupDetail.tsx';
 import { Accounts } from './routes/Accounts.tsx';
 import { Positions } from './routes/Positions.tsx';
+import { Blotter } from './routes/Blotter.tsx';
+import { GroupDetailReport } from './routes/GroupDetailReport.tsx';
+import { Report } from './routes/Report.tsx';
 import { ConnectAccount } from './routes/ConnectAccount.tsx';
 import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
@@ -59,6 +62,9 @@ const router = createBrowserRouter([
           { path: 'groups/:groupId', element: <GroupDetail /> },
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Positions /> },
+          { path: 'activity', element: <Blotter /> },
+          { path: 'activity/groups/:groupTradeId', element: <GroupDetailReport /> },
+          { path: 'report', element: <Report /> },
           { path: 'accounts/connect', element: <ConnectAccount /> },
           { path: 'trading', element: <DeskControls /> },
           { path: 'security', element: <Security /> },

@@ -14,3 +14,4 @@ export * from './user-repo.js';
 export * from './execution-repo.js';
 export * from './ledger-repo.js';
 export * from './positions-repo.js';
+export * from './analytics-repo.js';

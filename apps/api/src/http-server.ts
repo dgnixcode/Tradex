@@ -40,6 +40,7 @@ import type { DB } from '@tradex/db';
 import { listAccounts } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
+import { analyticsReport, blotterPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
 import type { Kysely } from 'kysely';
 import type { MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
@@ -564,6 +565,52 @@ export function createHttpServer(deps: HttpDeps): Server {
         named = (await listAccounts(tdb)).map((a) => ({ accountId: a.id, accountName: a.name }));
       }
       sendJson(ctx.res, 200, await buildPositions(deps.db, tdb, named));
+      return;
+    }
+
+    // ---- GET /api/blotter — cursor-paginated order history (phase-12 T12.4) ----
+    // One row per child order from OUR records. Keyset cursor, never OFFSET.
+    if (method === 'GET' && path === '/api/blotter') {
+      requireAction(principal, 'view.dashboards');
+      const sp = ctx.url.searchParams;
+      const page = await blotterPage(forTenant(deps.db, principal.tenantId), {
+        accountId: sp.get('accountId'),
+        groupTradeId: sp.get('groupTradeId'),
+        market: sp.get('market'),
+        outcome: sp.get('outcome'),
+        limit: sp.get('limit') === null ? null : Number(sp.get('limit')),
+        cursor: sp.get('cursor'),
+      });
+      sendJson(ctx.res, 200, page);
+      return;
+    }
+
+    // ---- GET /api/analytics — realised P&L, fees, TDS and metrics (phase-12) ----
+    // A two-prefix fold of OUR ledger over the window (default: current Indian
+    // financial year). Filters by group or account; ?fy=2025-26 or fromMs/toMs.
+    if (method === 'GET' && path === '/api/analytics') {
+      requireAction(principal, 'view.dashboards');
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const sp = ctx.url.searchParams;
+      const named = await resolveAccounts(tdb, { groupId: sp.get('groupId'), accountId: sp.get('accountId') });
+      const win = resolveWindow({ fromMs: sp.get('fromMs'), toMs: sp.get('toMs'), fy: sp.get('fy') }, deps.now?.() ?? Date.now());
+      sendJson(ctx.res, 200, await analyticsReport(tdb, named, win));
+      return;
+    }
+
+    // ---- GET /api/analytics/realised.csv — the same journal as a CSV ----
+    if (method === 'GET' && path === '/api/analytics/realised.csv') {
+      requireAction(principal, 'view.dashboards');
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const sp = ctx.url.searchParams;
+      const named = await resolveAccounts(tdb, { groupId: sp.get('groupId'), accountId: sp.get('accountId') });
+      const win = resolveWindow({ fromMs: sp.get('fromMs'), toMs: sp.get('toMs'), fy: sp.get('fy') }, deps.now?.() ?? Date.now());
+      const csv = reportToCsv(await analyticsReport(tdb, named, win));
+      ctx.res.writeHead(200, {
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': `attachment; filename="realised-${win.label}.csv"`,
+      });
+      ctx.res.end(csv);
       return;
     }
 

@@ -14,7 +14,7 @@
 // send itself. The live-progress stream is an EventSource in the Execution page,
 // not a fetch, so it carries no send shape.
 
-import type { AccountListItem, ExecutionReport, PlanRequest, PositionsResponse, PreviewResult } from '@tradex/api';
+import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PositionsResponse, PreviewResult } from '@tradex/api';
 import type { GroupHeader, GroupMember, GroupSummary } from '@tradex/db';
 
 /** A minimal fetch wrapper that throws a readable error on a non-2xx response. */
@@ -195,7 +195,7 @@ export const retryFailedTrade = (groupTradeId: string): Promise<PreviewResult> =
     body: JSON.stringify({}),
   });
 
-export type { PlanRequest, PreviewResult, PreviewRow, AccountListItem, ExecutionReport, PositionsResponse, PositionView, QuoteRollup } from '@tradex/api';
+export type { PlanRequest, PreviewResult, PreviewRow, AccountListItem, ExecutionReport, PositionsResponse, PositionView, QuoteRollup, AnalyticsReport, BlotterChildRow, MetricValue, QuoteTotal } from '@tradex/api';
 export type { GroupSummary, GroupMember, GroupHeader } from '@tradex/db';
 
 // --- group management --------------------------------------------------------
@@ -358,4 +358,55 @@ export interface ConfirmAccountInput {
 /** Activate a validated account, recording the customer's basis choice. */
 export const confirmAccount = (input: ConfirmAccountInput): Promise<{ ok: boolean }> =>
   request<{ ok: boolean }>('/accounts/confirm', { method: 'POST', body: JSON.stringify(input) });
+
+// --- phase 12: blotter + analytics (our own records, never a live price) ------
+
+/** A `?a=1&b=2` string from a params object, dropping empties. */
+function qs(params: object): string {
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return parts.length === 0 ? '' : `?${parts.join('&')}`;
+}
+
+export interface BlotterQuery {
+  readonly accountId?: string | undefined;
+  readonly groupTradeId?: string | undefined;
+  readonly market?: string | undefined;
+  readonly outcome?: string | undefined;
+  readonly limit?: number | undefined;
+  readonly cursor?: string | undefined;
+}
+
+export interface BlotterPage {
+  readonly rows: readonly BlotterChildRow[];
+  readonly nextCursor: string | null;
+}
+
+/** One page of the order blotter (cursor-paginated, newest first). */
+export const fetchBlotter = (q: BlotterQuery = {}): Promise<BlotterPage> =>
+  request<BlotterPage>(`/blotter${qs(q)}`);
+
+export interface AnalyticsQuery {
+  readonly groupId?: string | undefined;
+  readonly accountId?: string | undefined;
+  /** Indian financial-year label like '2025-26', or 'current'. */
+  readonly fy?: string | undefined;
+  readonly fromMs?: number | undefined;
+  readonly toMs?: number | undefined;
+}
+
+/** The realised-P&L / fees / TDS report + metric values over a window. */
+export const fetchAnalytics = (q: AnalyticsQuery = {}): Promise<AnalyticsReport> =>
+  request<AnalyticsReport>(`/analytics${qs(q)}`);
+
+/** Download the same window as a CSV and hand the caller a Blob-ready result. */
+export async function fetchAnalyticsCsv(q: AnalyticsQuery = {}): Promise<{ text: string; filename: string }> {
+  const res = await fetch(`/api/analytics/realised.csv${qs(q)}`);
+  if (!res.ok) throw new ApiError(res.status, 'could not download the CSV');
+  const text = await res.text();
+  const cd = res.headers.get('content-disposition') ?? '';
+  const m = /filename="?([^";]+)"?/.exec(cd);
+  return { text, filename: m === null ? 'realised.csv' : m[1] };
+}
 

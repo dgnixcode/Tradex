@@ -28,6 +28,8 @@ export function App() {
   else if (pathname.startsWith('/app/accounts/connect')) title = 'Connect account';
   else if (pathname.startsWith('/app/accounts')) title = 'Accounts';
   else if (pathname.startsWith('/app/positions')) title = 'Positions';
+  else if (pathname.startsWith('/app/activity')) title = 'Activity';
+  else if (pathname.startsWith('/app/report')) title = 'Report';
   else if (pathname.startsWith('/app/trading')) title = 'Desk controls';
   else if (pathname.startsWith('/app/security')) title = 'Security';
   else if (pathname.startsWith('/app/audit')) title = 'Audit';
