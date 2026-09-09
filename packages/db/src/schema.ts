@@ -68,6 +68,15 @@ export interface PlatformStateTable {
   changed_by: string | null;
 }
 
+/** The market-scope switch (phase 05). GLOBAL — a halted market is halted for every tenant. */
+export interface MarketStateTable {
+  market: string;
+  mode: Generated<'normal' | 'cancel_only' | 'read_only'>;
+  reason: string | null;
+  changed_at: Generated<Timestamp>;
+  changed_by: string | null;
+}
+
 /** Append-only. The application role holds INSERT and SELECT only. */
 export interface AuditEventTable {
   id: BigSerial;
@@ -126,6 +135,11 @@ export interface ExchangeAccountTable {
   /** DERIVED from observed balances, never from user input (T02.6). */
   funding_currencies: Generated<SupportedQuote[]>;
   status: Generated<AccountStatus>;
+  /** Per-account order-cap override (phase 05). NULL = fall back to tenant_limit. */
+  max_order_notional_minor: Numeric | null;
+  /** Account-frozen scope (phase 05). Both halves travel together. */
+  frozen_at: Timestamp | null;
+  frozen_reason: string | null;
   created_at: Generated<Timestamp>;
   disconnected_at: Timestamp | null;
 }
@@ -182,6 +196,47 @@ export interface AccountMarketSeenTable {
   first_fill_at: Timestamp;
   last_fill_at: Timestamp;
   fill_count: Generated<number>;
+}
+
+// -------------------------------------------------- domain 5 (migration 011)
+
+export type LedgerKind =
+  | 'trade_buy' | 'trade_sell' | 'fee' | 'tds'
+  | 'conversion_in' | 'conversion_out' | 'external_adjustment' | 'correction';
+
+/** One leg of a fill — append-only, partitioned monthly by occurred_at (T07.1). */
+export interface LedgerEntryTable {
+  id: BigSerial;
+  tenant_id: string;
+  account_id: string;
+  kind: LedgerKind;
+  asset: string;
+  quote_asset: string | null;
+  /** Signed minor units of `asset`. */
+  delta_minor: Numeric;
+  scale: number;
+  price: string | null;
+  child_order_id: string | null;
+  exchange_trade_id: string | null;
+  fee_minor: Numeric | null;
+  tds_minor: Numeric | null;
+  estimated: Generated<boolean>;
+  occurred_at: Timestamp;
+  recorded_at: Generated<Timestamp>;
+}
+
+/** The DERIVED projection — qty/cost/realised in minor units; rebuilt, never the source. */
+export interface HoldingTable {
+  tenant_id: string;
+  account_id: string;
+  asset: string;
+  qty: string;
+  cost_total_minor: Numeric;
+  realised_pnl_minor: Numeric;
+  fee_drag_minor: Numeric;
+  tds_withheld_minor: Numeric;
+  quote_asset: SupportedQuote;
+  rebuilt_at: Timestamp;
 }
 
 // -------------------------------------------------------- domain 6 (migration 005)
@@ -410,6 +465,7 @@ export interface DB {
   app_user: AppUserTable;
   tenant_limit: TenantLimitTable;
   platform_state: PlatformStateTable;
+  market_state: MarketStateTable;
   audit_event: AuditEventTable;
   schema_migration: SchemaMigrationTable;
   exchange_account: ExchangeAccountTable;
@@ -418,6 +474,8 @@ export interface DB {
   account_market_seen: AccountMarketSeenTable;
   market_metadata: MarketMetadataTable;
   fx_snapshot: FxSnapshotTable;
+  ledger_entry: LedgerEntryTable;
+  holding: HoldingTable;
   account_group: AccountGroupTable;
   group_member: GroupMemberTable;
   group_trade: GroupTradeTable;
@@ -442,6 +500,8 @@ export const TENANT_SCOPED_TABLES = [
   'exchange_credential',
   'account_balance',
   'account_market_seen',
+  'ledger_entry',
+  'holding',
   'account_group',
   'group_member',
   'group_trade',
@@ -463,7 +523,7 @@ export const isTenantScoped = (table: string): table is TenantScopedTable => sco
  * `tenant_id`, which `checks/00-tenant-isolation.check.mjs` cross-references.
  */
 export const GLOBAL_TABLES = [
-  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session',
+  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state',
 ] as const;
 
 /** Tables a trigger makes append-only. Probed by 03-fx-snapshot.check.mjs. */

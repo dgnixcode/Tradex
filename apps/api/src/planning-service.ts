@@ -31,18 +31,20 @@
 //    venue call; there is no placeOrder path from here.
 
 import { randomBytes } from 'node:crypto';
-import { add, div } from '@tradex/money';
+import { add, cmp, div } from '@tradex/money';
 import type { Balance, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
   dailySpentMinor, getChildOrders, getEnabledMembers, getGroupTrade, hasInFlightOrder,
   latestMarketMetadataVersion, loadMarketRules, markPreviewed, persistPlan,
-  readAccountStates, readBalances, readPlatformFlags, readTenantCaps,
+  readAccountStates, readBalances, readMarketStates, readPlatformFlags, readTenantCaps,
 } from '@tradex/db';
 import type { DB, SupportedQuote, TenantDb } from '@tradex/db';
-import type { EnabledMember, NewChildOrder, NewGroupTrade, ChildOrderRow, GroupTradeRow } from '@tradex/db';
+import type {
+  AccountState, EnabledMember, NewChildOrder, NewGroupTrade, ChildOrderRow, GroupTradeRow, MarketStateRow,
+} from '@tradex/db';
 import {
-  GUARD_SCALE, nat, planAccount, resolveMarket, toStr, touchPrice,
+  GATE_CODES, GUARD_SCALE, effectiveMinQty, nat, planAccount, resolveMarket, toStr, touchPrice,
 } from '@tradex/sizing';
 import type { GateState, Intent, PlanAccountInput } from '@tradex/sizing';
 
@@ -51,6 +53,14 @@ export const PREVIEW_TTL_MS = 60_000;
 
 /** Quote-preference order for the reference market, matching market-resolution. */
 const QUOTE_PREFERENCE: readonly SupportedQuote[] = ['INR', 'USDT'];
+
+/** The twelve gates' own refusal codes. A Phase-09 dust/locked relabel only ever
+ *  replaces a refusal from the sizing core, never one of these (which precedes
+ *  sizing and names a more fundamental problem). */
+const GATE_CODE_SET: ReadonlySet<string> = new Set(GATE_CODES as readonly string[]);
+
+/** Child states that count as "failed" for a retry — terminal and never placed. */
+const RETRYABLE_FAILED: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed', 'needs_human', 'unknown']);
 
 /** What the customer asked for at the group level, before it meets any market. */
 export interface PlanRequest {
@@ -67,6 +77,10 @@ export interface PlanRequest {
   readonly limitPrice?: string | undefined;
   /** Slippage tolerance override; defaults to 0.5% inside the guard. */
   readonly slippageToleranceBp?: number | undefined;
+  /** Retry-failed scoping (T08.7): when present, plan ONLY these still-enabled
+   *  members of the group. The trade ticket never sends this — retry-failed uses
+   *  it to re-plan exactly the failed accounts as a fresh trade. */
+  readonly accountIds?: readonly string[] | undefined;
 }
 
 export interface PreviewRow {
@@ -103,6 +117,10 @@ export interface PlanningDeps {
   readonly db: Kysely<DB>;
   /** The only venue call. Injected so a fake book stands in for the check. */
   readonly getOrderBook: (market: MarketRef, depth: number) => Promise<OrderBook>;
+  /** Phase-09 sell-position sizing: a FRESH free/locked holdings read used at
+   *  preview for sell_all / pct_position (T09.2). When absent, preview sizes from
+   *  the projected account_balance rows only (the send still re-reads). */
+  readonly holdings?: ((accountId: string) => Promise<readonly Balance[]>) | undefined;
   /** The running code version, stamped on every trade for R7 quarantine (20). */
   readonly codeVersion: string;
   /** Whether this tenant is in dry-run (rung 0). True everywhere in this phase. */
@@ -143,9 +161,20 @@ export class PlanningService {
     const dayStartMs = (this.deps.dayStartMs ?? (() => istDayStart(nowMs)))();
     const newToken = this.deps.newToken ?? (() => randomBytes(24).toString('base64url'));
 
-    const members = await getEnabledMembers(this.deps.tdb, req.groupId);
+    let members = await getEnabledMembers(this.deps.tdb, req.groupId);
     if (members.length === 0) {
       throw new PlanningError('this group has no enabled accounts to trade', 'empty_group');
+    }
+    // Retry-failed scoping (T08.7): when the request names a subset, plan ONLY
+    // those still-enabled members — never anyone outside it. The ticket never
+    // sends this; only retry-failed does, so the old trade's placed accounts are
+    // excluded from the fresh plan by construction.
+    if (req.accountIds !== undefined && req.accountIds.length > 0) {
+      const wanted = new Set(req.accountIds);
+      members = members.filter((m) => wanted.has(m.accountId));
+      if (members.length === 0) {
+        throw new PlanningError('none of the failed accounts are still enabled members of this group', 'nothing_to_retry');
+      }
     }
 
     // --- gather the shared, trade-wide state once -----------------------------
@@ -162,6 +191,31 @@ export class PlanningService {
       readBalances(this.deps.tdb, accountIds),
     ]);
 
+    // Phase-09 sell position modes (sell_all / pct_position) size from a FRESH
+    // exchange read, not the projected account_balance rows, which are only as
+    // current as the last reconcile (T09.2 — a sell-all must reflect the venue's
+    // truth). The send re-reads again immediately before submit; this preview
+    // read is what the customer confirms against. A read failure refuses rather
+    // than size a sell against stale numbers.
+    const sellPositionMode = req.side === 'sell' && (req.sizingMode === 'sell_all' || req.sizingMode === 'pct_position');
+    const holdingsReader = this.deps.holdings;
+    let holdingsByAccount: ReadonlyMap<string, readonly Balance[]> | undefined;
+    if (sellPositionMode && holdingsReader !== undefined) {
+      const fresh = await Promise.all(accountIds.map(async (accountId) => {
+        let rows: readonly Balance[];
+        try {
+          rows = await holdingsReader(accountId);
+        } catch {
+          throw new PlanningError(
+            'the exchange balance could not be read; refusing to size a sell-all or close against stale figures',
+            'no_market_data',
+          );
+        }
+        return [accountId, rows] as const;
+      }));
+      holdingsByAccount = new Map(fresh);
+    }
+
     // --- one book read per distinct resolved market (T04.10) ------------------
     // A pre-pass resolves each member only to discover which markets need a book;
     // it decides no plan. planAccount re-resolves as gate 4, staying the authority.
@@ -176,6 +230,10 @@ export class PlanningService {
       books.set(symbol, await this.deps.getOrderBook(ref, BOOK_DEPTH));
     }
 
+    // Market-scope switches (phase 05): the operator-set mode for each market the
+    // asset resolves to on any member. One read for the whole trade, like the books.
+    const marketModes = await readMarketStates(this.deps.db, [...marketsToRead.keys()]);
+
     // decision_mid: the reference market's mid, computed from the book reads
     // ABOVE — before the sizing loop below. Prefer INR, then USDT.
     const referenceBook = this.pickReferenceBook(books, candidates);
@@ -185,7 +243,8 @@ export class PlanningService {
     const children: NewChildOrder[] = [];
     for (const member of members) {
       children.push(await this.planMember(member, {
-        req, candidates, platform, caps, states, balancesByAccount, books, dayStartMs,
+        req, candidates, platform, caps, states, balancesByAccount, books, marketModes, dayStartMs,
+        holdingsByAccount,
       }));
     }
 
@@ -229,9 +288,12 @@ export class PlanningService {
       candidates: readonly MarketRules[];
       platform: { killSwitch: boolean; mode: 'normal' | 'cancel_only' | 'read_only' };
       caps: { perOrderNotionalMinor: string; dailyNotionalMinor: string; tradingPaused: boolean };
-      states: ReadonlyMap<string, { status: string; credentialStatus: string | null }>;
+      states: ReadonlyMap<string, AccountState>;
       balancesByAccount: ReadonlyMap<string, Balance[]>;
+      /** Phase-09 fresh holdings, present only for sell position modes. */
+      holdingsByAccount?: ReadonlyMap<string, readonly Balance[]> | undefined;
       books: ReadonlyMap<string, OrderBook>;
+      marketModes: Readonly<Record<string, MarketStateRow>>;
       dayStartMs: number;
     },
   ): Promise<NewChildOrder> {
@@ -249,6 +311,31 @@ export class PlanningService {
       market: { asset: req.asset, quote: 'INR' }, asks: [], bids: [], observedAtMs: ctx.dayStartMs,
     };
 
+    // Phase-09: when the request is a sell position mode and a FRESH holdings read
+    // is available, the sell sizes from that fresh asset holding (T09.2), never a
+    // stale projection. The quote rows stay from the projection (they gate funding);
+    // only the base-asset row is overridden with the venue's free/locked truth.
+    const sellPositionMode = req.side === 'sell' && (req.sizingMode === 'sell_all' || req.sizingMode === 'pct_position');
+    let effectiveBalances: readonly Balance[] = balances;
+    let freshHolding: { free: string; locked: string } | null = null;
+    if (sellPositionMode && ctx.holdingsByAccount !== undefined && !('code' in resolved)) {
+      const fresh = ctx.holdingsByAccount.get(member.accountId);
+      const assetRow = fresh?.find((b) => b.currency === req.asset);
+      if (assetRow !== undefined) {
+        freshHolding = { free: minorToPlain(assetRow.freeMinor, assetRow.scale), locked: minorToPlain(assetRow.lockedMinor, assetRow.scale) };
+        effectiveBalances = balances.map((b) => (b.currency === req.asset
+          ? { ...b, freeMinor: assetRow.freeMinor, lockedMinor: assetRow.lockedMinor, scale: assetRow.scale }
+          : b));
+        if (!effectiveBalances.some((b) => b.currency === req.asset)) {
+          effectiveBalances = [...effectiveBalances, { currency: req.asset, freeMinor: assetRow.freeMinor, lockedMinor: assetRow.lockedMinor, scale: assetRow.scale }];
+        }
+      } else {
+        // The venue holds none of the asset — that absence IS the truth.
+        freshHolding = { free: '0', locked: '0' };
+        effectiveBalances = balances.filter((b) => b.currency !== req.asset);
+      }
+    }
+
     // The daily-spend basis (gate 11), in the market's quote currency.
     const quote: SupportedQuote = resolvedSymbol !== null && !('code' in resolved)
       ? resolved.rules.market.quote : 'INR';
@@ -261,21 +348,30 @@ export class PlanningService {
 
     const { price, priceSource } = this.priceFor(req, intent.side, effectiveBook);
 
+    // Phase-05 cap wiring: the effective per-order bound is the account's own
+    // override when one is set, else the tenant's. The gate is told which one so
+    // its refusal names it. The account-frozen scope comes straight off the row.
+    const accountOverride = state?.maxOrderNotionalMinor ?? null;
+    const effectiveOrderCap = accountOverride ?? ctx.caps.perOrderNotionalMinor;
+
     const gateState: GateState = {
       platformKillSwitch: ctx.platform.killSwitch,
       platformMode: ctx.platform.mode,
       tenantTradingPaused: ctx.caps.tradingPaused,
+      marketModes: ctx.marketModes,
       accountStatus: state?.status ?? 'missing',
       credentialStatus: state?.credentialStatus ?? null,
-      balances,
+      accountFrozenReason: state?.frozenReason ?? null,
+      balances: effectiveBalances,
       candidateMarkets: ctx.candidates,
       allocatedCapitalMinor: member.allocatedCapitalMinor,
-      freeQuoteMinor: freeQuoteMinorOf(balances, quote),
-      equityQuoteMinor: freeQuoteMinorOf(balances, quote), // equity == free until holdings are valued (Phase 07)
-      positionQuantity: positionQuantityOf(balances, req.asset),
+      freeQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote),
+      equityQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote), // equity == free until holdings are valued (Phase 07)
+      positionQuantity: positionQuantityOf(effectiveBalances, req.asset),
       book: effectiveBook,
       ...(req.slippageToleranceBp !== undefined ? { slippageToleranceBp: req.slippageToleranceBp } : {}),
-      perOrderCapMinor: ctx.caps.perOrderNotionalMinor,
+      perOrderCapMinor: effectiveOrderCap,
+      perOrderCapIsAccount: accountOverride !== null,
       dailyCapMinor: ctx.caps.dailyNotionalMinor,
       dailySpentMinor: dailySpent,
       hasInFlightForMarket: inFlight,
@@ -285,11 +381,34 @@ export class PlanningService {
     const outcome = planAccount(planInput);
 
     if (!outcome.planned) {
+      // Phase-09 dust / locked labels (T09.4): when a fresh holding explains the
+      // refusal, name the cause precisely. Only refusals that came from the
+      // sizing core are relabelled — an early gate (paused, frozen, caps, …)
+      // keeps its own, more fundamental, reason.
+      let refusal = outcome.refusal;
+      if (freshHolding !== null && !GATE_CODE_SET.has(refusal.code) && !('code' in resolved)) {
+        const effMin = effectiveMinQty(resolved.rules, req.orderType);
+        const free0 = cmp(nat(freshHolding.free), nat('0')) === 0;
+        const lockedGt0 = cmp(nat(freshHolding.locked), nat('0')) > 0;
+        if (free0 && lockedGt0) {
+          refusal = {
+            code: 'HOLDING_LOCKED',
+            message: `the holding of ${req.asset} is fully locked by an open order (${freshHolding.locked}) — cancel it first to sell`,
+          };
+        } else if (free0) {
+          refusal = { code: 'NO_HOLDING', message: `this account holds none of ${req.asset} free to sell` };
+        } else if (cmp(nat(freshHolding.free), effMin) < 0) {
+          refusal = {
+            code: 'DUST',
+            message: `this account holds only ${freshHolding.free} of ${req.asset}, below the market's effective minimum of ${toStr(effMin)} — dust is not sellable`,
+          };
+        }
+      }
       return {
         accountId: member.accountId,
         state: 'skipped',
-        refusalCode: outcome.refusal.code,
-        refusalDetail: outcome.refusal.message,
+        refusalCode: refusal.code,
+        refusalDetail: refusal.message,
         // Resolution provenance is recorded even on a skip when it got that far.
         ...(resolvedSymbol !== null && !('code' in resolved)
           ? {
@@ -358,6 +477,51 @@ export class PlanningService {
       skippedCount: rows.filter((r) => r.state === 'skipped').length,
       rows,
     };
+  }
+
+  /**
+   * Retry the failed subset of an executed/abandoned trade as a FRESH trade
+   * (T08.7). A brand-new group_trade row is planned — re-priced against the
+   * current book — scoped ONLY to the accounts whose leg never placed. The old
+   * trade and its rows are never touched, and its plan is never re-run.
+   */
+  async retryFailed(previousTradeId: string, actorUserId: string): Promise<PreviewResult> {
+    const prev = await getGroupTrade(this.deps.tdb, previousTradeId);
+    if (prev === null) throw new PlanningError('no such group trade', 'trade_not_found');
+    const children = await getChildOrders(this.deps.tdb, previousTradeId);
+    const failedIds = children.filter((c) => RETRYABLE_FAILED.has(c.state)).map((c) => c.accountId);
+    if (failedIds.length === 0) {
+      throw new PlanningError('nothing failed — every leg of this trade was placed or is still working', 'nothing_to_retry');
+    }
+    return this.preview(this.retryRequest(prev, failedIds, actorUserId));
+  }
+
+  /**
+   * Reconstruct the original request from the persisted trade columns — the
+   * inverse of sizingValueColumn(). A custom slippageToleranceBp was never
+   * persisted, so a retry re-plans under the default 0.5% guard; the phase plan
+   * documents this as a safety-direction difference (a retry may refuse where a
+   * wide tolerance had been allowed), never a send where one would have refused.
+   */
+  private retryRequest(trade: GroupTradeRow, accountIds: readonly string[], createdBy: string): PlanRequest {
+    const base: PlanRequest = {
+      groupId: trade.groupId,
+      createdBy,
+      asset: trade.asset,
+      side: trade.side,
+      orderType: trade.orderType,
+      sizingMode: trade.sizingMode,
+      accountIds,
+      ...(trade.orderType === 'limit' ? { limitPrice: trade.limitPrice ?? undefined } : {}),
+    };
+    if (trade.sizingMode.startsWith('pct_')) {
+      if (trade.sizingValue === null) {
+        throw new PlanningError('a percentage trade must carry its basis points', 'bad_mode');
+      }
+      return { ...base, percentBp: Number.parseInt(trade.sizingValue, 10) };
+    }
+    if (trade.sizingMode === 'sell_all') return base;
+    return { ...base, sizingValue: trade.sizingValue ?? undefined };
   }
 
   /** Account names for a set of ids, tenant-scoped. For rendering the plan. */
@@ -492,7 +656,7 @@ export class PlanningError extends Error {
   override readonly name = 'PlanningError';
   constructor(
     message: string,
-    readonly reason: 'empty_group' | 'no_market_data' | 'bad_mode',
+    readonly reason: 'empty_group' | 'no_market_data' | 'bad_mode' | 'trade_not_found' | 'nothing_to_retry',
   ) {
     super(message);
   }

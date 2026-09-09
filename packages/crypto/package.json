@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
+    "@tradex/auth": "*",
     "@tradex/secret": "*"
   }
 }

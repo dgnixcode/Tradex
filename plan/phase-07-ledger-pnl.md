@@ -1,6 +1,6 @@
 # Phase 07 - Fill ledger and reconciliation
 
-Status: not started | **rescoped 2026-09-05** by the read/display decision (`ARCHITECTURE` §6a) - mark-to-market valuation, equity snapshots and portfolio P&L are out of v1 | goal: an immutable record of what we actually did, reconciled against the exchange | depends on: 06 | implements: `11`, `12` Loop D
+Status: **COMPLETE 2026-09-09** - migration 011, the pure fold + realised P&L, fill decomposition (TDS matrix), the idempotent ledger WRITER + account_market_seen, Loop D reconcile, the no-mark-to-market boundary, and the periodic invariant job (T07.8) are all built and gate-proven (40 checks, 2,366,146 assertions). | **rescoped 2026-09-05** by the read/display decision (`ARCHITECTURE` §6a) - mark-to-market valuation, equity snapshots and portfolio P&L are out of v1 | goal: an immutable record of what we actually did, reconciled against the exchange | depends on: 06 | implements: `11`, `12` Loop D
 
 ## Scope
 

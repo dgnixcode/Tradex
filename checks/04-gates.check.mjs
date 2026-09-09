@@ -103,10 +103,40 @@ export async function run(assert) {
       'ABOVE_ORDER_CAP');
 
     // ---------------------------------------------------------- gate 11: daily cap
-    await trip('gate 11 daily cap',
+    // The refusal must carry the remaining headroom (phase 05), not just "over".
+    const rowDaily = await trip('gate 11 daily cap',
       { text: 'UPDATE tenant_limit SET max_daily_notional_minor = 100 WHERE tenant_id = $1', values: [TENANT] },
       { text: 'UPDATE tenant_limit SET max_daily_notional_minor = 50000000 WHERE tenant_id = $1', values: [TENANT] },
       'ABOVE_DAILY_CAP');
+    assert(/headroom/i.test(rowDaily.refusalDetail ?? ''),
+      `gate 11: the daily-cap refusal must quote the remaining headroom, got: ${rowDaily.refusalDetail}`);
+
+    // ------------------------------------------------- phase 05: account-frozen scope
+    await trip('account-frozen scope',
+      { text: "UPDATE exchange_account SET frozen_at = $1, frozen_reason = 'frozen for a review' WHERE id = $2", values: [new Date(NOW_MS), accountId] },
+      { text: 'UPDATE exchange_account SET frozen_at = NULL, frozen_reason = NULL WHERE id = $1', values: [accountId] },
+      'ACCOUNT_FROZEN');
+
+    // ------------------------------------------------- phase 05: market-scope switch
+    await trip('market cancel_only',
+      { text: "INSERT INTO market_state (market, mode, reason) VALUES ('BTCINR', 'cancel_only', 'venue maintenance')" },
+      { text: "DELETE FROM market_state WHERE market = 'BTCINR'" },
+      'MARKET_CANCEL_ONLY');
+
+    await trip('market read_only',
+      { text: "INSERT INTO market_state (market, mode, reason) VALUES ('BTCINR', 'read_only', 'suspicious activity')" },
+      { text: "DELETE FROM market_state WHERE market = 'BTCINR'" },
+      'MARKET_READ_ONLY');
+
+    // ------------------------------------------------ phase 05: per-account cap override
+    // The account's own cap is far below its 20% order, so the refusal must name
+    // THIS ACCOUNT'S cap, not the tenant's.
+    const rowAccCap = await trip('per-account cap override',
+      { text: 'UPDATE exchange_account SET max_order_notional_minor = 100 WHERE id = $1', values: [accountId] },
+      { text: 'UPDATE exchange_account SET max_order_notional_minor = NULL WHERE id = $1', values: [accountId] },
+      'ABOVE_ORDER_CAP');
+    assert(/this account's order cap/i.test(rowAccCap.refusalDetail ?? ''),
+      `per-account cap: the refusal must name the account's own cap, got: ${rowAccCap.refusalDetail}`);
 
     // ---------------------------------------------------------- gate 4: asset not listed
     // No mutation of state undoes cleanly; use a different asset that is not listed.
@@ -152,8 +182,11 @@ export async function run(assert) {
 
     // Every gate code the module can emit is a non-empty string (catalogue sanity).
     const { GATE_CODES } = await import('../packages/sizing/dist/index.js');
-    assert(GATE_CODES.length === 12, `expected 12 gate codes, got ${GATE_CODES.length}`);
+    assert(GATE_CODES.length === 15, `expected 15 gate codes, got ${GATE_CODES.length}`);
     for (const code of GATE_CODES) assert(typeof code === 'string' && code.length > 0, `gate code ${code} is malformed`);
+    for (const code of ['ACCOUNT_FROZEN', 'MARKET_CANCEL_ONLY', 'MARKET_READ_ONLY']) {
+      assert(GATE_CODES.includes(code), `phase-05 gate code ${code} is missing from GATE_CODES`);
+    }
   } finally {
     await teardown(ctx);
   }

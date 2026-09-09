@@ -4,7 +4,7 @@ Status: not started | goal: nothing new is built. Everything is proven, the lega
 
 ## Scope
 
-**In:** rollout rung 7; customer terms and privacy notice; the two onboarding disclosures verified live; marketing-copy review; recording the answers to G1, G2 and G3; re-measuring latency from production; executing the full go-live checklist.
+**In:** the staged real-money rungs 1-6 run with Anand's key (T14.0); rollout rung 7; customer terms and privacy notice; the two onboarding disclosures verified live; marketing-copy review; recording the answers to G1, G2 and G3; re-measuring latency from production; executing the full go-live checklist.
 
 **Explicitly out:** any new feature. If something is missing, it belongs in a numbered phase, not here.
 
@@ -13,12 +13,16 @@ Status: not started | goal: nothing new is built. Everything is proven, the lega
 | Precondition | How to check |
 |---|---|
 | Phases 00-09 and 13 done | Every definition of done ticked |
-| Rungs 0-6 passed | Evidence recorded in phases 04, 06 and 08 |
+| Rungs 1-6 run on real money at this gate | Anand's key is supplied HERE (his standing deferral — earlier phases proved everything over FakeVenue), so T14.0 runs them on his funded test accounts and records evidence in phases 06 and 08 |
 | G2 answered | Recorded in `_PROGRESS.md`; bucket configuration set from it |
 | G1 answered | In writing from CoinDCX, or phases 10 and 12 shipped in their reduced form |
 | G3 answered | Counsel's written conclusion on PMLA reporting-entity status |
 
 ## Tasks
+
+**T14.0 - Real-money rungs 1-6**
+Anand's real CoinDCX key is supplied at this gate — the standing deferral (earlier phases built and proved everything over FakeVenue precisely so no real key touched the system before now). With it, execute the staged live rungs in order: Phase 06 rungs 1-3 (single-account send that reaches a known terminal state, never a duplicate), then Phase 08 rungs 4-6 (two / five / twenty accounts at real caps). Rung 5's deliberate under-`min_notional` account must skip **before** send with the right reason; rung 6 asserts no 429, latency inside the `22` budget, the reconciler keeping up, and zero `needs_human`. Record evidence in phases 06 and 08 and here.
+*Acceptance:* every rung's pass condition met and evidenced; rung 6 then runs clean for **7 consecutive days** before T14.1 (rung 7) admits the first external customer.
 
 **T14.1 - Rung 7**
 The first external customer, on their own caps, after rung 6 has run clean for **7 consecutive days**. Runbooks written; kill switch drilled; on-call arrangement live.
@@ -64,6 +68,7 @@ Expected total across all phases: roughly **203,000 assertions**, dominated by t
 
 ## Definition of done
 
+- [ ] Rungs 1-6 executed on real money with the supplied key, evidence recorded (T14.0)
 - [ ] Rung 6 clean for 7 consecutive days
 - [ ] Rung 7 passed: first external customer's group trade completed and correctly reported
 - [ ] All 22 go-live checklist items ticked with evidence

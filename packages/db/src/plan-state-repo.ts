@@ -23,18 +23,19 @@ export class PlanStateError extends Error {
 export interface PlatformFlags {
   readonly killSwitch: boolean;
   readonly mode: PlatformMode;
+  readonly modeReason: string | null;
 }
 
 /** The global brake. Read unscoped: platform_state is one row for everyone. */
 export async function readPlatformFlags(db: Kysely<DB>): Promise<PlatformFlags> {
   const row = await db.selectFrom('platform_state')
-    .select(['global_kill_switch', 'mode'])
+    .select(['global_kill_switch', 'mode', 'mode_reason'])
     .where('id', '=', 'singleton')
     .executeTakeFirst();
   // A missing singleton is treated as KILLED, not as "all clear": the safe
   // default when the brake's own state cannot be read is to refuse to trade.
-  if (row === undefined) return { killSwitch: true, mode: 'read_only' };
-  return { killSwitch: row.global_kill_switch, mode: row.mode };
+  if (row === undefined) return { killSwitch: true, mode: 'read_only', modeReason: 'platform_state missing' };
+  return { killSwitch: row.global_kill_switch, mode: row.mode, modeReason: row.mode_reason };
 }
 
 export interface TenantCaps {
@@ -42,23 +43,28 @@ export interface TenantCaps {
   readonly dailyNotionalMinor: string;
   readonly typedConfirmAboveMinor: string;
   readonly tradingPaused: boolean;
+  readonly pausedReason: string | null;
+  readonly pausedAt: Date | null;
 }
 
 /** The tenant's caps and its own kill switch, from tenant_limit. */
 export async function readTenantCaps(tdb: TenantDb): Promise<TenantCaps> {
   const row = await tdb.selectFrom('tenant_limit')
-    .select(['max_order_notional_minor', 'max_daily_notional_minor', 'typed_confirm_above_minor', 'trading_paused'])
+    .select(['max_order_notional_minor', 'max_daily_notional_minor', 'typed_confirm_above_minor', 'trading_paused', 'paused_reason', 'paused_at'])
     .executeTakeFirst();
   if (row === undefined) throw new PlanStateError('this tenant has no tenant_limit row — it was not provisioned');
   const r = row as {
     max_order_notional_minor: string; max_daily_notional_minor: string;
     typed_confirm_above_minor: string; trading_paused: boolean;
+    paused_reason: string | null; paused_at: Date | string | null;
   };
   return {
     perOrderNotionalMinor: r.max_order_notional_minor,
     dailyNotionalMinor: r.max_daily_notional_minor,
     typedConfirmAboveMinor: r.typed_confirm_above_minor,
     tradingPaused: r.trading_paused,
+    pausedReason: r.paused_reason,
+    pausedAt: r.paused_at === null ? null : (r.paused_at instanceof Date ? r.paused_at : new Date(r.paused_at)),
   };
 }
 
@@ -67,12 +73,18 @@ export interface AccountState {
   readonly status: string;
   /** null when the account has no credential row at all. */
   readonly credentialStatus: string | null;
+  /** Per-account order-cap override, minor units. null = fall back to the tenant cap. */
+  readonly maxOrderNotionalMinor: string | null;
+  /** Account-frozen reason, or null when the account is not frozen. */
+  readonly frozenReason: string | null;
 }
 
 /**
  * The account and credential status for a set of accounts, in one query. A LEFT
  * JOIN so an account with no credential yet still returns a row (with a null
- * credential status) rather than vanishing — gate 3 then names it.
+ * credential status) rather than vanishing — gate 3 then names it. Also carries
+ * the phase-05 per-account cap override and frozen reason so the planning service
+ * can compute the effective per-order cap and feed the account-frozen gate.
  */
 export async function readAccountStates(
   tdb: TenantDb,
@@ -85,12 +97,50 @@ export async function readAccountStates(
       'exchange_account.id as accountId',
       'exchange_account.status as status',
       'exchange_credential.status as credentialStatus',
+      'exchange_account.max_order_notional_minor as maxOrderNotionalMinor',
+      'exchange_account.frozen_reason as frozenReason',
     ])
     .where('exchange_account.id' as never, 'in', accountIds as never)
     .execute();
   const out = new Map<string, AccountState>();
-  for (const row of rows as ReadonlyArray<{ accountId: string; status: string; credentialStatus: string | null }>) {
-    out.set(row.accountId, { accountId: row.accountId, status: row.status, credentialStatus: row.credentialStatus });
+  for (const row of rows as ReadonlyArray<{
+    accountId: string; status: string; credentialStatus: string | null;
+    maxOrderNotionalMinor: string | null; frozenReason: string | null;
+  }>) {
+    out.set(row.accountId, {
+      accountId: row.accountId,
+      status: row.status,
+      credentialStatus: row.credentialStatus,
+      maxOrderNotionalMinor: row.maxOrderNotionalMinor,
+      frozenReason: row.frozenReason,
+    });
+  }
+  return out;
+}
+
+/** The operator-set mode of a market (phase 05), for the market-scope gate. */
+export interface MarketStateRow {
+  readonly mode: 'normal' | 'cancel_only' | 'read_only';
+  readonly reason: string | null;
+}
+
+/**
+ * Read the market_state for a set of venue symbols. GLOBAL read (market_state
+ * carries no tenant_id), keyed by symbol. A symbol absent from the result simply
+ * has no switch — the gate treats it as normal.
+ */
+export async function readMarketStates(
+  db: Kysely<DB>,
+  markets: readonly string[],
+): Promise<Readonly<Record<string, MarketStateRow>>> {
+  const out: Record<string, MarketStateRow> = {};
+  if (markets.length === 0) return out;
+  const rows = await db.selectFrom('market_state')
+    .select(['market', 'mode', 'reason'])
+    .where('market' as never, 'in', markets as never)
+    .execute();
+  for (const row of rows as ReadonlyArray<{ market: string; mode: 'normal' | 'cancel_only' | 'read_only'; reason: string | null }>) {
+    out[row.market] = { mode: row.mode, reason: row.reason };
   }
   return out;
 }

@@ -6,4 +6,5 @@ export * from './rate-headers.js';
 export * from './order-book.js';
 export * from './balances.js';
 export * from './probe.js';
+export * from './order-client.js';
 export * from './fake-venue.js';

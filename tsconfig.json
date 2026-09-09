@@ -5,6 +5,12 @@
       "path": "./packages/money"
     },
     {
+      "path": "./packages/metrics"
+    },
+    {
+      "path": "./packages/ledger"
+    },
+    {
       "path": "./packages/secret"
     },
     {

@@ -48,22 +48,32 @@ import type { Refusal } from './refusals.js';
 
 export type PlatformMode = 'normal' | 'cancel_only' | 'read_only';
 
+/** A market's operator-set state (phase 05), keyed by venue symbol. */
+export interface MarketGateMode {
+  readonly mode: 'normal' | 'cancel_only' | 'read_only';
+  readonly reason: string | null;
+}
+
 /**
  * The live state the gates check against, gathered by the service and passed in
  * as values so the gate function stays pure. Everything money is minor units in
  * the ORDER'S quote currency unless named otherwise.
  */
 export interface GateState {
-  // gate 1 — kill switches (STUBBED until Phase 05: the service passes the real
-  // platform_state and tenant_limit flags, but a killed platform simply refuses;
-  // the cancel/read-only nuance becomes meaningful when sending exists).
+  // gate 1 — kill switches (four scopes). The platform + tenant flags below are
+  // real values read from platform_state / tenant_limit; an absent market entry
+  // or a null frozen-reason simply means "not switched".
   readonly platformKillSwitch: boolean;
   readonly platformMode: PlatformMode;
   readonly tenantTradingPaused: boolean;
+  /** Market-scope switch, keyed by venue symbol → its operator mode. */
+  readonly marketModes?: Readonly<Record<string, MarketGateMode>> | undefined;
 
   // gate 2, 3 — the account and its credential
   readonly accountStatus: string;
   readonly credentialStatus: string | null;
+  /** Account-frozen scope: non-null when this account is frozen, carrying the reason. */
+  readonly accountFrozenReason?: string | null | undefined;
 
   // gate 4 — resolution inputs: the account's balances and the candidate markets.
   readonly balances: readonly Balance[];
@@ -79,8 +89,11 @@ export interface GateState {
   readonly book: OrderBook;
   readonly slippageToleranceBp?: number | undefined;
 
-  // gates 10, 11 — caps in the quote currency, and today's spend in it.
+  // gates 10, 11 — caps in the quote currency, and today's spend in it. The
+  // per-order cap is the EFFECTIVE bound (the account's override when set, else
+  // the tenant's); the flag says which one refused, so the message names it.
   readonly perOrderCapMinor: string;
+  readonly perOrderCapIsAccount?: boolean | undefined;
   readonly dailyCapMinor: string;
   readonly dailySpentMinor: string;
 
@@ -148,6 +161,13 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
     return skip('TENANT_PAUSED', 'Trading is paused for this account owner. Resume trading to place orders.');
   }
 
+  // 1b — the account-frozen scope. Distinct from a non-active account: a frozen
+  // account keeps its key and history but refuses new orders, and the reason the
+  // operator (or owner) froze it travels in the message.
+  if (state.accountFrozenReason !== undefined && state.accountFrozenReason !== null) {
+    return skip('ACCOUNT_FROZEN', `This account is frozen: ${state.accountFrozenReason}`);
+  }
+
   // 2 — the account must be active.
   if (state.accountStatus !== 'active') {
     return skip('ACCOUNT_NOT_ACTIVE', `This account is ${state.accountStatus}, not active, so it cannot trade.`);
@@ -164,6 +184,20 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
   // is where INR-vs-USDT and "listed but not fundable" are decided (10 F3).
   const resolved = resolveMarket(intent.asset, state.balances, state.candidateMarkets);
   if ('code' in resolved) return fromRefusal(resolved);
+
+  // 4b — the market-scope switch. An operator-set read_only or cancel_only market
+  // refuses NEW orders regardless of the venue's own status; the reason travels
+  // in the message. Absent from marketModes means the market is normal.
+  const marketGate = state.marketModes?.[resolved.rules.venueSymbol];
+  if (marketGate !== undefined && marketGate.mode !== 'normal') {
+    const reason = marketGate.reason === null ? '' : ` ${marketGate.reason}`;
+    if (marketGate.mode === 'cancel_only') {
+      return skip('MARKET_CANCEL_ONLY',
+        `${resolved.rules.venueSymbol} is in cancel-only mode; new orders are not accepted.${reason}`);
+    }
+    return skip('MARKET_READ_ONLY',
+      `${resolved.rules.venueSymbol} is paused for trading right now.${reason}`);
+  }
 
   // 5 — the resolved market must allow the requested order type. legalise()
   // checks this too, but doing it here names the type before sizing runs.
@@ -211,24 +245,30 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
     spreadIsWide = verdict.spreadIsWide;
   }
 
-  // 10 — per-order cap. Compared in the quote currency; the service converted the
-  // tenant's valuation-currency cap into it.
+  // 10 — per-order cap. Compared in the quote currency. The cap passed in is the
+  // EFFECTIVE bound: the account's per-account override when one is set, else the
+  // tenant's per-order cap. The message names which one refused (09 F7: a refusal
+  // must carry its numbers).
   const quoteScale = quoteScaleOf(resolved.rules.market.quote);
   const notional = scaledFromMinor(sized.notionalMinor, quoteScale);
   const perOrderCap = scaledFromMinor(state.perOrderCapMinor, quoteScale);
   if (cmp(notional, perOrderCap) > 0) {
+    const whose = state.perOrderCapIsAccount === true ? "this account's order cap" : "the workspace's per-order cap";
     return skip('ABOVE_ORDER_CAP',
-      `The order value ${sized.notionalMinor} exceeds this account owner's per-order cap of ${state.perOrderCapMinor} `
+      `The order value ${sized.notionalMinor} exceeds ${whose} of ${state.perOrderCapMinor} `
       + '(minor units). Reduce the size or ask to raise the cap.',
       { offending: sized.notionalMinor, limit: state.perOrderCapMinor });
   }
 
-  // 11 — daily cap. today's spend in this quote currency plus this order.
+  // 11 — daily cap. today's spend in this quote currency plus this order. The
+  // message quotes the remaining headroom so the customer knows how far over they
+  // are, not just that they are over.
   const dailyAfter = BigInt(state.dailySpentMinor) + BigInt(sized.notionalMinor);
   if (dailyAfter > BigInt(state.dailyCapMinor)) {
+    const remaining = BigInt(state.dailyCapMinor) - BigInt(state.dailySpentMinor);
     return skip('ABOVE_DAILY_CAP',
       `This order would take today's total to ${dailyAfter} against a daily cap of ${state.dailyCapMinor} `
-      + '(minor units). It has been held back.',
+      + `(minor units). Only ${remaining} of headroom remains today — the order has been held back.`,
       { offending: String(dailyAfter), limit: state.dailyCapMinor });
   }
 
@@ -256,8 +296,8 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
 /** The gate codes this module can emit, for the 04-gates check to enumerate. */
 export const GATE_CODES = [
   'PLATFORM_KILLED', 'PLATFORM_READ_ONLY', 'TENANT_PAUSED',
-  'ACCOUNT_NOT_ACTIVE', 'CREDENTIAL_NOT_ACTIVE',
-  'ORDER_TYPE_NOT_ALLOWED',
+  'ACCOUNT_NOT_ACTIVE', 'ACCOUNT_FROZEN', 'CREDENTIAL_NOT_ACTIVE',
+  'MARKET_CANCEL_ONLY', 'MARKET_READ_ONLY', 'ORDER_TYPE_NOT_ALLOWED',
   'SPREAD_TOO_WIDE', 'EXCESSIVE_SLIPPAGE', 'INSUFFICIENT_DEPTH',
   'ABOVE_ORDER_CAP', 'ABOVE_DAILY_CAP', 'ORDER_IN_FLIGHT',
 ] as const;

@@ -12,8 +12,12 @@ import { Countdown } from '../components/Countdown.tsx';
 // checkbox appears ONLY when at least one account was skipped — so a customer
 // cannot confirm a partial fan-out without noticing the gaps.
 //
-// The only action is a DRY-RUN confirm: it records what would have been sent and
-// suppresses the send. There is no place/send button, here or anywhere.
+// Confirm is the ONE send-authorising action in the app, and this screen never
+// performs a send — it hands the preview token to the server, which decides
+// (rung-0 dry run, or a real fan-out behind the capability-gated engine). When
+// the response says `dryRun:false` the fan-out already happened, so this screen
+// hands the operator to the live-progress screen for that trade; a `dryRun:true`
+// response (local dev, no engine) is recorded and stays here.
 
 export function Confirmation() {
   const { groupTradeId = '' } = useParams();
@@ -32,6 +36,12 @@ export function Confirmation() {
 
   const confirm = useMutation({
     mutationFn: (result: PreviewResult) => confirmTrade(result.groupTradeId, result.previewToken),
+    // A real send navigates to the live-progress screen, where the SSE stream
+    // reports each leg as the worker settles it. A dry run (no engine wired)
+    // stays here with the recorded-plan confirmation below.
+    onSuccess: (data, result) => {
+      if (data.dryRun === false) navigate(`/app/trades/${result.groupTradeId}/progress`);
+    },
   });
 
   if (trade.isLoading) return <div className="panel">Loading the plan…</div>;
@@ -106,15 +116,18 @@ export function Confirmation() {
       {confirm.isError && <div className="error">{(confirm.error as Error).message}</div>}
 
       {confirmed ? (
+        // A real fan-out navigates to the progress screen, so reaching this box
+        // means the server answered dryRun:true — no execution engine is wired in
+        // this build and nothing was sent. Say so plainly.
         <div className="spread-warning" style={{ borderColor: 'var(--ok)', color: 'var(--ok)' }}>
-          Dry run recorded. Nothing was sent to the exchange — this is rung 0. The plan and the
-          would-send bodies are stored for review.
+          Dry run recorded. Nothing was sent to the exchange — this build has no execution
+          engine wired. The plan and the would-send bodies are stored for review.
         </div>
       ) : (
         <div className="row" style={{ marginTop: 8 }}>
           <button className="btn secondary" onClick={() => navigate('/app')}>Back to ticket</button>
-          {/* The only forward action: a dry-run confirm. Disabled once expired,
-              or until skips are acknowledged. Never a live send. */}
+          {/* The only forward action: authorise the server to confirm. Disabled
+              once expired, or until skips are acknowledged. */}
           <button
             className="btn"
             disabled={!canConfirm || confirm.isPending}
@@ -123,8 +136,8 @@ export function Confirmation() {
             {expired
               ? 'Preview expired'
               : confirm.isPending
-                ? 'Recording dry run…'
-                : `Confirm ${plannedCount} (dry run)`}
+                ? 'Confirming…'
+                : `Confirm ${plannedCount}`}
           </button>
         </div>
       )}

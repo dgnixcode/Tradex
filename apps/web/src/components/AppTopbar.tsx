@@ -1,7 +1,9 @@
 // The authenticated panel's top bar. Carries the current section title, the
-// rung-0 dry-run badge (the one fact a trader must not lose sight of), the
-// signed-in role, and — below the sidebar breakpoint — the button that opens the
-// sidebar. Logout lives in the sidebar foot, so the bar stays uncluttered.
+// rung-0 dry-run badge (the one fact a trader must not lose sight of), a passive
+// desk-status chip when the brakes are engaged, the signed-in role, and — below
+// the sidebar breakpoint — the button that opens the sidebar.
+
+import { DeskStatus } from './DeskStatus.tsx';
 
 interface Props {
   readonly title: string;
@@ -23,6 +25,7 @@ export function AppTopbar({ title, role, onMenu }: Props) {
       <span className="rung-badge" title="Rung 0: the plan is previewed and dry-run only; no order is sent.">
         dry-run · no orders sent
       </span>
+      <DeskStatus />
       <span className="spacer" />
       <span className="who">Signed in · {role}</span>
     </header>

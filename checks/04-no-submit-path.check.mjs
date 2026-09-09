@@ -8,9 +8,12 @@
 // send path without turning this red.
 //
 // What the web app IS allowed to call: the two planning endpoints, /preview and
-// /confirm. Confirm is dry-run in this phase and the server suppresses the send.
-// What it must NEVER contain: a call that places or sends an order, or a fetch to
-// any endpoint other than the read/preview/confirm surface.
+// /confirm. Confirm carries only the preview token — whether the server then
+// dry-runs (rung 0) or REALLY sends (the Phase-08 engine, gated on server-side
+// submit/resolve ports) is a server decision the browser never makes, so this
+// client surface is unchanged by Phase 08. What it must NEVER contain: a call
+// that places or sends an order, or a fetch to any endpoint other than the
+// read/preview/confirm surface.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -81,7 +84,7 @@ export async function run(assert) {
   const endpoints = [...fromHelper, ...fromRawFetch].filter((p) => p !== '');
   assert(endpoints.length >= 4, `expected at least 4 declared endpoints, found ${endpoints.length}`);
 
-  const ALLOWED = ['/group-trades', '/groups', '/assets', '/login', '/signup', '/logout', '/session'];
+  const ALLOWED = ['/group-trades', '/groups', '/assets', '/accounts', '/login', '/signup', '/logout', '/session', '/trading', '/auth', '/account', '/audit'];
   for (const path of endpoints) {
     const ok = ALLOWED.some((prefix) => path.startsWith(prefix));
     assert(ok, `the api client calls an unexpected path "/api${path}" — only the auth + planning read/preview/confirm surface is allowed`);
@@ -93,9 +96,10 @@ export async function run(assert) {
       `the api client declares a send-shaped path "/api${path}" — forbidden in rung 0`);
   }
 
-  // The confirm endpoint is dry-run in this phase: the client sends only the
-  // preview token, never an instruction to place. Assert the confirm body shape.
-  assert(/previewToken/.test(api), 'confirmTrade must send the preview token, the only thing a confirm carries in rung 0');
+  // The confirm body carries only the preview token, never an instruction to
+  // place — the client authorises a send it never performs. The server decides
+  // (dry-run or real) behind that token. Assert the confirm body shape.
+  assert(/previewToken/.test(api), 'confirmTrade must send the preview token and nothing that looks like a place instruction');
 
   // The comment stripper must work, or a commented-out placeOrder would pass.
   assert(!/placeOrder/i.test(stripComments('// placeOrder(x)')), 'the comment stripper does not remove line comments');

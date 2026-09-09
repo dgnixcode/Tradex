@@ -1,6 +1,6 @@
 # Phase 06 - Single-account execution and reconciliation
 
-Status: not started | goal: one real order, on real money, that **always** reaches a terminal known state - and never duplicates | depends on: 05 | implements: `08`, `12`, `07` F5, `18` F5-F6 rungs 1-3
+Status: **CODE-COMPLETE 2026-09-09 (offline)** - job substrate/reaper, coid, write-before-send worker, resolve ladder, Loop-A mapping, clock classification all built and gate-verified (35 checks, 2,366,030 assertions). Structurally deferred by design: Rungs 1-3 on live money await Anand's CoinDCX key at the Phase 14 go-live gate; the signer-as-separate-process IAM split awaits AWS (his standing deferral). | goal: one real order, on real money, that **always** reaches a terminal known state - and never duplicates | depends on: 05 | implements: `08`, `12`, `07` F5, `18` F5-F6 rungs 1-3
 
 ## Scope
 

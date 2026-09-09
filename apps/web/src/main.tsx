@@ -9,6 +9,15 @@ import { Login } from './routes/Login.tsx';
 import { Signup } from './routes/Signup.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
 import { Confirmation } from './routes/Confirmation.tsx';
+import { Execution } from './routes/Execution.tsx';
+import { Groups } from './routes/Groups.tsx';
+import { GroupDetail } from './routes/GroupDetail.tsx';
+import { Accounts } from './routes/Accounts.tsx';
+import { Positions } from './routes/Positions.tsx';
+import { ConnectAccount } from './routes/ConnectAccount.tsx';
+import { DeskControls } from './routes/DeskControls.tsx';
+import { Security } from './routes/Security.tsx';
+import { Audit } from './routes/Audit.tsx';
 import './styles.css';
 
 // A single query client. Previews are never cached — a plan is priced against a
@@ -44,7 +53,16 @@ const router = createBrowserRouter([
         element: <RequireAuth><App /></RequireAuth>,
         children: [
           { index: true, element: <TradeTicket /> },
+          { path: 'trades/:groupTradeId/progress', element: <Execution /> },
           { path: 'trades/:groupTradeId', element: <Confirmation /> },
+          { path: 'groups', element: <Groups /> },
+          { path: 'groups/:groupId', element: <GroupDetail /> },
+          { path: 'accounts', element: <Accounts /> },
+          { path: 'positions', element: <Positions /> },
+          { path: 'accounts/connect', element: <ConnectAccount /> },
+          { path: 'trading', element: <DeskControls /> },
+          { path: 'security', element: <Security /> },
+          { path: 'audit', element: <Audit /> },
         ],
       },
     ],

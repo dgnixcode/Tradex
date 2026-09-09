@@ -4,3 +4,4 @@ export * from './rate-budget.js';
 export * from './signer-port.js';
 export * from './funding.js';
 export * from './probe-port.js';
+export * from './order-state.js';

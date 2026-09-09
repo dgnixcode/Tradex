@@ -17,6 +17,7 @@
 // placeOrder path exists to call.
 
 import { readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Kysely, PostgresDialect } from 'kysely';
@@ -121,10 +122,12 @@ export async function ingestMarkets(db) {
 /**
  * Create N active accounts, each with an INR balance, and put them in one group.
  * `capitals` gives each account's allocated capital in paise, which is also its
- * free INR balance, so the percentage sizing has a real basis. Returns the group
- * id and the account ids in creation order.
+ * free INR balance, so the percentage sizing has a real basis. `namePrefix` lets
+ * a check seed several groups in one schema without tripping the per-tenant
+ * account-name uniqueness. Returns the group id and the account ids in creation
+ * order.
  */
-export async function seedGroupOfAccounts(ctx, capitals) {
+export async function seedGroupOfAccounts(ctx, capitals, namePrefix = 'Acct') {
   const { tdb, pool } = ctx;
   const accountIds = [];
   for (let i = 0; i < capitals.length; i += 1) {
@@ -132,7 +135,7 @@ export async function seedGroupOfAccounts(ctx, capitals) {
     const { rows } = await pool.query(
       `INSERT INTO exchange_account (tenant_id, name, allocated_capital_minor, allocated_currency, status)
        VALUES ($1, $2, $3, 'INR', 'active') RETURNING id`,
-      [TENANT, `Acct ${i + 1}`, cap],
+      [TENANT, `${namePrefix} ${i + 1}`, cap],
     );
     const accountId = rows[0].id;
     accountIds.push(accountId);
@@ -143,7 +146,10 @@ export async function seedGroupOfAccounts(ctx, capitals) {
       [TENANT, accountId, cap, new Date(NOW_MS)],
     );
     // An active credential so gate 3 passes. Ciphertext bytes are placeholders —
-    // nothing decrypts them in a planning check (no send).
+    // nothing decrypts them in a planning check (no send). The fingerprint is
+    // derived from the (prefix, index) pair so a check that seeds several groups
+    // in one schema never trips exchange_credential_fingerprint_unique.
+    const fingerprint = createHash('sha256').update(`${namePrefix}:${i}`).digest().subarray(0, 32);
     await pool.query(
       `INSERT INTO exchange_credential
          (tenant_id, account_id, kms_key_arn, dek_wrapped, api_key_ct, api_key_nonce, api_key_tag,
@@ -152,12 +158,13 @@ export async function seedGroupOfAccounts(ctx, capitals) {
       [
         TENANT, accountId,
         Buffer.from('00', 'hex'), Buffer.alloc(12, 1), Buffer.alloc(16, 2),
-        Buffer.alloc(12, 3), Buffer.from(`${i}`.padStart(64, '0'), 'hex').subarray(0, 32),
+        Buffer.alloc(12, 3), fingerprint,
         new Date(NOW_MS),
       ],
     );
   }
-  const groupId = await createGroup(tdb, { name: 'Plan Group', createdBy: USER });
+  const groupName = namePrefix === 'Acct' ? 'Plan Group' : `${namePrefix} Group`;
+  const groupId = await createGroup(tdb, { name: groupName, createdBy: USER });
   for (const accountId of accountIds) await addMember(tdb, { groupId, accountId });
   return { groupId, accountIds };
 }

@@ -1,6 +1,21 @@
 # Phase 08 - Group fan-out
 
-Status: not started | goal: the product's core feature - one intent, N accounts, independent per-account outcomes, honestly reported | depends on: 07 | implements: `08`, `21` F4, `14` M19-M22, `18` F6 rungs 4-6
+Status: in progress — offline engine core green (08-fanout-core 11, 08-fairness 4, 08-inflight 6); **"confirm really sends" milestone DONE** (08-confirm-sends, 37 assertions); **SSE live progress (T08.6) and retry-failed (T08.7) DONE** (08-progress-stream 20, 08-retry-is-fresh 40). Remaining: T08.3 live rate-budget wiring, T08.8 grouped-cause presentation at scale; the real-money rungs 4-6 are gated on Anand's CoinDCX key and run at the Phase 14 gate (T14.0), mirroring how rungs 1-3 were deferred from Phase 06. | goal: the product's core feature - one intent, N accounts, independent per-account outcomes, honestly reported | depends on: 07 | implements: `08`, `21` F4, `14` M19-M22, `18` F6 rungs 4-6
+
+## Milestone log
+
+**Offline engine core (proven before the HTTP seam).** `GroupExecutor.enqueue/drain/abandonIfStale`; the worker claims via `claimJobsFair` (cross-tenant round-robin); T08.1 re-checked at SEND time (never two live orders on one `(account, market)`); `buildReport` grouped-cause presentation. Proven by `08-fanout-core` (11), `08-fairness` (4), `08-inflight` (6) — 21 assertions, all green.
+
+**Confirm really sends (2026-09-09).** The dry-run confirm seam is wired behind a capability gate:
+- `beginExecution` (db): a FOR UPDATE, token-guarded `previewed → executing` transition that clears `dry_run`/`send_suppressed`. A racing second confirm sees `already_started` → 409. `getExecutionSnapshot` reads a trade's children in execution shape.
+- `HttpDeps` gains optional `submit`/`resolve`/`executionPepper`. When ALL are wired, `POST /group-trades/:id/confirm` does beginExecution → enqueue one `place` job per planned child → drain → respond with the real report (`dryRun:false`). When NONE are wired it stays the rung-0 dry-run confirm, and `NODE_ENV=production` with no engine is an explicit **503**, never a silent dry run. A partial engine (e.g. submit without resolve) is not an engine.
+- `GET /group-trades/:id/report` re-reads the same report.
+- Proven end to end by `08-confirm-sends` (37 assertions): owner login → preview (3 planned legs) → confirm → the FakeVenue holds exactly one open order per child with a coid + venue id, `report.placed == planned`, second confirm 409 places nothing, wrong token 403, production-no-engine 503 and the trade stays `previewed`.
+
+**Still open:** the real-venue submit must route each child to the account's own sealed credential (the `accountId`/`tenantId` now ride on `OrderToSend` for exactly this — Phase-14 shaped); a trade does not yet auto-`completed` when its fills arrive (FakeVenue orders stay `open`) — **now owned by Phase 09 T09.7**, the first phase with a fill-capable venue.
+
+**SSE live progress + retry-failed subset (2026-09-09).** T08.6: `ExecutionEventBus` in `group-executor` — the worker persists each settle to `child_order` FIRST (committed UPDATE) and only then publishes, so every event is a projection of durable rows, never the source of truth. `GET /group-trades/:id/stream` subscribes per `groupTradeId`, seeds each account's present state from a post-subscribe read, emits the `header`, then pushes one live `state` frame per settle and closes with `report` + `done`. The web `Execution` page opens that stream, joins the frames to the plan's account names, and announces terminal transitions into an aria `log`. Proven by `08-progress-stream` (20 assertions): a watcher present for the whole fan-out sees three `open` settles + a real report + `done`; then a second trade is held mid-send, its SSE watcher dropped, and every child still reaches the venue — **closing the page does not affect execution**.
+- T08.7: `POST /group-trades/:id/retry-failed` reads the trade's failed accounts (`skipped`/`rejected`/`not_placed`/`needs_human`/`unknown` — never a still-working `planned`/`sending`/`ambiguous` leg, so a retry cannot double-send), reconstructs the request from the persisted trade columns (pct_*/quote_amount/sell-all), and plans a BRAND-NEW scoped preview. The old trade is untouched — no migration (schema delta "None" holds). Proven by `08-retry-is-fresh` (40 assertions): two scenario trades failed on disjoint subsets, retry yields a new row/token scoped to the failed accounts only, and confirming the fresh trade really places that subset under disjoint coids while the old trade's rows and venue orders stand. 404 unknown id, 409 nothing retryable, 503 no market data.
 
 ## Scope
 
@@ -63,14 +78,27 @@ None. `group_trade.status` now exercises `executing` → `completed`/`abandoned`
 
 | Endpoint | Notes |
 |---|---|
-| `POST /group-trades/:id/confirm` | Now really sends |
-| `GET /group-trades/:id/report` | The settled report |
-| `GET /group-trades/:id/stream` | SSE progress |
-| `POST /group-trades/:id/retry-failed` | Returns a **new** draft, never re-runs the old plan |
+| `POST /group-trades/:id/confirm` | **Now really sends** — capability-gated on the engine ports; rung-0 dry-run when absent, 503 in production |
+| `GET /group-trades/:id/report` | Built — the settled report (confirm response + this route) |
+| `GET /group-trades/:id/stream` | **Built** — SSE progress (T08.6): seeds present state, streams each settle, closes with `report`+`done`; page-close immunity proven |
+| `POST /group-trades/:id/retry-failed` | **Built** — re-plans the failed subset as a fresh trade (T08.7); 404/409/503 |
 
 ## Verification
 
-`checks/08-fanout-simulation.check.js` (parallelism, locks, fairness, abandonment, ~200), `checks/08-partial-failure.check.js` (~70), `checks/08-report-completeness.check.js` (~90), `checks/08-retry-is-fresh.check.js` (~25). Target: **~385 assertions**.
+`npm run verify` is green (2026-09-09): typecheck, eslint, ci-rules (7 rules, 0 violations), vitest (24 files / 468 tests), and the run-all checks — **46 checks, 2,366,275 assertions** (the `04-no-submit-path` scan covers the new web page: the progress screen's only network surface is an EventSource, never a send).
+
+The Phase-08 checks built so far:
+
+| Check | Asserts | Proves |
+|---|---|---|
+| `08-fanout-core` | 11 | bounded parallelism, locks, 60-s abandonment |
+| `08-fairness` | 4 | cross-tenant round-robin (T08.2) |
+| `08-inflight` | 6 | never two live orders on one `(account, market)` |
+| `08-confirm-sends` | 37 | the capability-gated confirm really sends (report `placed == planned`) |
+| `08-progress-stream` | 20 | SSE seeds + one live event per settle + `report`/`done`; page-close immunity |
+| `08-retry-is-fresh` | 40 | retry is a NEW trade scoped to the failed subset; old trade untouched |
+
+**Still to prove (T08.3, T08.8, and the live-venue report fields)** land with the rate-budget wiring and on real money at rungs 4-6, not before.
 
 ## Definition of done
 
@@ -80,8 +108,8 @@ None. `group_trade.status` now exercises `executing` → `completed`/`abandoned`
 - [ ] A small tenant's trade is not starved by a large one
 - [ ] A trade that cannot start within 60 s abandons rather than executing late
 - [ ] Divergence (M19) and slippage (M16) non-null on every report
-- [ ] Closing the browser mid-fan-out does not affect execution
-- [ ] Retry produces a new `group_trade` and a fresh preview
+- [x] Closing the browser mid-fan-out does not affect execution
+- [x] Retry produces a new `group_trade` and a fresh preview
 - [ ] Twenty identical rejections render as one grouped cause
 - [ ] Rung 6: no 429, latency inside budget, zero `needs_human`
 

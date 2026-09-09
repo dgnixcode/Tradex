@@ -31,7 +31,7 @@ export class TradeRepoError extends Error {
     message: string,
     readonly reason:
       | 'trade_not_found' | 'no_token' | 'token_expired' | 'token_mismatch'
-      | 'not_previewed' | 'already_completed' | 'empty_plan',
+      | 'not_previewed' | 'already_completed' | 'already_started' | 'empty_plan',
   ) {
     super(message);
   }
@@ -198,6 +198,8 @@ export interface GroupTradeRow {
   readonly side: TradeSide;
   readonly orderType: CanonicalOrderType;
   readonly sizingMode: SizingMode;
+  readonly sizingValue: string | null;
+  readonly limitPrice: string | null;
   readonly status: GroupTradeStatus;
   readonly previewToken: string | null;
   readonly previewExpiresAt: Date | null;
@@ -224,6 +226,8 @@ export async function getGroupTrade(tdb: TenantDb, groupTradeId: string): Promis
     side: r['side'] as TradeSide,
     orderType: r['order_type'] as CanonicalOrderType,
     sizingMode: r['sizing_mode'] as SizingMode,
+    sizingValue: (r['sizing_value'] as string | null),
+    limitPrice: (r['limit_price'] as string | null),
     status: r['status'] as GroupTradeStatus,
     previewToken: (r['preview_token'] as string | null),
     previewExpiresAt: r['preview_expires_at'] === null ? null : new Date(r['preview_expires_at'] as string),
@@ -296,6 +300,64 @@ export async function getChildOrders(tdb: TenantDb, groupTradeId: string): Promi
   }));
 }
 
+/** One child row as the execution report needs it (post-send provenance included). */
+export interface ExecutionChildRow {
+  readonly accountId: string;
+  readonly state: ChildOrderState;
+  readonly market: string | null;
+  readonly finalQuantity: string | null;
+  readonly notionalMinor: string | null;
+  readonly refusalCode: string | null;
+  readonly refusalDetail: string | null;
+  readonly clientOrderId: string | null;
+  readonly exchangeOrderId: string | null;
+}
+
+/** A group trade plus its children in execution shape, or null when it does not exist. */
+export interface ExecutionSnapshot {
+  readonly id: string;
+  readonly status: GroupTradeStatus;
+  readonly dryRun: boolean;
+  readonly rows: readonly ExecutionChildRow[];
+}
+
+/** Read a trade's status and its children for the execution report / confirm response. */
+export async function getExecutionSnapshot(
+  tdb: TenantDb,
+  groupTradeId: string,
+): Promise<ExecutionSnapshot | null> {
+  const t = await tdb.byId('group_trade', groupTradeId)
+    .select(['status', 'dry_run'] as never)
+    .executeTakeFirst();
+  if (t === undefined) return null;
+  const tr = t as { status: GroupTradeStatus; dry_run: boolean };
+  const rows = await tdb.selectFrom('child_order')
+    .select([
+      'account_id', 'state', 'market', 'final_quantity', 'notional_minor',
+      'refusal_code', 'refusal_detail', 'client_order_id', 'exchange_order_id',
+    ] as never)
+    .where('group_trade_id' as never, '=', groupTradeId as never)
+    .orderBy('leg_seq' as never)
+    .orderBy('account_id' as never)
+    .execute();
+  return {
+    id: groupTradeId,
+    status: tr.status,
+    dryRun: tr.dry_run,
+    rows: (rows as Record<string, unknown>[]).map((r) => ({
+      accountId: r['account_id'] as string,
+      state: r['state'] as ChildOrderState,
+      market: (r['market'] as string | null),
+      finalQuantity: (r['final_quantity'] as string | null),
+      notionalMinor: (r['notional_minor'] as string | null),
+      refusalCode: (r['refusal_code'] as string | null),
+      refusalDetail: (r['refusal_detail'] as string | null),
+      clientOrderId: (r['client_order_id'] as string | null),
+      exchangeOrderId: (r['exchange_order_id'] as string | null),
+    })),
+  };
+}
+
 /**
  * Confirm a previewed trade in dry-run mode (rung 0): validate the token, check
  * it has not expired, and mark the trade `completed` with the send suppressed.
@@ -332,6 +394,162 @@ export async function confirmDryRun(
 
     await tx.updateTable('group_trade')
       .set({ status: 'completed', send_suppressed: true, completed_at: at } as never)
+      .where('id' as never, '=', groupTradeId as never)
+      .execute();
+  });
+}
+
+// ---- plan/phase-09: cancel fan-out + completion-on-fills ---------------------
+//
+// A child whose order is still live at the venue and may be cancelled is one the
+// venue still shows as working — `open` or `partially_filled` (the venue FAQ:
+// a filled/cancelled/rejected order cannot be cancelled). The cancel fan-out
+// (T09.1) acts ONLY on that set, per group trade, so it can never cancel an
+// order another trade placed.
+export const CANCELLABLE_STATES: ReadonlySet<string> = new Set(['open', 'partially_filled']);
+
+/**
+ * The states that keep a group trade `executing`. When NONE of a trade's
+ * children are in this set — every leg is `filled`/`partially_filled` or a
+ * terminal refusal/skip — the trade is `completed` (T09.7).
+ */
+export const WORKING_CHILD_STATES: ReadonlySet<string> =
+  new Set(['planned', 'sending', 'ambiguous', 'acked', 'open']);
+
+/** One leg a Phase-09 sweep or fan-out acts on, with the handle the venue needs. */
+export interface LiveChildRow {
+  readonly id: string;
+  readonly groupTradeId: string;
+  readonly accountId: string;
+  readonly market: string | null;
+  readonly state: string;
+  /** The deterministic id reserved at write-before-send; null only if never sent. */
+  readonly clientOrderId: string | null;
+}
+
+/**
+ * The children of a group trade whose orders are still live at the venue and can
+ * be cancelled (state in CANCELLABLE_STATES). Optionally narrowed to a subset of
+ * accounts so a fan-out can cancel only some legs.
+ */
+export async function listCancellableChildren(
+  tdb: TenantDb,
+  groupTradeId: string,
+  accountIds?: readonly string[],
+): Promise<readonly LiveChildRow[]> {
+  let q = tdb.selectFrom('child_order')
+    .select(['id', 'group_trade_id as groupTradeId', 'account_id as accountId', 'market', 'state',
+      'client_order_id as clientOrderId'] as never)
+    .where('group_trade_id' as never, '=', groupTradeId as never)
+    .where('state' as never, 'in', [...CANCELLABLE_STATES] as never);
+  if (accountIds !== undefined && accountIds.length > 0) {
+    q = q.where('account_id' as never, 'in', accountIds as never);
+  }
+  const rows = await q.orderBy('leg_seq' as never).orderBy('account_id' as never).execute();
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    id: r['id'] as string,
+    groupTradeId: String(r['groupTradeId']),
+    accountId: String(r['accountId']),
+    market: (r['market'] as string | null),
+    state: r['state'] as string,
+    clientOrderId: (r['clientOrderId'] as string | null),
+  }));
+}
+
+/** The children of a group trade that are still working, for a poll/loop-B sweep. */
+export async function listWorkingChildren(
+  tdb: TenantDb,
+  groupTradeId: string,
+): Promise<readonly LiveChildRow[]> {
+  const rows = await tdb.selectFrom('child_order')
+    .select(['id', 'group_trade_id as groupTradeId', 'account_id as accountId', 'market', 'state',
+      'client_order_id as clientOrderId'] as never)
+    .where('group_trade_id' as never, '=', groupTradeId as never)
+    .where('state' as never, 'in', [...WORKING_CHILD_STATES] as never)
+    .orderBy('leg_seq' as never).orderBy('account_id' as never)
+    .execute();
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    id: r['id'] as string,
+    groupTradeId: String(r['groupTradeId']),
+    accountId: String(r['accountId']),
+    market: (r['market'] as string | null),
+    state: r['state'] as string,
+    clientOrderId: (r['clientOrderId'] as string | null),
+  }));
+}
+
+/**
+ * Mark a group trade `completed` once EVERY child has left the working states —
+ * the durable flip behind T09.7. Runs after each settle, guarded on
+ * `status = 'executing'` so two concurrent settles cannot double-flip or move a
+ * trade that is already terminal. Returns true when it flipped.
+ */
+export async function completeGroupTradeIfAllSettled(
+  tdb: TenantDb,
+  groupTradeId: string,
+  atMs?: number,
+): Promise<boolean> {
+  const at = new Date(atMs ?? Date.now());
+  const still = await tdb.selectFrom('child_order')
+    .select('id')
+    .where('group_trade_id' as never, '=', groupTradeId as never)
+    .where('state' as never, 'in', [...WORKING_CHILD_STATES] as never)
+    .limit(1)
+    .executeTakeFirst();
+  if (still !== undefined) return false;
+  const updated = await tdb.updateTable('group_trade')
+    .set({ status: 'completed', completed_at: at } as never)
+    .where('id' as never, '=', groupTradeId as never)
+    .where('status' as never, '=', 'executing' as never)
+    .returning('id' as unknown as never)
+    .executeTakeFirst();
+  return updated !== undefined;
+}
+
+/**
+ * Start a REAL execution (plan/phase-08): validate the preview token exactly as
+ * confirmDryRun does, then move the trade `previewed → executing` with the send
+ * NO LONGER suppressed. Confirmation (enqueuing the place jobs and draining) is
+ * the caller's next step; this function is only the atomic, token-guarded gate
+ * that keeps a second confirm from ever double-starting a trade. A trade already
+ * `executing` throws `already_started`; a terminal one throws
+ * `already_completed`; the reaper (T08.4 abandonment) is the backstop for a
+ * trade that reaches `executing` but never drains.
+ */
+export async function beginExecution(
+  tdb: TenantDb,
+  groupTradeId: string,
+  token: string,
+  atMs?: number,
+): Promise<void> {
+  const at = new Date(atMs ?? Date.now());
+  await tdb.transaction(async (tx) => {
+    const row = await tx.byId('group_trade', groupTradeId)
+      .select(['status', 'preview_token', 'preview_expires_at'])
+      .forUpdate()
+      .executeTakeFirst();
+    if (row === undefined) throw new TradeRepoError(`group trade ${groupTradeId} was not found`, 'trade_not_found');
+    const r = row as { status: GroupTradeStatus; preview_token: string | null; preview_expires_at: Date | string | null };
+
+    if (r.status === 'completed' || r.status === 'abandoned') {
+      throw new TradeRepoError('this trade has already been confirmed or abandoned', 'already_completed');
+    }
+    if (r.status === 'executing') {
+      throw new TradeRepoError('this trade is already executing', 'already_started');
+    }
+    if (r.status !== 'previewed') throw new TradeRepoError('this trade has no active preview to confirm', 'not_previewed');
+    if (r.preview_token === null || r.preview_expires_at === null) {
+      throw new TradeRepoError('this trade carries no preview token', 'no_token');
+    }
+    if (r.preview_token !== token) throw new TradeRepoError('the preview token does not match', 'token_mismatch');
+
+    const expires = r.preview_expires_at instanceof Date ? r.preview_expires_at : new Date(r.preview_expires_at);
+    if (expires.getTime() <= at.getTime()) {
+      throw new TradeRepoError('this preview has expired; re-preview to get a fresh set of quantities', 'token_expired');
+    }
+
+    await tx.updateTable('group_trade')
+      .set({ status: 'executing', dry_run: false, send_suppressed: false, submitted_at: at } as never)
       .where('id' as never, '=', groupTradeId as never)
       .execute();
   });

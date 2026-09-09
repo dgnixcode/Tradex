@@ -21,7 +21,16 @@ export function App() {
   };
 
   const role = state.status === 'authenticated' ? state.session.role : '';
-  const title = pathname.startsWith('/app/trades') ? 'Confirm trade' : 'New group trade';
+  let title = 'New group trade';
+  if (pathname.startsWith('/app/trades')) title = 'Confirm trade';
+  else if (pathname.startsWith('/app/groups/')) title = 'Group';
+  else if (pathname.startsWith('/app/groups')) title = 'Groups';
+  else if (pathname.startsWith('/app/accounts/connect')) title = 'Connect account';
+  else if (pathname.startsWith('/app/accounts')) title = 'Accounts';
+  else if (pathname.startsWith('/app/positions')) title = 'Positions';
+  else if (pathname.startsWith('/app/trading')) title = 'Desk controls';
+  else if (pathname.startsWith('/app/security')) title = 'Security';
+  else if (pathname.startsWith('/app/audit')) title = 'Audit';
 
   return (
     <div className="panel-light">

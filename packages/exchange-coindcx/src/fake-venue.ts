@@ -16,8 +16,18 @@
 // It also emits the undocumented `ratelimit` headers (06 F6.2), so the
 // closed-loop limiter has something to close the loop on.
 //
-// No order state. Placement returns 501 until Phase 06 adds fills,
-// `client_order_id` uniqueness and the fault scenarios that need them.
+// Minimal order state (Phase 06): orders/create assigns an exchange_order_id and
+// stores by client_order_id, rejecting a DUPLICATE client_order_id with the real
+// venue's idempotency error; orders/status resolves by client_order_id.
+//
+// Phase 09 adds the sell side: orders/cancel is REAL now (it mutates stored
+// state and answers the FAQ's refusal for a settled order), orders/active_orders
+// lists the stored orders still working on a market, and two control methods give
+// a test the "fill-capable venue" Phase 08 never had — `settleOrder` drives a
+// stored order to `filled`/`partially_filled` (so a fan-out can auto-complete,
+// T09.7) and `setBalance` shapes the `users/balances` read (so a sell can be
+// sized from a mutated exchange truth, T09.2). Balances are served dynamically
+// from `balanceRows`, not the earlier frozen string.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -58,6 +68,12 @@ export interface Fault {
   readonly delayMs?: number | undefined;
   /** Destroy the socket instead of answering: the ambiguous-failure case. */
   readonly hangUp?: boolean | undefined;
+  /**
+   * Let an orders/create store the order, then destroy the socket before the
+   * response — the hardest ambiguous case: the venue ACCEPTED but the client
+   * never heard. Only meaningful on the create route.
+   */
+  readonly acceptThenDrop?: boolean | undefined;
   /** Accept and never answer, so only the client's deadline ends it. */
   readonly blackhole?: boolean | undefined;
   /** How many matching requests it applies to. Default 1. */
@@ -100,8 +116,20 @@ export class FakeVenue {
    */
   private readonly sockets = new Set<Socket>();
   private served = 0;
+  /** One-shot: the create route stores the order, then drops the response. */
+  private dropCreate = false;
   /** Every request, in order. The assertion surface for adapter tests. */
   readonly requests: RecordedRequest[] = [];
+  /** Orders keyed by client_order_id — the Phase 06 order state. */
+  private readonly orders = new Map<string, Record<string, unknown>>();
+  private orderSeq = 0;
+  /**
+   * Balances served from here, so a test can shape the venue's truth. A sell
+   * sizes against this read (T09.2), and locking/dust scenarios need the fake to
+   * show whatever free/locked split the scenario requires.
+   */
+  private balanceRows: Array<{ currency: string; balance: number; locked_balance: number }> =
+    JSON.parse(SYNTHETIC_BALANCES) as Array<{ currency: string; balance: number; locked_balance: number }>;
 
   constructor(private readonly options: FakeVenueOptions = {}) {}
 
@@ -163,6 +191,39 @@ export class FakeVenue {
     this.served = 0;
   }
 
+  /** The orders currently held by the fake, for test assertions. */
+  ordersSnapshot(): ReadonlyArray<Record<string, unknown>> {
+    return [...this.orders.values()];
+  }
+
+  /**
+   * Drive a stored order to a new venue state — the fill-capable control. A test
+   * settles an order to `filled` (or `partially_filled`) after create, and the
+   * next status/active_orders read observes it. That is the whole trigger a
+   * fan-out needs to auto-complete (T09.7). The state is stored verbatim, like
+   * the real venue's; the reconciler maps it, so this accepts any literal a test
+   * wants to simulate.
+   */
+  settleOrder(clientOrderId: string, nextState: string): void {
+    const order = this.orders.get(clientOrderId);
+    if (order === undefined) throw new Error(`settleOrder: no stored order with client_order_id ${clientOrderId}`);
+    order['status'] = nextState;
+  }
+
+  /**
+   * Set an account's free (`balance`) and `locked_balance` for one currency. The
+   * venue numbers are major units, exactly as `users/balances` returns them.
+   */
+  setBalance(currency: string, balance: number, lockedBalance: number): void {
+    const row = this.balanceRows.find((r) => r.currency === currency);
+    if (row !== undefined) {
+      row.balance = balance;
+      row.locked_balance = lockedBalance;
+    } else {
+      this.balanceRows.push({ currency, balance, locked_balance: lockedBalance });
+    }
+  }
+
   private takeFault(path: string): Fault | undefined {
     for (let i = 0; i < this.faults.length; i += 1) {
       const f = this.faults[i];
@@ -220,14 +281,21 @@ export class FakeVenue {
 
     const fault = this.takeFault(path);
     if (fault !== undefined) {
-      if (fault.blackhole === true) return; // only the client's deadline ends this
-      if (fault.hangUp === true) { req.socket.destroy(); return; }
-      if (fault.delayMs !== undefined && fault.delayMs > 0) {
-        await new Promise<void>((r) => { setTimeout(r, fault.delayMs); });
-      }
-      if (fault.status !== undefined || fault.body !== undefined) {
-        this.send(res, fault.status ?? 500, fault.body ?? '{"message":"injected fault"}', fault.headers);
-        return;
+      if (fault.acceptThenDrop === true) {
+        // The create handler runs (storing the order) but its response is dropped.
+        this.dropCreate = true;
+      } else if (fault.blackhole === true) {
+        return; // only the client's deadline ends this
+      } else if (fault.hangUp === true) {
+        req.socket.destroy(); return;
+      } else {
+        if (fault.delayMs !== undefined && fault.delayMs > 0) {
+          await new Promise<void>((r) => { setTimeout(r, fault.delayMs); });
+        }
+        if (fault.status !== undefined || fault.body !== undefined) {
+          this.send(res, fault.status ?? 500, fault.body ?? '{"message":"injected fault"}', fault.headers);
+          return;
+        }
       }
     }
 
@@ -290,10 +358,99 @@ export class FakeVenue {
       // The real venue carried NO rate-limit headers on an authenticated
       // response we have seen (only a 401), so E3 stays open and the adapter
       // must keep working when they are absent.
-      if (route === '/exchange/v1/users/balances') { this.send(res, 200, SYNTHETIC_BALANCES); return; }
-      if (route === '/exchange/v1/orders/create' || route === '/exchange/v1/orders/cancel') {
-        this.send(res, 501,
-          '{"code":501,"message":"the fake venue has no order state until Phase 06","status":"error"}');
+      if (route === '/exchange/v1/users/balances') {
+        this.send(res, 200, JSON.stringify(this.balanceRows));
+        return;
+      }
+
+      if (route === '/exchange/v1/orders/create') {
+        let parsed: Record<string, unknown> | null = null;
+        try { parsed = JSON.parse(body) as Record<string, unknown>; } catch { /* handled below */ }
+        const coid = parsed?.['client_order_id'];
+        if (typeof coid !== 'string' || coid === '') {
+          this.send(res, 400, '{"code":400,"message":"client_order_id is required","status":"error"}');
+          return;
+        }
+        if (this.orders.has(coid)) {
+          // The real duplicate-client-order-id rejection — the idempotency backstop.
+          this.send(res, 400, '{"code":400,"message":"duplicate client_order_id","status":"error"}');
+          return;
+        }
+        this.orderSeq += 1;
+        const order: Record<string, unknown> = {
+          id: String(this.orderSeq),
+          client_order_id: coid,
+          status: 'open',
+          ...(parsed ?? {}),
+        };
+        this.orders.set(coid, order);
+        if (this.dropCreate) {
+          this.dropCreate = false;
+          req.socket.destroy(); // the order is stored; the client never hears
+          return;
+        }
+        this.send(res, 200, JSON.stringify({ id: order['id'], client_order_id: coid, status: order['status'] }));
+        return;
+      }
+
+      if (route === '/exchange/v1/orders/status') {
+        let parsed: Record<string, unknown> | null = null;
+        try { parsed = JSON.parse(body) as Record<string, unknown>; } catch { /* handled below */ }
+        const coid = parsed?.['client_order_id'];
+        const order = typeof coid === 'string' ? this.orders.get(coid) : undefined;
+        if (order === undefined) { this.send(res, 200, '{}'); return; }
+        this.send(res, 200, JSON.stringify(order));
+        return;
+      }
+
+      if (route === '/exchange/v1/orders/active_orders') {
+        let parsed: Record<string, unknown> | null = null;
+        try { parsed = JSON.parse(body) as Record<string, unknown>; } catch { /* handled below */ }
+        const market = parsed?.['market'];
+        if (typeof market !== 'string' || market === '') {
+          this.send(res, 400, '{"code":400,"message":"market is required","status":"error"}');
+          return;
+        }
+        // The venue's active set is exactly the states that can still trade. A
+        // settled or cancelled order has left it and must not reappear here, or
+        // Loop B would report a phantom.
+        const active = ['open', 'acked', 'partially_filled'];
+        const orders = [...this.orders.values()].filter(
+          (o) => o['market'] === market && typeof o['status'] === 'string' && active.includes(o['status'] as string),
+        );
+        this.send(res, 200, JSON.stringify({ orders }));
+        return;
+      }
+
+      if (route === '/exchange/v1/orders/cancel') {
+        let parsed: Record<string, unknown> | null = null;
+        try { parsed = JSON.parse(body) as Record<string, unknown>; } catch { /* handled below */ }
+        const coid = parsed?.['client_order_id'];
+        const byId = parsed?.['id'];
+        let order: Record<string, unknown> | undefined;
+        if (typeof coid === 'string' && coid !== '') {
+          order = this.orders.get(coid);
+        } else if (typeof byId === 'string' || typeof byId === 'number') {
+          const want = String(byId);
+          order = [...this.orders.values()].find((o) => String(o['id']) === want);
+        }
+        if (order === undefined) {
+          // The venue does not know this order — a fill-and-purge or a bad id.
+          // Distinguishable from a refusal so Loop B can tell "gone" from "stuck".
+          this.send(res, 404, '{"code":404,"message":"Order not found","status":"error"}');
+          return;
+        }
+        const status = typeof order['status'] === 'string' ? order['status'] : '';
+        // The FAQ is explicit: a filled/cancelled/rejected order cannot be
+        // cancelled, only one in open or partially_filled. The literal body maps
+        // through classify() to `order_not_cancellable`.
+        const cancellable = status === 'open' || status === 'partially_filled';
+        if (!cancellable) {
+          this.send(res, 400, '{"code":400,"message":"This order cannot be cancelled","status":"error"}');
+          return;
+        }
+        order['status'] = 'cancelled';
+        this.send(res, 200, '{"message":"success","status":"success","code":200}');
         return;
       }
       this.send(res, 404, `{"code":404,"message":"no fake route for ${route}","status":"error"}`);

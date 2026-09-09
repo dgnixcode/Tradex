@@ -9,3 +9,8 @@ export * from './group-repo.js';
 export * from './trade-repo.js';
 export * from './plan-state-repo.js';
 export * from './session-repo.js';
+export * from './audit-repo.js';
+export * from './user-repo.js';
+export * from './execution-repo.js';
+export * from './ledger-repo.js';
+export * from './positions-repo.js';

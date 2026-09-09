@@ -26,7 +26,8 @@ import { randomBytes } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { createHttpServer } from './dist/index.js';
-import { mapOrderBook, send } from '../../packages/exchange-coindcx/dist/index.js';
+import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
+import { mapOrderBook, probeCredential, send } from '../../packages/exchange-coindcx/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, '..', '..', 'checks', 'fixtures');
@@ -100,13 +101,48 @@ const getOrderBook = live ? getOrderBookLive : getOrderBookFixture;
 const pool = new pg.Pool({ connectionString: url, max: 10 });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
+// KMS for the TOTP envelope. Local in dev; a stable root key is defaulted so a
+// restart does not make every stored 2FA secret unrecoverable (the real CMK's
+// deletion protection exists for the same reason). NODE_ENV=production refuses it.
+process.env['TRADEX_LOCAL_ROOT_KEY'] ??= 'cd'.repeat(32);
+const kms = new LocalKms();
+
+// The real second factor: open the user's sealed TOTP envelope and verify the
+// code, all inside packages/crypto so the plaintext never reaches this process
+// scope in a form a log could print. This is what makes login-with-2FA, resume,
+// limits changes and large trades reachable.
+async function verifySecondFactor(userId, code, atMs) {
+  const row = await db.selectFrom('app_user')
+    .select(['tenant_id', 'totp_secret_ct'])
+    .where('id', '=', userId)
+    .executeTakeFirst();
+  if (row === undefined || row.totp_secret_ct === null) return false;
+  try {
+    return await verifyTotpFromEnvelope(kms, { tenantId: row.tenant_id, userId, keyVersion: 1 }, row.totp_secret_ct, code, atMs);
+  } catch {
+    return false;
+  }
+}
+
 const server = createHttpServer({
   db,
   getOrderBook,
   cookieSecret: cookieSecret(),
-  // Placeholder: TOTP enrolment is future work; no user has it enabled, so the
-  // core flow never reaches this. It refuses rather than fakes a pass.
-  verifySecondFactor: async () => false,
+  verifySecondFactor,
+  kms,
+  // The duplicate-key fingerprint pepper. A dev default keeps onboarding usable
+  // locally; production must set TRADEX_PEPPER (resolvePepper refuses to default,
+  // so this explicit default is the one allowed escape for a dev boot).
+  pepper: (() => {
+    process.env['TRADEX_PEPPER'] ??= 'ab'.repeat(32);
+    return Buffer.from(process.env['TRADEX_PEPPER'], 'hex');
+  })(),
+  // The live credential probe. Only exercised when a customer actually connects a
+  // key — against the real venue, which is exactly where it must run.
+  probe: (apiKey, apiSecret) => probeCredential(apiKey, apiSecret, {
+    baseUrl: process.env['TRADEX_VENUE_BASE'] ?? 'https://api.coindcx.com',
+    deadlineMs: 10_000,
+  }),
   codeVersion: process.env['TRADEX_CODE_VERSION'] ?? 'dev',
   // Local dev is plain HTTP, so the cookie must not be marked Secure or the
   // browser will drop it. Set TRADEX_SECURE_COOKIES=1 behind TLS.

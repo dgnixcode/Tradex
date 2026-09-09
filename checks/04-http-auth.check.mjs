@@ -18,19 +18,24 @@ import {
   TENANT, USER, bookProvider, ingestMarkets, seedGroupOfAccounts, setup, teardown,
 } from './_plan-harness.mjs';
 import { createHttpServer } from '../apps/api/dist/index.js';
-import { hashPassword } from '../packages/auth/dist/index.js';
+import { hashPassword, totp } from '../packages/auth/dist/index.js';
+import { LocalKms, verifyTotpFromEnvelope } from '../packages/crypto/dist/index.js';
+import { FakeVenue, probeCredential } from '../packages/exchange-coindcx/dist/index.js';
 
 const COOKIE_SECRET = Buffer.alloc(32, 0x5a);
 const PASSWORD = 'correct-horse-battery-staple';
 
 /** Start the server on an ephemeral port; return its base URL and a stop(). */
-async function startServer(ctx) {
+async function startServer(ctx, kms, verifySecondFactor, probe, pepper) {
   const { getOrderBook } = bookProvider();
   const server = createHttpServer({
     db: ctx.db,
     getOrderBook,
     cookieSecret: COOKIE_SECRET,
-    verifySecondFactor: async () => false, // no user has TOTP; the core flow never reaches this
+    verifySecondFactor,
+    kms,
+    pepper,
+    probe,
     codeVersion: 'http-check',
     secureCookies: false, // plain HTTP in the check, so the cookie is not dropped
   });
@@ -70,15 +75,41 @@ export async function run(assert) {
     return;
   }
   let srv = null;
+  let venue = null;
   try {
     await ingestMarkets(ctx.db);
-    const { groupId } = await seedGroupOfAccounts(ctx, ['5000000', '10000000', '20000000']);
+    const { groupId, accountIds } = await seedGroupOfAccounts(ctx, ['5000000', '10000000', '20000000']);
     // The harness seeds one owner (USER); add a trader and a viewer, all real hashes.
     await ctx.pool.query('UPDATE app_user SET password_hash = $1 WHERE id = $2', [await hashPassword(PASSWORD), USER]);
     await seedUser(ctx.pool, TRADER, 'trader@t.example', 'trader');
     await seedUser(ctx.pool, VIEWER, 'viewer@t.example', 'viewer');
 
-    srv = await startServer(ctx);
+    // Real KMS + a REAL second-factor verifier (opens the user's sealed TOTP
+    // envelope), so the TOTP block below exercises the true login-with-2FA path.
+    process.env['TRADEX_LOCAL_ROOT_KEY'] ??= 'cd'.repeat(32);
+    const kms = new LocalKms();
+    const verifySecondFactor = async (userId, code, atMs) => {
+      const row = await ctx.db.selectFrom('app_user')
+        .select(['tenant_id', 'totp_secret_ct'])
+        .where('id', '=', userId)
+        .executeTakeFirst();
+      if (row === undefined || row.totp_secret_ct === null) return false;
+      try {
+        return await verifyTotpFromEnvelope(kms, { tenantId: row.tenant_id, userId, keyVersion: 1 }, row.totp_secret_ct, code, atMs);
+      } catch { return false; }
+    };
+
+    // The venue probe for onboarding: a FakeVenue that accepts one key, so the
+    // connect-account block runs the real seal → probe → reconcile → confirm path
+    // with no network and no real key.
+    const CONNECT_KEY = 'connect-key-abcdef0123456789';
+    const CONNECT_SECRET = 'connect-secret-abcdef0123456789';
+    venue = new FakeVenue({ credentials: { [CONNECT_KEY]: CONNECT_SECRET } });
+    const venueBase = (await venue.start()).toString();
+    const probe = (apiKey, apiSecret) => probeCredential(apiKey, apiSecret, { baseUrl: venueBase, deadlineMs: 5_000 });
+    const pepper = Buffer.from('e5'.repeat(32), 'hex');
+
+    srv = await startServer(ctx, kms, verifySecondFactor, probe, pepper);
     const { base } = srv;
 
     // ------------------------------------------------ unauthenticated is 401
@@ -250,9 +281,172 @@ export async function run(assert) {
     });
     assert(weak.status === 400, `a weak signup password should be 400, got ${weak.status}`);
 
-    console.log('     signup → owner session → empty groups; login → preview → U2 re-read → confirm(dry-run); viewer 403; dup 409');
+    // ------------------------------------------------ group management lifecycle
+    // The trader drives a full group lifecycle over the new management routes:
+    // create → read → add member → toggle off → remove → archive. A viewer is
+    // refused the write routes (group.write is not a viewer action).
+    const accountId = accountIds[0];
+
+    const viewerCreate = await fetch(`${base}/api/groups`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(viewerCookie) },
+      body: JSON.stringify({ name: 'No', }),
+    });
+    assert(viewerCreate.status === 403, `a viewer creating a group must be 403, got ${viewerCreate.status}`);
+
+    const mkGroup = await fetch(`${base}/api/groups`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
+      body: JSON.stringify({ name: 'Http Group' }),
+    });
+    assert(mkGroup.status === 201, `a trader creating a group should be 201, got ${mkGroup.status}`);
+    const gid = (await mkGroup.json()).id;
+
+    const detail0 = await fetch(`${base}/api/groups/${gid}`, { headers: auth(traderCookie) });
+    assert(detail0.status === 200, 'a trader should read a group detail');
+    assert((await detail0.json()).members.length === 0, 'a fresh group has no members');
+
+    // The accounts list feeds the add-member picker.
+    const acctList = await fetch(`${base}/api/accounts`, { headers: auth(traderCookie) });
+    assert(acctList.status === 200, 'a trader should read the accounts list');
+    const acctBody = await acctList.json();
+    assert(acctBody.some((a) => a.id === accountId), 'the seeded account must appear in the accounts list');
+
+    const addRes = await fetch(`${base}/api/groups/${gid}/members`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
+      body: JSON.stringify({ accountId }),
+    });
+    assert(addRes.status === 201, `adding a member should be 201, got ${addRes.status}`);
+
+    const detail1 = await fetch(`${base}/api/groups/${gid}`, { headers: auth(traderCookie) });
+    const d1 = await detail1.json();
+    assert(d1.members.length === 1 && d1.members[0].accountId === accountId && d1.members[0].enabled === true,
+      'the added member should appear, enabled');
+
+    const off = await fetch(`${base}/api/groups/${gid}/members/${accountId}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
+      body: JSON.stringify({ enabled: false }),
+    });
+    assert(off.status === 200, 'disabling a member should be 200');
+    const d2 = await (await fetch(`${base}/api/groups/${gid}`, { headers: auth(traderCookie) })).json();
+    assert(d2.members[0].enabled === false, 'the member should now be disabled');
+
+    const removeRes = await fetch(`${base}/api/groups/${gid}/members/${accountId}`, {
+      method: 'DELETE', headers: { ...auth(traderCookie) },
+    });
+    assert(removeRes.status === 200, 'removing a member should be 200');
+    const d3 = await (await fetch(`${base}/api/groups/${gid}`, { headers: auth(traderCookie) })).json();
+    assert(d3.members.length === 0, 'the member should be gone after removal');
+
+    const archiveRes = await fetch(`${base}/api/groups/${gid}`, {
+      method: 'DELETE', headers: { ...auth(traderCookie) },
+    });
+    assert(archiveRes.status === 200, 'archiving a group should be 200');
+    const gone = await fetch(`${base}/api/groups/${gid}`, { headers: auth(traderCookie) });
+    assert(gone.status === 404, `an archived group should read as 404, got ${gone.status}`);
+
+    // ------------------------------------------------ TOTP: enrol + real 2FA login
+    // The owner (seeded by the harness) enrols a second factor, proves login now
+    // demands its code, and — because a TOTP login starts the session reauth-fresh —
+    // can finally RESUME trading, which Phase 05 left hard-403 until 2FA existed.
+    const OWNER_EMAIL = 'plan@t.example';
+    const loginAs = async (body) => {
+      const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => ({})), cookie: cookieFrom(r) };
+    };
+
+    let owner = await loginAs({ email: OWNER_EMAIL, password: PASSWORD });
+    assert(owner.status === 200, 'the owner should log in before 2FA is enabled');
+    assert(owner.cookie !== null, 'owner login must set a cookie');
+    const totpOwnerCookie = owner.cookie;
+
+    const begin = await fetch(`${base}/api/account/totp/begin`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(totpOwnerCookie) }, body: '{}' });
+    assert(begin.status === 200, 'beginning 2FA enrolment should be 200');
+    const beg = await begin.json();
+    assert(typeof beg.secret === 'string' && beg.secret.length >= 16, 'begin must return a base32 secret');
+    assert(beg.otpauthUri.startsWith('otpauth://'), 'begin must return an otpauth URI');
+
+    const wrong = await fetch(`${base}/api/account/totp/confirm`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(totpOwnerCookie) }, body: JSON.stringify({ code: '000000' }) });
+    assert(wrong.status === 400, 'a wrong enrolment code must be rejected');
+
+    const goodCode = totp(beg.secret, Date.now());
+    const totpConfirm = await fetch(`${base}/api/account/totp/confirm`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(totpOwnerCookie) }, body: JSON.stringify({ code: goodCode }) });
+    assert(totpConfirm.status === 200, 'a correct enrolment code should enable 2FA');
+
+    const reb = await fetch(`${base}/api/account/totp/begin`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(totpOwnerCookie) }, body: '{}' });
+    assert(reb.status === 400, 're-beginning once 2FA is enabled must be refused');
+
+    owner = await loginAs({ email: OWNER_EMAIL, password: PASSWORD });
+    assert(owner.status === 401 && owner.body.code === 'totp_required', 'after 2FA, login without a code must say totp_required');
+
+    owner = await loginAs({ email: OWNER_EMAIL, password: PASSWORD, totpCode: goodCode });
+    assert(owner.status === 200, 'login WITH the code should succeed');
+    const owner2fa = owner.cookie;
+    const sess = await (await fetch(`${base}/api/session`, { headers: auth(owner2fa) })).json();
+    assert(sess.totpEnabled === true, 'the session must report 2FA enabled');
+
+    const pauseRes = await fetch(`${base}/api/trading/pause`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: JSON.stringify({ reason: 'totp test' }) });
+    assert(pauseRes.status === 200, 'the owner can pause');
+    const resumeRes = await fetch(`${base}/api/trading/resume`, { method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: '{}' });
+    assert(resumeRes.status === 200, 'the owner with a fresh second factor can resume — the Phase-05 reauth gate is now reachable');
+
+    // ------------------------------------------------ audit trail is visible
+    // T05.5: the switch and mode changes the owner just made must be readable in
+    // the tenant's own audit view — and a viewer must be refused it.
+    const viewerAudit = await fetch(`${base}/api/audit`, { headers: auth(viewerCookie) });
+    assert(viewerAudit.status === 403, 'a viewer must be 403 from the audit view (view.audit)');
+
+    const audit = await (await fetch(`${base}/api/audit`, { headers: auth(owner2fa) })).json();
+    assert(Array.isArray(audit) && audit.length >= 2, 'the tenant audit trail should have at least the pause + resume rows');
+    const actions = audit.map((r) => r.action);
+    assert(actions.includes('trading.pause') && actions.includes('trading.resume'),
+      `the pause and resume the owner just made must be in the audit trail, saw: ${[...new Set(actions)].join(', ')}`);
+    assert(audit.every((r) => r.actorProcess === 'api'), 'audit rows must name the acting process');
+
+    // ------------------------------------------------ connect an exchange account
+    // The owner (fresh 2FA) connects a FakeVenue key: seal → probe → reconcile →
+    // confirm → the account appears in the list, active. The reconciliation must
+    // show the typed-vs-real divergence the FakeVenue is seeded to produce.
+    const validate = await fetch(`${base}/api/accounts/validate`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
+      body: JSON.stringify({ accountName: 'New Exchange Acct', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
+    });
+    assert(validate.status === 200, `validating a good key should be 200, got ${validate.status}`);
+    const rec = (await validate.json()).reconciliation;
+    assert(rec.typedCapitalMinor === '2000000' && rec.realFreeMinor === '24875034', 'the reconciliation must carry typed + real capital');
+    assert(rec.diverges === true, 'the FakeVenue balance must diverge from the typed capital');
+    assert(rec.apiKeyLast4 === '6789', 'the reconciliation must report the key last-4');
+
+    const badValidate = await fetch(`${base}/api/accounts/validate`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
+      body: JSON.stringify({ accountName: 'Bad', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: 'not-a-real-key-000', apiSecret: 'not-a-real-secret-000' }),
+    });
+    assert(badValidate.status === 401, 'an unknown key should fail validation with 401 (the three-cause message)');
+
+    const confirmConn = await fetch(`${base}/api/accounts/confirm`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
+      body: JSON.stringify({
+        accountId: rec.accountId, credentialId: rec.credentialId,
+        confirmedAgainstMinor: rec.typedCapitalMinor, adoptRealAsBasis: false,
+        fundingCurrencies: rec.fundingCurrencies, balances: rec.balances,
+      }),
+    });
+    assert(confirmConn.status === 200, 'confirming a validated account should be 200');
+
+    const afterConn = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
+    const added = afterConn.find((a) => a.name === 'New Exchange Acct');
+    assert(added !== undefined, 'the newly connected account must appear in the list');
+    assert(added.status === 'active', 'a confirmed account must be active');
+
+    // A trader (no credential.write) must be refused the connect routes.
+    const traderValidate = await fetch(`${base}/api/accounts/validate`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
+      body: JSON.stringify({ accountName: 'X', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
+    });
+    assert(traderValidate.status === 403, 'a trader must be 403 from the connect route (credential.write is owner-only)');
+
+    console.log('     group mgmt + TOTP + connect-account: seal→probe→reconcile→confirm→active list; viewer/trader 403');
   } finally {
     if (srv !== null) await srv.stop();
+    if (venue !== null) await venue.stop();
     await teardown(ctx);
   }
 }

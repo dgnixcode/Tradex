@@ -9,6 +9,7 @@ import { FakeVenue } from './fake-venue.js';
 import { destroyAllAgents, send } from './http.js';
 import { mapMarketsDetails } from './market-rules.js';
 import { bestBid, mapOrderBook } from './order-book.js';
+import { cancelOrder, fetchActiveOrders, fetchOrderByClientId, submitOrder } from './order-client.js';
 import { readRateFeedback } from './rate-headers.js';
 import { signRequest } from './signing.js';
 
@@ -145,10 +146,10 @@ describe('signatures are verified, which is the point of the fake', () => {
     expect((await get('/exchange/v1/users/balances')).status).toBe(404);
   });
 
-  it('refuses placement until Phase 06', async () => {
+  it('requires a client_order_id on placement (Phase 06 order engine)', async () => {
     const r = await post('/exchange/v1/orders/create', { market: 'BTCINR', side: 'buy' });
-    expect(r.status).toBe(501);
-    expect(r.body).toContain('no order state until Phase 06');
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('client_order_id');
   });
 });
 
@@ -265,5 +266,112 @@ describe('the whole stack runs against the fake with only the base URL changed',
     expect((err as { kind: string }).kind).toBe('connect');
     expect((err as { mayHaveSent: boolean }).mayHaveSent).toBe(false);
     expect(classify({ transport: 'connect' }).orderMayExist).toBe(false);
+  });
+});
+
+describe('the Phase 09 sell side: cancel, fills and holdings (T09.1/T09.7/T09.2)', () => {
+  // `base` is reassigned to a fresh URL+port in EVERY beforeEach, so it cannot be
+  // captured here — the describe body runs once at registration, before any
+  // beforeEach has fired. A getter resolves it at access time instead.
+  const urlOpts = { get baseUrl(): string { return base.toString(); } };
+
+  const place = async (coid: string, overrides: Record<string, unknown> = {}) => {
+    const outcome = await submitOrder(KEY, SECRET, {
+      market: 'BTCINR',
+      side: 'sell',
+      order_type: 'limit',
+      total_quantity: '0.001',
+      price_per_unit: '6000000',
+      client_order_id: coid,
+      ...overrides,
+    }, urlOpts);
+    expect(outcome.kind).toBe('accepted');
+    return outcome.kind === 'accepted' ? outcome.order : null;
+  };
+
+  const poll = async (coid: string) => (await fetchOrderByClientId(KEY, SECRET, coid, urlOpts));
+
+  it('cancels an open order, and a status poll observes the cancellation', async () => {
+    const order = await place('c1');
+    expect(order).not.toBeNull();
+    expect(order!.state.state).toBe('open');
+
+    const cancelled = await cancelOrder(KEY, SECRET, 'c1', urlOpts);
+    expect(cancelled).toEqual({ kind: 'cancelled' });
+
+    // The venue's cancel returns no order object — the poll is the truth (01 F8.10).
+    const polled = await poll('c1');
+    expect(polled.ok).toBe(true);
+    expect(polled.ok && polled.order?.state.state).toBe('cancelled');
+    // A settled order has left the active set.
+    const active = await fetchActiveOrders(KEY, SECRET, 'BTCINR', urlOpts);
+    expect(active.ok).toBe(true);
+    expect(active.ok && active.orders).toHaveLength(0);
+  });
+
+  it('refuses to cancel an order the venue considers settled — before any engine logic', async () => {
+    await place('c2');
+    venue.settleOrder('c2', 'filled');
+
+    const refused = await cancelOrder(KEY, SECRET, 'c2', urlOpts);
+    expect(refused.kind).toBe('rejected');
+    if (refused.kind === 'rejected') {
+      expect(refused.failure.class).toBe('business_rejection');
+      expect(refused.failure.code).toBe('order_not_cancellable');
+      expect(refused.failure.retrySafe).toBe(false);
+    }
+    // The refusal changed nothing at the venue.
+    const polled = await poll('c2');
+    expect(polled.ok && polled.order?.state.state).toBe('filled');
+  });
+
+  it('returns a distinguishable not-found when the venue never heard of the order', async () => {
+    const refused = await cancelOrder(KEY, SECRET, 'never-created', urlOpts);
+    expect(refused.kind).toBe('rejected');
+    if (refused.kind === 'rejected') expect(refused.failure.class).toBe('not_found');
+  });
+
+  it('settleOrder drives an order to filled/partially_filled for completion-on-fills (T09.7)', async () => {
+    const coid = 'settle-1';
+    await place(coid, { side: 'buy', market: 'BTCINR' });
+    venue.settleOrder(coid, 'partially_filled');
+    let polled = await poll(coid);
+    expect(polled.ok && polled.order?.state.state).toBe('partially_filled');
+    venue.settleOrder(coid, 'filled');
+    polled = await poll(coid);
+    expect(polled.ok && polled.order?.state.state).toBe('filled');
+    // Filled orders are no longer "active".
+    const active = await fetchActiveOrders(KEY, SECRET, 'BTCINR', urlOpts);
+    expect(active.ok && active.orders).toHaveLength(0);
+  });
+
+  it('active_orders is per-market and excludes working orders on other markets', async () => {
+    await place('m1', { market: 'BTCINR' });
+    await place('m2', { market: 'BTCUSDT' });
+    const btcInr = await fetchActiveOrders(KEY, SECRET, 'BTCINR', urlOpts);
+    expect(btcInr.ok && btcInr.orders.map((o) => o.clientOrderId)).toEqual(['m1']);
+    const btcUsdt = await fetchActiveOrders(KEY, SECRET, 'BTCUSDT', urlOpts);
+    expect(btcUsdt.ok && btcUsdt.orders.map((o) => o.clientOrderId)).toEqual(['m2']);
+    // No orders on a market we never touched.
+    const eth = await fetchActiveOrders(KEY, SECRET, 'ETHINR', urlOpts);
+    expect(eth.ok && eth.orders).toHaveLength(0);
+  });
+
+  it('setBalance shapes the users/balances read a sell sizes against (T09.2)', async () => {
+    venue.setBalance('BTC', 0.0025, 0.001);
+    const r = await post('/exchange/v1/users/balances');
+    const rows = JSON.parse(r.body) as Array<{ currency: string; balance: number; locked_balance: number }>;
+    const btc = rows.find((row) => row.currency === 'BTC');
+    expect(btc?.balance).toBe(0.0025);
+    expect(btc?.locked_balance).toBe(0.001);
+  });
+
+  it('rejects an active_orders request with no market, as the venue requires', async () => {
+    const signed = signRequest(KEY, SECRET, {});
+    const r = await send({
+      method: 'POST', url: new URL('/exchange/v1/orders/active_orders', base), body: signed.body, headers: signed.headers,
+    });
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('market');
   });
 });

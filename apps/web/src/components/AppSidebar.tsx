@@ -25,20 +25,23 @@ const GROUPS: readonly NavGroup[] = [
     items: [
       { label: 'Trade', icon: '⚡', to: '/app', match: (p) => p === '/app' || p.startsWith('/app/trades') },
       { label: 'Orders', icon: '📋', soon: true },
-      { label: 'Positions', icon: '📊', soon: true },
+      { label: 'Positions', icon: '📊', to: '/app/positions', match: (p) => p.startsWith('/app/positions') },
     ],
   },
   {
     title: 'Manage',
     items: [
-      { label: 'Accounts', icon: '🔗', soon: true },
-      { label: 'Groups', icon: '🗂', soon: true },
+      { label: 'Accounts', icon: '🔗', to: '/app/accounts', match: (p) => p.startsWith('/app/accounts') },
+      { label: 'Groups', icon: '🗂', to: '/app/groups', match: (p) => p.startsWith('/app/groups') },
+      { label: 'Audit', icon: '🧾', to: '/app/audit', match: (p) => p.startsWith('/app/audit') },
       { label: 'Reports', icon: '📈', soon: true },
     ],
   },
   {
     title: 'Workspace',
     items: [
+      { label: 'Desk controls', icon: '🛑', to: '/app/trading', match: (p) => p.startsWith('/app/trading') },
+      { label: 'Security & 2FA', icon: '🔐', to: '/app/security', match: (p) => p.startsWith('/app/security') },
       { label: 'Settings', icon: '⚙️', soon: true },
       { label: 'Members', icon: '👥', soon: true },
     ],
