@@ -8,6 +8,12 @@
       "path": "./packages/metrics"
     },
     {
+      "path": "./packages/ops"
+    },
+    {
+      "path": "./packages/futures-positions"
+    },
+    {
       "path": "./packages/ledger"
     },
     {

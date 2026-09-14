@@ -96,6 +96,10 @@ export async function listBlotterChildren(tdb: TenantDb, q: BlotterQuery = {}): 
       'child_order.client_order_id as clientOrderId', 'child_order.exchange_order_id as exchangeOrderId',
       'child_order.sent_at as sentAt', 'child_order.terminal_at as terminalAt',
     ] as unknown as never)
+    // A blotter row is a REAL order, not a browsed preview. Group trades in
+    // draft/previewed status were never confirmed by the customer, so their
+    // child_orders (all still 'planned') do not belong in the order history.
+    .where('group_trade.status' as never, 'not in', ['draft', 'previewed'] as never)
     .orderBy('child_order.created_at', 'desc' as never)
     .orderBy('child_order.id', 'desc' as never)
     .limit(limit + 1);

@@ -110,6 +110,24 @@ export async function run(assert) {
         `rows must be strictly newest-first (created_at, id) — index ${i} out of order`);
     }
 
+    // A previewed-only trade (never confirmed) must NOT appear in the blotter —
+    // browsing the ticket + review page must not leave a fake row in the log.
+    const gtPrev = await ctx.pool.query(
+      `INSERT INTO group_trade (tenant_id, group_id, created_by, asset, side, order_type, sizing_mode, sizing_value, status, preview_token, preview_expires_at)
+       VALUES ($1, $2, $3, 'BTC', 'buy', 'market', 'base_quantity', '0.0001', 'previewed', 'tok-preview-only', $4) RETURNING id`,
+      [TENANT, groupId, USER, new Date(NOW_MS + 60_000)],
+    );
+    const previewChild = await ctx.pool.query(
+      `INSERT INTO child_order (tenant_id, group_trade_id, account_id, leg_seq, market, quote_currency, state, final_quantity)
+       VALUES ($1, $2, $3, 99, 'BTCINR', 'INR', 'planned', '0.0001') RETURNING id`,
+      [TENANT, gtPrev.rows[0].id, a0],
+    );
+    const afterPreview = await allOf({});
+    assert(!afterPreview.some((r) => r.id === previewChild.rows[0].id),
+      "a previewed-only trade's child must not appear in the blotter");
+    assert(!afterPreview.some((r) => r.groupTradeId === gtPrev.rows[0].id),
+      'no row from the previewed-only group trade must appear in the blotter');
+
     // Empty result set still yields a clean (no-cursor) page.
     const empty = await blotterPage(ctx.tdb, { market: 'DOGEINR' });
     assert(empty.rows.length === 0 && empty.nextCursor === null, 'a no-match page must be empty with no cursor');

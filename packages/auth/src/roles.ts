@@ -23,11 +23,13 @@ export type Action =
   | 'group.write'
   | 'credential.write'
   | 'account.allocated.write'
+  | 'account.suspend'
   | 'account.disconnect'
   | 'limits.write'
   | 'trading.pause'
   | 'trading.resume'
-  | 'users.manage';
+  | 'users.manage'
+  | 'settings.write';
 
 export interface Permission {
   readonly roles: readonly Role[];
@@ -60,6 +62,11 @@ export const MATRIX: Readonly<Record<Action, Permission>> = {
     requiresReauth: true,
     reason: 'allocated capital changes every future trade size without placing a trade',
   },
+  'account.suspend': {
+    roles: ['owner'],
+    requiresReauth: true,
+    reason: 'pausing or resuming an account decides whether the platform trades it',
+  },
   'account.disconnect': {
     roles: ['owner'],
     requiresReauth: true,
@@ -72,6 +79,7 @@ export const MATRIX: Readonly<Record<Action, Permission>> = {
   'trading.resume': { roles: ['owner'], requiresReauth: true, reason: 'resuming after a pause is an owner decision' },
 
   'users.manage': { roles: ['owner'], requiresReauth: true, reason: 'user management is an owner action' },
+  'settings.write': { roles: ['owner'], requiresReauth: true, reason: 'workspace settings are an owner action' },
 };
 
 export const ACTIONS = Object.keys(MATRIX) as Action[];
@@ -90,7 +98,11 @@ export const REAUTH_TTL_MS = 5 * 60 * 1000;
 
 export type Decision =
   | { readonly allowed: true }
-  | { readonly allowed: false; readonly code: 'forbidden_role' | 'reauth_required' | 'totp_not_enrolled'; readonly reason: string };
+  // Only two denials exist now: the role is wrong, or an ENROLLED user's second
+  // factor has gone stale. A separate 'totp_not_enrolled' code existed while
+  // enrolment was mandatory; it is gone because enrolment is now optional (see
+  // authorise below), so nothing can produce it.
+  | { readonly allowed: false; readonly code: 'forbidden_role' | 'reauth_required'; readonly reason: string };
 
 export function authorise(principal: Principal, action: Action, now: Date = new Date()): Decision {
   const permission = MATRIX[action];
@@ -103,13 +115,20 @@ export function authorise(principal: Principal, action: Action, now: Date = new 
   }
   if (!permission.requiresReauth) return { allowed: true };
 
-  if (!principal.totpEnabled) {
-    return {
-      allowed: false,
-      code: 'totp_not_enrolled',
-      reason: `${action} requires two-factor authentication; enrol before continuing`,
-    };
-  }
+  // Second-factor ENROLMENT is optional; FRESHNESS is not.
+  //
+  // A user who has not enrolled cannot be asked for a code, so gating on
+  // enrolment makes the action UNREACHABLE for them — which is exactly what a
+  // first-time owner hit trying to connect their opening exchange account. So an
+  // un-enrolled user passes on the role check alone, and the freshness
+  // requirement applies in full to anyone who HAS enrolled.
+  //
+  // The tradeoff, stated plainly: without a second factor, a stolen owner
+  // password is enough to replace an API key — the highest-value action in the
+  // product. Enrol at /app/security before real money moves (see
+  // docs/ops/go-live-gates.md, which records this as a go-live reconsideration).
+  if (!principal.totpEnabled) return { allowed: true };
+
   const at = principal.reauthAt;
   if (at === undefined || now.getTime() - at.getTime() > REAUTH_TTL_MS) {
     return { allowed: false, code: 'reauth_required', reason: `${action} requires a fresh second factor` };
@@ -121,7 +140,7 @@ export function authorise(principal: Principal, action: Action, now: Date = new 
 export class AuthorisationError extends Error {
   override readonly name = 'AuthorisationError';
   constructor(
-    readonly code: 'forbidden_role' | 'reauth_required' | 'totp_not_enrolled',
+    readonly code: 'forbidden_role' | 'reauth_required',
     message: string,
   ) {
     super(message);

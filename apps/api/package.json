@@ -15,6 +15,7 @@
     "@tradex/db": "*",
     "@tradex/exchange": "*",
     "@tradex/exchange-coindcx": "*",
+    "@tradex/futures-positions": "*",
     "@tradex/ledger": "*",
     "@tradex/metrics": "*",
     "@tradex/money": "*",

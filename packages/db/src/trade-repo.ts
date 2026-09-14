@@ -53,6 +53,14 @@ export interface NewGroupTrade {
   readonly marketMetaVersion: string | null;
   readonly codeVersion: string;
   readonly dryRun: boolean;
+  // Phase-15 futures. All optional; a spot row leaves is_futures=false and the rest null.
+  readonly isFutures?: boolean | undefined;
+  readonly leverage?: string | null | undefined;
+  readonly marginCurrency?: 'INR' | 'USDT' | null | undefined;
+  readonly positionMarginType?: 'isolated' | 'crossed' | null | undefined;
+  readonly stopLossPrice?: string | null | undefined;
+  readonly takeProfitPrice?: string | null | undefined;
+  readonly reduceOnly?: boolean | undefined;
 }
 
 /** One planned or skipped leg, with its full per-account provenance. */
@@ -126,6 +134,15 @@ export async function persistPlan(
       code_version: trade.codeVersion,
       dry_run: trade.dryRun,
       created_at: at,
+      // Phase-15 futures — every column has a schema DEFAULT except is_futures,
+      // which the CHECK requires paired with leverage/margin/margin-type when true.
+      is_futures: trade.isFutures ?? false,
+      leverage: trade.leverage ?? null,
+      margin_currency: trade.marginCurrency ?? null,
+      position_margin_type: trade.positionMarginType ?? null,
+      stop_loss_price: trade.stopLossPrice ?? null,
+      take_profit_price: trade.takeProfitPrice ?? null,
+      reduce_only: trade.reduceOnly ?? false,
     })
       .returning('id')
       .executeTakeFirst();

@@ -13,11 +13,13 @@ import { Execution } from './routes/Execution.tsx';
 import { Groups } from './routes/Groups.tsx';
 import { GroupDetail } from './routes/GroupDetail.tsx';
 import { Accounts } from './routes/Accounts.tsx';
-import { Positions } from './routes/Positions.tsx';
 import { Blotter } from './routes/Blotter.tsx';
 import { GroupDetailReport } from './routes/GroupDetailReport.tsx';
 import { Report } from './routes/Report.tsx';
+import { Settings } from './routes/Settings.tsx';
+import { Futures } from './routes/Futures.tsx';
 import { ConnectAccount } from './routes/ConnectAccount.tsx';
+import { AccountDetail } from './routes/AccountDetail.tsx';
 import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
@@ -61,11 +63,13 @@ const router = createBrowserRouter([
           { path: 'groups', element: <Groups /> },
           { path: 'groups/:groupId', element: <GroupDetail /> },
           { path: 'accounts', element: <Accounts /> },
-          { path: 'positions', element: <Positions /> },
+          { path: 'positions', element: <Futures /> },
           { path: 'activity', element: <Blotter /> },
           { path: 'activity/groups/:groupTradeId', element: <GroupDetailReport /> },
           { path: 'report', element: <Report /> },
+          { path: 'settings', element: <Settings /> },
           { path: 'accounts/connect', element: <ConnectAccount /> },
+          { path: 'accounts/:accountId', element: <AccountDetail /> },
           { path: 'trading', element: <DeskControls /> },
           { path: 'security', element: <Security /> },
           { path: 'audit', element: <Audit /> },

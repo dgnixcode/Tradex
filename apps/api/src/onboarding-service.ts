@@ -1,21 +1,25 @@
 // Onboarding — plan/phase-02 T02.4 and T02.5, the sequence from 19 F3.
 //
-// Turns a customer's typed key/secret + allocated capital into a validated,
-// reconciled account. The sequence is fixed and each step guards the next:
+// Turns a customer's typed key/secret into a validated, reconciled account.
+//
+// PROBE FIRST. The order matters more than any single step:
 //
 //   1. shape check         — reject an obviously-wrong key before touching anything
 //   2. fingerprint check   — reject a duplicate, NAMING the account it clashes with
-//   3. create account      — pending_validation
-//   4. seal + insert cred  — pending_validation; the DB unique index is the real
-//                            race guard, the step-2 check is only for the message
-//   5. live probe          — sign with the plaintext just entered (NOT the signer,
+//   3. live probe          — sign with the plaintext just entered (NOT the signer,
 //                            which refuses a pending credential) and read balances
-//   6. on failure          — the three-cause message (07 F1: the IP-binding trap)
-//   7. on success          — derive funding currencies, return a reconciliation
-//                            payload; the customer confirms in a second step
+//   4. on failure          — NOTHING IS WRITTEN. The three-cause message (07 F1,
+//                            the IP-binding trap), or the "no INR and no USDT"
+//                            refusal. The customer corrects the key and resubmits
+//   5. on success          — one transaction: account, sealed credential, the
+//                            venue's sizing basis, its funding currencies and its
+//                            observed balances
 //
-// `validate` stops at the reconciliation payload without activating: the customer
-// must choose which capital figure to keep (T02.5). `confirm` does the activation.
+// Nothing is created before the probe succeeds, so a failed connect cannot strand
+// a `pending_validation` account. `pending_validation` means the key is PROVEN and
+// waiting to be switched on — `confirm` does that, and it takes no payload, so a
+// connect abandoned at the review step can be finished later from its own page
+// with no key re-sent.
 //
 // The service is dependency-injected — tenant db, KMS, pepper, and a `probe`
 // function — so the whole sequence runs against the fake venue in a check with
@@ -25,11 +29,21 @@ import { randomUUID } from 'node:crypto';
 import { fingerprintOf, keyLast4, sealCredential } from '@tradex/crypto';
 import type { KmsPort } from '@tradex/crypto';
 import {
-  activate, confirmAllocation, findByFingerprint, insertAccount, insertCredential,
+  activate, activateAllocation, findByAccount, findByFingerprint, insertAccount, insertCredential,
+  recordObservedBalances, recordVenueBasis,
 } from '@tradex/db';
 import type { TenantDb } from '@tradex/db';
 import { deriveFundingCurrencies, freeBalanceMinor } from '@tradex/exchange';
 import type { Balance, CredentialProbe, FundingCurrency, ProbeFn } from '@tradex/exchange';
+
+/**
+ * The Postgres unique-violation code, and the constraint a race lost on. Kysely
+ * re-throws the driver error, so the fields sit on the error object itself.
+ */
+function uniqueViolation(e: unknown): string | null {
+  const err = e as { code?: unknown; constraint?: unknown };
+  return err.code === '23505' && typeof err.constraint === 'string' ? err.constraint : null;
+}
 
 /** The message every onboarding auth failure carries. The third cause is the common one. */
 export const THREE_CAUSE_MESSAGE =
@@ -42,21 +56,26 @@ export const THREE_CAUSE_MESSAGE =
 export type OnboardingRejection =
   | { readonly kind: 'shape_invalid'; readonly message: string }
   | { readonly kind: 'duplicate_key'; readonly message: string; readonly conflictingAccountName: string }
+  | { readonly kind: 'duplicate_name'; readonly message: string }
   | { readonly kind: 'auth_failed'; readonly message: string }
   | { readonly kind: 'venue_unreachable'; readonly message: string }
+  | { readonly kind: 'no_funding_currency'; readonly message: string }
   | { readonly kind: 'venue_error'; readonly message: string };
 
+/**
+ * What the customer is shown before activating. Both figures come from the
+ * exchange, not from the customer: the currency from what the account can
+ * actually fund with, the capital from the free balance it holds. Nothing here
+ * is typed, so there is no typed-vs-real divergence left to reconcile.
+ */
 export interface ReconciliationPayload {
   readonly accountId: string;
   readonly credentialId: string;
   readonly apiKeyLast4: string;
+  /** Derived from the venue's balances: the first fundable quote, INR preferred. */
   readonly allocatedCurrency: FundingCurrency;
-  /** What the customer typed, minor units. */
-  readonly typedCapitalMinor: string;
   /** The real free balance in that currency right now, minor units. */
   readonly realFreeMinor: string;
-  /** True when the two differ at all — the panel must appear whenever they do. */
-  readonly diverges: boolean;
   readonly fundingCurrencies: readonly FundingCurrency[];
   readonly balances: readonly Balance[];
 }
@@ -67,8 +86,6 @@ export type ValidateResult =
 
 export interface OnboardingInput {
   readonly accountName: string;
-  readonly allocatedCapitalMinor: string;
-  readonly allocatedCurrency: FundingCurrency;
   readonly apiKey: string;
   readonly apiSecret: string;
 }
@@ -89,9 +106,6 @@ function checkShape(input: OnboardingInput): string | null {
   if (key.length < 8) return 'the API key is too short to be a CoinDCX key';
   if (secret.length < 8) return 'the API secret is too short to be a CoinDCX secret';
   if (input.accountName.trim() === '') return 'the account needs a name';
-  if (!/^\d+$/.test(input.allocatedCapitalMinor) || input.allocatedCapitalMinor === '0') {
-    return 'the allocated capital must be a positive amount';
-  }
   return null;
 }
 
@@ -99,12 +113,16 @@ export class OnboardingService {
   constructor(private readonly deps: OnboardingDeps) {}
 
   /**
-   * Steps 1-7. Returns a reconciliation payload on success WITHOUT activating —
-   * the account stays `pending_validation` until `confirm` records the
-   * customer's basis choice.
+   * Steps 1-5. Returns a reconciliation payload on success without activating —
+   * the account stays `pending_validation`, with its basis and balances already
+   * recorded, until `confirm` switches the key on.
+   *
+   * A rejection means the database is exactly as it was.
    */
   async validate(input: OnboardingInput): Promise<ValidateResult> {
-    const { tdb, kms, pepper, probe } = this.deps;
+    const { tdb, pepper, probe } = this.deps;
+    // `kms` is not used here any more: sealing happens inside `createProvenAccount`,
+    // below the probe, so that a rejection never touches it.
     const newId = this.deps.newId ?? randomUUID;
 
     const shape = checkShape(input);
@@ -127,55 +145,55 @@ export class OnboardingService {
       };
     }
 
-    // Steps 3-4: create the account, then seal and insert the credential. Both
-    // pending_validation. The credential id is chosen here because the AAD binds
-    // the ciphertext to it.
-    const accountId = await insertAccount(tdb, {
-      name: input.accountName,
-      allocatedCapitalMinor: input.allocatedCapitalMinor,
-      allocatedCurrency: input.allocatedCurrency,
-    });
-    const credentialId = newId();
-    const sealed = await sealCredential(
-      kms,
-      { tenantId: tdb.tenantId, accountId, credentialId, keyVersion: 1 },
-      input.apiKey,
-      input.apiSecret,
-    );
-    await insertCredential(tdb, {
-      id: credentialId,
-      accountId,
-      kmsKeyArn: sealed.kmsKeyId,
-      keyVersion: sealed.keyVersion,
-      dekWrapped: sealed.dekWrapped,
-      apiKeyCt: sealed.apiKey.ct,
-      apiKeyNonce: sealed.apiKey.nonce,
-      apiKeyTag: sealed.apiKey.tag,
-      apiSecretCt: sealed.apiSecret.ct,
-      apiSecretNonce: sealed.apiSecret.nonce,
-      apiSecretTag: sealed.apiSecret.tag,
-      apiKeyLast4: keyLast4(input.apiKey),
-      fingerprint,
-    });
-
-    // Step 5: the live proof. Signed with the plaintext still in hand.
+    // Step 3: the live proof, and the FIRST thing that touches the network.
+    //
+    // It runs before anything is written ON PURPOSE. The account and credential
+    // rows used to be created first (the credential's AAD binds to the account id,
+    // so it needs the account to exist), which meant every failure — a mistyped
+    // secret, an IP-bound key, a venue mapping bug — left a stranded
+    // `pending_validation` account behind with no way to finish or remove it.
+    // Probing first means a rejection writes nothing at all, and the customer just
+    // corrects the key and submits again. The audit log records the attempt.
     const result = await probe(input.apiKey, input.apiSecret);
     if (!result.ok) return { ok: false, rejection: this.rejectionFor(result) };
 
-    // Step 7: reconcile. The account and credential remain pending until confirm.
+    // Step 4: reconcile. The currency is DERIVED from what the account can
+    // actually fund with, never asked of the customer — `deriveFundingCurrencies`
+    // returns them in FUNDING_CURRENCIES order, so INR wins when both are held.
+    // An account that holds neither has no currency to size a percent-of-capital
+    // order against, so it is refused with a reason the customer can act on. This
+    // is checked here, before any row exists, for the same reason as the probe.
     const balances = result.balances ?? [];
     const fundingCurrencies = deriveFundingCurrencies(balances);
-    const realFreeMinor = freeBalanceMinor(balances, input.allocatedCurrency);
+    const allocatedCurrency = fundingCurrencies[0];
+    if (allocatedCurrency === undefined) {
+      return {
+        ok: false,
+        rejection: {
+          kind: 'no_funding_currency',
+          message: 'This account holds no INR and no USDT, so there is nothing to size a trade against. '
+            + 'Fund the account on the exchange, then connect it again.',
+        },
+      };
+    }
+    const realFreeMinor = freeBalanceMinor(balances, allocatedCurrency);
+
+    // Step 5: the key is proven, so it is safe to write. Account, credential, the
+    // venue's sizing basis and the observed balances all land together in one
+    // transaction — a partial connect would be worse than none.
+    const created = await this.createProvenAccount({
+      input, fingerprint, credentialId: newId(), realFreeMinor, allocatedCurrency, fundingCurrencies, balances,
+    });
+    if (!created.ok) return { ok: false, rejection: created.rejection };
+
     return {
       ok: true,
       reconciliation: {
-        accountId,
-        credentialId,
+        accountId: created.accountId,
+        credentialId: created.credentialId,
         apiKeyLast4: keyLast4(input.apiKey),
-        allocatedCurrency: input.allocatedCurrency,
-        typedCapitalMinor: input.allocatedCapitalMinor,
+        allocatedCurrency,
         realFreeMinor,
-        diverges: realFreeMinor !== input.allocatedCapitalMinor,
         fundingCurrencies,
         balances,
       },
@@ -183,27 +201,116 @@ export class OnboardingService {
   }
 
   /**
-   * Step 8 (T02.5): record the customer's basis choice, persist the observed
-   * balances and funding currencies, and activate. `adoptRealAsBasis` false keeps
-   * the typed figure; true adopts the real balance. Both are always retained.
+   * Write a proven connect: the account, its sealed credential, the venue's sizing
+   * basis and the balances the venue reported — one transaction, so a half-created
+   * account can never survive.
+   *
+   * The two unique indexes are the real guard against a concurrent connect. The
+   * step-2 fingerprint pre-check exists only to name the conflicting account in the
+   * common case; here the race is caught and turned into the same friendly refusal
+   * rather than a 500 about a perfectly ordinary concurrent request.
    */
-  async confirm(input: {
-    accountId: string;
+  private async createProvenAccount(args: {
+    input: OnboardingInput;
+    fingerprint: Uint8Array;
     credentialId: string;
-    confirmedAgainstMinor: string;
-    adoptRealAsBasis: boolean;
+    realFreeMinor: string;
+    allocatedCurrency: FundingCurrency;
     fundingCurrencies: readonly FundingCurrency[];
     balances: readonly Balance[];
-  }): Promise<void> {
-    await confirmAllocation(this.deps.tdb, {
-      accountId: input.accountId,
-      confirmedAgainstMinor: input.confirmedAgainstMinor,
-      adoptRealAsBasis: input.adoptRealAsBasis,
-      fundingCurrencies: input.fundingCurrencies,
-      balances: input.balances,
-    });
-    const activated = await activate(this.deps.tdb, input.credentialId);
-    if (!activated) throw new Error(`credential ${input.credentialId} could not be activated`);
+  }): Promise<
+    | { readonly ok: true; readonly accountId: string; readonly credentialId: string }
+    | { readonly ok: false; readonly rejection: OnboardingRejection }
+  > {
+    const { tdb, kms } = this.deps;
+    const { credentialId } = args;
+    try {
+      const accountId = await tdb.transaction(async (tx) => {
+        const id = await insertAccount(tx, {
+          name: args.input.accountName,
+          allocatedCapitalMinor: null,
+          allocatedCurrency: null,
+        });
+        const sealed = await sealCredential(
+          kms,
+          { tenantId: tdb.tenantId, accountId: id, credentialId, keyVersion: 1 },
+          args.input.apiKey,
+          args.input.apiSecret,
+        );
+        await insertCredential(tx, {
+          id: credentialId,
+          accountId: id,
+          kmsKeyArn: sealed.kmsKeyId,
+          keyVersion: sealed.keyVersion,
+          dekWrapped: sealed.dekWrapped,
+          apiKeyCt: sealed.apiKey.ct,
+          apiKeyNonce: sealed.apiKey.nonce,
+          apiKeyTag: sealed.apiKey.tag,
+          apiSecretCt: sealed.apiSecret.ct,
+          apiSecretNonce: sealed.apiSecret.nonce,
+          apiSecretTag: sealed.apiSecret.tag,
+          apiKeyLast4: keyLast4(args.input.apiKey),
+          fingerprint: args.fingerprint,
+        });
+        // The basis is written HERE, not at confirm: this is the only moment the
+        // venue's answer is in hand, and writing it now means no client can later
+        // assert a figure the exchange never reported. Every percentage-of-capital
+        // order is sized from this column.
+        await recordVenueBasis(tx, {
+          accountId: id, capitalMinor: args.realFreeMinor, currency: args.allocatedCurrency,
+        });
+        await recordObservedBalances(tx, {
+          accountId: id, fundingCurrencies: args.fundingCurrencies, balances: args.balances,
+        });
+        return id;
+      });
+      return { ok: true, accountId, credentialId };
+    } catch (e) {
+      const constraint = uniqueViolation(e);
+      if (constraint === 'exchange_credential_fingerprint_unique') {
+        const winner = await findByFingerprint(tdb, args.fingerprint);
+        return {
+          ok: false,
+          rejection: {
+            kind: 'duplicate_key',
+            conflictingAccountName: winner?.accountName ?? 'another account',
+            message: 'This API key was connected a moment ago by another request. A CoinDCX key may '
+              + 'only be connected once — connecting it twice would place two legs of every group '
+              + 'trade on the same exchange account.',
+          },
+        };
+      }
+      if (constraint === 'exchange_account_name_unique') {
+        return {
+          ok: false,
+          rejection: {
+            kind: 'duplicate_name',
+            message: `An account named “${args.input.accountName.trim()}” already exists. `
+              + 'Pick a different name to tell them apart.',
+          },
+        };
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Step 6 (T02.5): switch the account on.
+   *
+   * No payload is accepted — not even the credential id. `validate` already wrote
+   * the basis, the funding currencies and the observed balances from the venue
+   * read, and `exchange_credential_account_unique` means the credential can be
+   * looked up from the account. That is also why a connect abandoned before this
+   * step can be finished later from the account's own page, with nothing
+   * re-entered and no key re-sent.
+   */
+  async confirm(input: { accountId: string }): Promise<void> {
+    const credential = await findByAccount(this.deps.tdb, input.accountId);
+    if (credential === null) throw new Error(`account ${input.accountId} has no credential to activate`);
+
+    await activateAllocation(this.deps.tdb, input.accountId);
+    const activated = await activate(this.deps.tdb, credential.credentialId);
+    if (!activated) throw new Error(`credential ${credential.credentialId} could not be activated`);
   }
 
   private rejectionFor(result: CredentialProbe): OnboardingRejection {

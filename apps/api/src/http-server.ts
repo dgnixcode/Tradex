@@ -34,13 +34,68 @@ import {
   forTenant, listTradableAssets, listGroups, createGroup, confirmDryRun,
   updateGroup, archiveGroup, addMember, removeMember, setMemberEnabled,
   getGroupMembers, getEnabledMembers, getGroupTrade, getGroupHeader, GroupRepoError, listAuditEvents,
-  beginExecution, getExecutionSnapshot, listCancellableChildren,
+  beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
+  deleteAccount, setAccountStatus, requeueStale,
 } from '@tradex/db';
 import type { DB } from '@tradex/db';
-import { listAccounts } from './accounts-query.js';
+import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
 import { analyticsReport, blotterPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
+import { SettingsService, SettingsServiceError } from './settings-service.js';
+import { buildFuturesPositions, venuePositionOwner } from './futures/positions.js';
+import { hardExit, HardExitError } from './futures/exit-service.js';
+import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
+import type { FuturesTriggerRef } from '@tradex/exchange';
+
+/**
+ * Partially close, or add to, a live futures position.
+ *
+ * `positions/exit` closes the WHOLE position, so a partial close is an ordinary
+ * opposite-side order — and on a venue with no `reduce_only`, an oversized one
+ * FLIPS the position. The sizing is `futures/adjust-service.ts`, which floors to
+ * the instrument's step and refuses below every floor.
+ */
+export interface FuturesAdjustPort {
+  readonly adjustPosition: (args: {
+    readonly actor: FuturesActor;
+    readonly venuePositionId: string;
+    readonly direction: 'reduce' | 'increase';
+    /** Basis points of the CURRENT position; 2500 = 25%. */
+    readonly percentBp: number;
+  }) => Promise<
+    | {
+        readonly ok: true;
+        /** What was actually sent, after flooring to the instrument's step. */
+        readonly quantity: string;
+        /** Null when a full reduce was promoted to `positions/exit`. */
+        readonly venueOrderId: string | null;
+        readonly full: boolean;
+      }
+    | { readonly ok: false; readonly code: string; readonly detail: string }
+  >;
+}
+
+/**
+ * Attach or replace a stop-loss / take-profit on an existing position (T15 SL/TP).
+ * `moveExisting` = cancel-then-create when the leg already exists (research/04
+ * F12: create_tpsl is not an upsert). Wired only when the composition root
+ * supplies the futures adapter.
+ */
+export interface FuturesTpSlPort {
+  readonly setProtection: (args: {
+    /** Whose credential signs this. The venue id alone cannot identify an account. */
+    readonly actor: FuturesActor;
+    readonly venuePositionId: string;
+    readonly stopLossPrice?: string | undefined;
+    readonly takeProfitPrice?: string | undefined;
+    readonly moveExisting?: boolean | undefined;
+    readonly triggerRef?: FuturesTriggerRef | undefined;
+  }) => Promise<{
+    readonly stopLoss?: { readonly ok: boolean; readonly reason?: string | undefined } | undefined;
+    readonly takeProfit?: { readonly ok: boolean; readonly reason?: string | undefined } | undefined;
+  }>;
+}
 import type { Kysely } from 'kysely';
 import type { MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
@@ -58,7 +113,7 @@ import type { KmsPort } from '@tradex/crypto';
 import type { ProbeFn } from '@tradex/exchange';
 import { ExecutionWorker } from './execution-worker.js';
 import type {
-  CancelPort, GetHoldingsPort, ListActivePort, ResolvePort, SubmitPort,
+  AttachTpSlPort, CancelPort, GetHoldingsPort, ListActivePort, ResolvePort, SubmitPort,
 } from './execution-worker.js';
 import { GroupExecutor } from './group-executor.js';
 import { buildReport } from './execution-report.js';
@@ -90,6 +145,64 @@ export interface HttpDeps {
   readonly cancel?: CancelPort | undefined;
   /** Phase-09 reconciler Loop B: list one account's active orders on a market. */
   readonly listActive?: ListActivePort | undefined;
+  /** Phase-15 hard exit: cancel conditionals, exit position, reconcile. */
+  readonly futuresExit?: FuturesExitPort | undefined;
+  /** Phase-15 post-entry SL/TP adjust — cancel-then-create when moving an existing leg. */
+  readonly futuresTpSl?: FuturesTpSlPort | undefined;
+  /**
+   * Phase-15 SL/TP fan-out — the worker's own attach port, distinct from
+   * `futuresTpSl` above even though both touch protection.
+   *
+   * The worker uses this one when a filled futures ENTRY settles, to attach the
+   * trade's SL/TP legs. `futuresTpSl` is the post-hoc adjust route. They have
+   * different signatures and different callers; supplying one does not satisfy the
+   * other. Without this port a filled entry settles and its conditional legs are
+   * skipped `TP_SL_NOT_ATTACHED`, which looks like a venue problem and is not one.
+   */
+  readonly attachTpSl?: AttachTpSlPort | undefined;
+  /**
+   * Run after a fan-out has drained — the composition root's hook to mirror venue
+   * state (futures positions) back into our tables.
+   *
+   * Called BEST-EFFORT and never allowed to fail the request: by the time it runs
+   * the orders are already sent, and a mirroring error must not turn a placed
+   * trade into an error response the customer would reasonably read as "nothing
+   * happened".
+   */
+  readonly afterFanOut?: ((args: { tenantId: string; groupTradeId: string }) => Promise<void>) | undefined;
+  /**
+   * Re-read the venue's futures positions for the tenant and mirror them.
+   *
+   * Exists because the mirror otherwise runs only after a fan-out, which means a
+   * position can OUTLIVE the trade that created it: close it elsewhere, or have a
+   * leg fail after the venue already opened one, and the page keeps showing what
+   * was true at the last fan-out. Explicitly refreshing is the cheap fix — putting
+   * a venue read and a decrypt on every page load would not be.
+   */
+  readonly refreshPositions?: ((args: { tenantId: string }) => Promise<{ readonly accounts: number; readonly positions: number }>) | undefined;
+  /**
+   * How often to sweep for legs that still need resolving, in ms. 0 or absent
+   * disables the sweep (the default, so no test grows a timer).
+   *
+   * WHY THIS MUST EXIST: settling a leg `ambiguous` enqueues a resolve job
+   * (`runPlaceOnce`), and `runResolveOnce` drains those on a ladder with gaps up to
+   * 20 s. But the ONLY caller of `runResolveOnce` is a confirm's inline drain — so
+   * once the confirm response is written, the ladder STOPS. A leg whose outcome
+   * the venue had not yet settled would sit `ambiguous` forever, with real money at
+   * the venue and nothing looking at it.
+   */
+  readonly resolverIntervalMs?: number | undefined;
+  /**
+   * Partially close, or add to, a live futures position.
+   *
+   * `positions/exit` cannot do this — it closes the WHOLE position and takes only
+   * an id. A partial close is therefore an ordinary opposite-side order, which on
+   * a venue with no `reduce_only` will FLIP the position if it is oversized. The
+   * sizing lives in `futures/adjust-service.ts`, which floors to the instrument's
+   * step and refuses below every floor; the implementation must fetch the
+   * instrument rather than assume a step.
+   */
+  readonly futuresAdjust?: FuturesAdjustPort | undefined;
   readonly codeVersion: string;
   /** False on local plain-HTTP dev so the cookie is not marked Secure. */
   readonly secureCookies?: boolean | undefined;
@@ -193,6 +306,9 @@ export function createHttpServer(deps: HttpDeps): Server {
       ...(deps.holdings !== undefined ? { holdings: deps.holdings } : {}),
       ...(deps.cancel !== undefined ? { cancel: deps.cancel } : {}),
       ...(deps.listActive !== undefined ? { listActive: deps.listActive } : {}),
+      // Without this the worker skips every futures conditional leg with
+      // TP_SL_NOT_ATTACHED the moment an entry fills — see the field's note.
+      ...(deps.attachTpSl !== undefined ? { attachTpSl: deps.attachTpSl } : {}),
       // Every settle the worker commits is published to the bus (T08.6); the SSE
       // stream route subscribes per group trade and unsubscribes on request close.
       onChildState: (e) => bus.publish(e),
@@ -240,9 +356,25 @@ export function createHttpServer(deps: HttpDeps): Server {
     }
   };
 
+  /**
+   * Run an account mutation, mapping its failure to a clean HTTP error.
+   *
+   * `AccountRepoError` always means the same thing in the account routes: the row
+   * exists but is in the wrong state for this operation — no basis from the
+   * exchange, or a trading history that blocks a delete. That is a 409, and its
+   * message is written to be shown to the customer as-is.
+   */
+  const runAccountOp = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof AccountRepoError) throw new HttpError(409, e.message);
+      throw e;
+    }
+  };
+
   /** Run a trading-state mutation, mapping its typed failure to a clean HTTP error. */
-  const tradingErrorStatus = (reason: TradingStateError['reason']): number => {
-    switch (reason) {
+  const tradingErrorStatus = (reason: TradingStateError['reason']): number => {    switch (reason) {
       case 'already_paused':
       case 'not_paused': return 409;
       case 'bad_amount':
@@ -548,7 +680,38 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
-    // ---- GET /api/positions — the books per account/asset (phase-09 T09.6) ----
+    // ---- GET /api/settings/workspace — workspace name shown in Settings ----
+    if (method === 'GET' && path === '/api/settings/workspace') {
+      const ws = await getWorkspace(deps.db, principal.tenantId);
+      if (ws === null) throw new HttpError(404, 'workspace not found');
+      sendJson(ctx.res, 200, ws);
+      return;
+    }
+
+    // ---- PATCH /api/settings/workspace — rename the workspace ----
+    // Owner + re-auth (settings.write). Emits an audit row before/after.
+    if (method === 'PATCH' && path === '/api/settings/workspace') {
+      requireAction(principal, 'settings.write');
+      const body = (ctx.body ?? {}) as { name?: unknown };
+      if (typeof body.name !== 'string') throw new HttpError(400, 'name is required');
+      const svc = new SettingsService({ db: deps.db });
+      try {
+        const result = await svc.renameWorkspace(
+          { userId: principal.userId, tenantId: principal.tenantId, process: 'api' },
+          body.name,
+          deps.now?.(),
+        );
+        sendJson(ctx.res, 200, result);
+      } catch (e) {
+        if (e instanceof SettingsServiceError) {
+          throw new HttpError(e.reason === 'no_change' ? 409 : e.reason === 'not_found' ? 404 : 400, e.message);
+        }
+        throw e;
+      }
+      return;
+    }
+
+        // ---- GET /api/positions — the books per account/asset (phase-09 T09.6) ----
     // Read-only over the `holding` projection (the fold of the ledger). Optional
     // ?groupId narrows to a group's ENABLED members; absent, it covers the whole
     // tenant. Positions are the BOOKS as-is — quantity, weighted-average cost,
@@ -565,6 +728,126 @@ export function createHttpServer(deps: HttpDeps): Server {
         named = (await listAccounts(tdb)).map((a) => ({ accountId: a.id, accountName: a.name }));
       }
       sendJson(ctx.res, 200, await buildPositions(deps.db, tdb, named));
+      return;
+    }
+
+    // ---- GET /api/futures/positions — the futures BOOKS with mark/liq (phase-15 T15.8) ----
+    // Lives in a subdirectory outside the §6a scan by design (the scan is
+    // non-recursive over `apps/api/src`). Mark price, liquidation and
+    // unrealised PnL are legitimate here; the spot books page stays pure.
+    if (method === 'GET' && path === '/api/futures/positions') {
+      requireAction(principal, 'view.dashboards');
+      sendJson(ctx.res, 200, await buildFuturesPositions(deps.db, principal.tenantId, deps.now?.() ?? Date.now()));
+      return;
+    }
+
+    // ---- POST /api/futures/positions/refresh — re-mirror from the venue ----
+    // Declared before the `:id/...` matchers so `refresh` is never read as an id.
+    if (method === 'POST' && path === '/api/futures/positions/refresh') {
+      requireAction(principal, 'view.dashboards');
+      if (deps.refreshPositions === undefined) {
+        throw new HttpError(503, 'futures execution is not configured in this build');
+      }
+      sendJson(ctx.res, 200, await deps.refreshPositions({ tenantId: principal.tenantId }));
+      return;
+    }
+
+    // ---- POST /api/futures/positions/:id/adjust — partial close / add ----
+    const futAdjustMatch = /^\/api\/futures\/positions\/([^/]+)\/adjust$/.exec(path);
+    if (method === 'POST' && futAdjustMatch !== null) {
+      requireAction(principal, 'trade.place');
+      if (deps.futuresAdjust === undefined) {
+        throw new HttpError(503, 'futures execution is not configured in this build');
+      }
+      const body = (ctx.body ?? {}) as { direction?: unknown; percentBp?: unknown };
+      if (body.direction !== 'reduce' && body.direction !== 'increase') {
+        throw new HttpError(400, 'direction must be "reduce" or "increase"');
+      }
+      if (typeof body.percentBp !== 'number') {
+        throw new HttpError(400, 'percentBp must be a number (2500 = 25%)');
+      }
+      const pct = body.percentBp;
+      const adjustOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futAdjustMatch[1] as string);
+      if (adjustOwner === null) throw new HttpError(404, 'no such futures position');
+      const adjusted = await deps.futuresAdjust.adjustPosition({
+        actor: { tenantId: principal.tenantId, accountId: adjustOwner.accountId },
+        venuePositionId: futAdjustMatch[1] as string,
+        direction: body.direction,
+        percentBp: pct,
+      });
+      // A refusal here is a SIZING decision the customer can act on (below the
+      // minimum notional, smaller than one step), not a server fault — so it is a
+      // 400 carrying the reason, never a silent success.
+      if (!adjusted.ok) throw new HttpError(400, adjusted.detail);
+      sendJson(ctx.res, 200, adjusted);
+      return;
+    }
+
+    // ---- POST /api/futures/positions/:id/tpsl — post-entry SL/TP adjust ----
+    // Owner or trader with trade.cancel; the composition root wires the port.
+    // Body: { stopLossPrice?, takeProfitPrice?, moveExisting? }. Setting only
+    // SL, only TP, or both is supported; moving an existing leg is a cancel-
+    // then-create per research/04 F12 (create_tpsl is NOT an upsert).
+    const futTpslMatch = /^\/api\/futures\/positions\/([^/]+)\/tpsl$/.exec(path);
+    if (method === 'POST' && futTpslMatch !== null) {
+      requireAction(principal, 'trade.cancel');
+      if (deps.futuresTpSl === undefined) {
+        throw new HttpError(503, 'futures execution is not configured in this build');
+      }
+      const body = (ctx.body ?? {}) as { stopLossPrice?: unknown; takeProfitPrice?: unknown; moveExisting?: unknown };
+      const sl = body.stopLossPrice;
+      const tp = body.takeProfitPrice;
+      if ((sl !== undefined && typeof sl !== 'string') || (tp !== undefined && typeof tp !== 'string')) {
+        throw new HttpError(400, 'stopLossPrice and takeProfitPrice must be decimal strings');
+      }
+      if (sl === undefined && tp === undefined) {
+        throw new HttpError(400, 'at least one of stopLossPrice or takeProfitPrice is required');
+      }
+      // Resolve whose position this is BEFORE calling the venue: signing needs
+      // that account's credential, and a venue id carries no account. An unmapped
+      // venue id means we never mirrored it, so we cannot know whose it is.
+      const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futTpslMatch[1] as string);
+      if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
+      const out = await deps.futuresTpSl.setProtection({
+        actor: { tenantId: principal.tenantId, accountId: tpslOwner.accountId },
+        venuePositionId: futTpslMatch[1] as string,
+        ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
+        ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
+        ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
+      });
+      sendJson(ctx.res, 200, out);
+      return;
+    }
+
+    // ---- POST /api/futures/positions/:id/exit — hard exit (phase-15 T15.7) ----
+    // Enforces the safe sequence: cancel conditionals FIRST, then exit,
+    // then reconcile to zero. Refuses to exit if a conditional could not be
+    // cancelled (a stale SL after exit would open an opposite position).
+    // Only reachable when the composition root wires the FuturesExitPort.
+    const futExitMatch = /^\/api\/futures\/positions\/([^/]+)\/exit$/.exec(path);
+    if (method === 'POST' && futExitMatch !== null) {
+      requireAction(principal, 'trade.cancel');
+      if (deps.futuresExit === undefined) {
+        throw new HttpError(503, 'futures execution is not configured in this build');
+      }
+      const body = (ctx.body ?? {}) as { marginCurrency?: unknown };
+      const mc = body.marginCurrency;
+      if (mc !== 'INR' && mc !== 'USDT') {
+        throw new HttpError(400, 'marginCurrency (INR or USDT) is required');
+      }
+      const exitOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futExitMatch[1] as string);
+      if (exitOwner === null) throw new HttpError(404, 'no such futures position');
+      try {
+        const out = await hardExit(deps.futuresExit, {
+          actor: { tenantId: principal.tenantId, accountId: exitOwner.accountId },
+          venuePositionId: futExitMatch[1] as string,
+          marginCurrency: mc,
+        });
+        sendJson(ctx.res, 200, out);
+      } catch (e) {
+        if (e instanceof HardExitError) throw new HttpError(409, e.message);
+        throw e;
+      }
       return;
     }
 
@@ -682,22 +965,21 @@ export function createHttpServer(deps: HttpDeps): Server {
       requireAction(principal, 'credential.write');
       const raw = (ctx.body ?? {}) as Record<string, unknown>;
       const accountName = raw['accountName'];
-      const allocatedCapitalMinor = raw['allocatedCapitalMinor'];
-      const allocatedCurrency = raw['allocatedCurrency'];
       const apiKey = raw['apiKey'];
       const apiSecret = raw['apiSecret'];
       // Each field is checked in its own statement so no single expression ever
       // holds both key names (the 02-accounts single-entry check).
-      if (typeof accountName !== 'string' || typeof allocatedCapitalMinor !== 'string'
-        || (allocatedCurrency !== 'INR' && allocatedCurrency !== 'USDT')) {
-        throw new HttpError(400, 'account name, allocated capital, currency, and the API key and secret are required');
+      //
+      // No funding currency and no allocated capital are accepted here: both come
+      // from the exchange (see OnboardingService.validate). A client that sends
+      // them is not trusted to override what the venue reports.
+      if (typeof accountName !== 'string' || accountName.trim() === '') {
+        throw new HttpError(400, 'an account name is required');
       }
       if (typeof apiKey !== 'string' || apiKey === '') throw new HttpError(400, 'the API key is required');
       if (typeof apiSecret !== 'string' || apiSecret === '') throw new HttpError(400, 'the API secret is required');
       const result = await onboardingFor(principal.tenantId).validate({
         accountName,
-        allocatedCapitalMinor,
-        allocatedCurrency,
         apiKey,
         apiSecret,
       });
@@ -705,6 +987,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         const r = result.rejection;
         if (r.kind === 'shape_invalid') throw new HttpError(400, r.message);
         if (r.kind === 'duplicate_key') throw new HttpError(409, r.message);
+        if (r.kind === 'duplicate_name') throw new HttpError(409, r.message);
         if (r.kind === 'auth_failed') throw new HttpError(401, r.message);
         throw new HttpError(502, r.message);
       }
@@ -712,27 +995,84 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
-    // ---- POST /api/accounts/confirm — activate a validated account (owner + re-auth) ----
+    // ---- POST /api/accounts/confirm — switch a validated account on (owner + re-auth) ----
     if (method === 'POST' && path === '/api/accounts/confirm') {
       requireAction(principal, 'credential.write');
-      const body = (ctx.body ?? {}) as {
-        accountId?: string; credentialId?: string; confirmedAgainstMinor?: string; adoptRealAsBasis?: boolean;
-        fundingCurrencies?: string[]; balances?: { currency: string; freeMinor: string; lockedMinor: string; scale: number }[];
-      };
-      if (typeof body.accountId !== 'string' || typeof body.credentialId !== 'string'
-        || typeof body.confirmedAgainstMinor !== 'string' || typeof body.adoptRealAsBasis !== 'boolean'
-        || !Array.isArray(body.balances)) {
-        throw new HttpError(400, 'accountId, credentialId, confirmedAgainstMinor, adoptRealAsBasis and balances are required');
+      const body = (ctx.body ?? {}) as { accountId?: string };
+      // No capital, no currency, no balances, not even the credential id: every one
+      // of those was read from the venue during validate and is already on the
+      // account row. A client cannot restate them, and it does not have to send
+      // them back either — which is what lets a connect abandoned at the review
+      // step be finished later.
+      if (typeof body.accountId !== 'string') {
+        throw new HttpError(400, 'accountId is required');
       }
-      await onboardingFor(principal.tenantId).confirm({
-        accountId: body.accountId,
-        credentialId: body.credentialId,
-        confirmedAgainstMinor: body.confirmedAgainstMinor,
-        adoptRealAsBasis: body.adoptRealAsBasis,
-        fundingCurrencies: (body.fundingCurrencies ?? []) as ('INR' | 'USDT')[],
-        balances: body.balances,
-      });
+      await runAccountOp(() => onboardingFor(principal.tenantId).confirm({ accountId: body.accountId as string }));
       sendJson(ctx.res, 200, { ok: true });
+      return;
+    }
+
+    // ---- Account lifecycle routes (detail / suspend / resume / delete) ----
+    // Declared before the bare `:id` match so the verb is never mistaken for one.
+    const accountVerbMatch = /^\/api\/accounts\/([0-9a-f-]{36})\/([a-z]+)$/.exec(path);
+    if (accountVerbMatch !== null) {
+      const accountId = accountVerbMatch[1] as string;
+      const verb = accountVerbMatch[2] as string;
+
+      // Suspend and resume are the reversible brake. Both are one guarded UPDATE;
+      // `false` means the account was not in the expected source state, which is a
+      // 409 rather than a success that quietly changed nothing.
+      if (method === 'POST' && (verb === 'suspend' || verb === 'resume')) {
+        requireAction(principal, 'account.suspend');
+        const tdb = forTenant(deps.db, principal.tenantId);
+        const moved = await setAccountStatus(tdb, accountId, verb === 'suspend' ? 'suspended' : 'active');
+        if (!moved) {
+          throw new HttpError(
+            409,
+            verb === 'suspend'
+              ? 'only an active account can be deactivated'
+              : 'only a deactivated account can be reactivated',
+          );
+        }
+        sendJson(ctx.res, 200, { ok: true });
+        return;
+      }
+
+      // Finish a connect that was validated but never confirmed. Payload-free: the
+      // basis and balances are already on the row. Same action as confirming, since
+      // it is the same transition.
+      if (method === 'POST' && verb === 'confirm') {
+        requireAction(principal, 'credential.write');
+        await runAccountOp(() => onboardingFor(principal.tenantId).confirm({ accountId }));
+        sendJson(ctx.res, 200, { ok: true });
+        return;
+      }
+
+      throw new HttpError(404, 'not found');
+    }
+
+    const accountMatch = /^\/api\/accounts\/([0-9a-f-]{36})$/.exec(path);
+
+    // ---- GET /api/accounts/:id — one account, for the detail page ----
+    if (method === 'GET' && accountMatch !== null) {
+      requireAction(principal, 'view.dashboards');
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const detail = await getAccountDetail(tdb, accountMatch[1] as string);
+      if (detail === null) throw new HttpError(404, 'no such account');
+      sendJson(ctx.res, 200, detail);
+      return;
+    }
+
+    // ---- DELETE /api/accounts/:id — remove an account that has never traded ----
+    // Refused once it has: the ledger is append-only by trigger and every child FK
+    // is RESTRICT, so a hard delete is impossible at the database level. The repo
+    // raises with the counts, and runAccountOp turns it into a 409 the page shows
+    // instead of the button.
+    if (method === 'DELETE' && accountMatch !== null) {
+      requireAction(principal, 'account.disconnect');
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const removed = await runAccountOp(() => deleteAccount(tdb, accountMatch[1] as string));
+      sendJson(ctx.res, 200, { ok: true, removed });
       return;
     }
 
@@ -950,6 +1290,19 @@ export function createHttpServer(deps: HttpDeps): Server {
       // the wait from the request; the group executor's 200-round cap keeps a
       // wedged queue from spinning this handler forever.
       await engine.executor.drain();
+      // Mirror the venue's state back into our tables (futures positions) — the
+      // hook that finally gives the Positions page a producer. BEST-EFFORT on
+      // purpose: the orders are already sent by the time this runs, and a
+      // mirroring failure must not turn a placed trade into an error the customer
+      // would reasonably read as "nothing happened".
+      if (deps.afterFanOut !== undefined) {
+        try {
+          await deps.afterFanOut({ tenantId: principal.tenantId, groupTradeId: tradeId });
+        } catch (e) {
+          console.error(`[mirror] post-fan-out mirror failed for trade ${tradeId}:`,
+            e instanceof Error ? e.message : String(e));
+        }
+      }
       const out = await executionReportOf(principal.tenantId, tradeId);
       if (out === null) throw new HttpError(404, 'no such group trade');
       sendJson(ctx.res, 200, { status: out.status, dryRun: false, enqueued: enqueued.enqueued, report: out.report });
@@ -1022,7 +1375,39 @@ export function createHttpServer(deps: HttpDeps): Server {
     return true;
   };
 
-  return createServer((req, res) => {
+  /**
+   * The resolver sweep. Best-effort and never concurrent with itself: a slow
+   * venue must not stack sweeps until the process runs out of sockets.
+   */
+  let resolverTimer: ReturnType<typeof setInterval> | undefined;
+  if (engine !== null && (deps.resolverIntervalMs ?? 0) > 0) {
+    let running = false;
+    resolverTimer = setInterval(() => {
+      if (running) return;
+      running = true;
+      void (async () => {
+        try {
+          // Re-queue any stale worker lock FIRST: a crash mid-send leaves a lock
+          // and no job, and the resolve is what turns that into a decision.
+          await requeueStale(deps.db);
+          const summary = await engine.worker.runResolveOnce(25);
+          if (summary.handled > 0) {
+            console.log(`[resolver] handled ${summary.handled} (ambiguous ${summary.ambiguous}, terminal ${summary.terminal})`);
+          }
+        } catch (e) {
+          // A sweep failure is logged and retried on the next tick — it must never
+          // take the process down, since the API is still serving.
+          console.error('[resolver] sweep failed:', e instanceof Error ? e.message : String(e));
+        } finally {
+          running = false;
+        }
+      })();
+    }, deps.resolverIntervalMs as number);
+    // Do not hold the process open for a sweep.
+    resolverTimer.unref?.();
+  }
+
+  const server = createServer((req, res) => {
     void (async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://localhost');
@@ -1047,4 +1432,8 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
     })();
   });
+  // The sweep must not outlive the server, or a test that starts and stops one
+  // leaves a timer writing to a destroyed pool.
+  server.on('close', () => { if (resolverTimer !== undefined) clearInterval(resolverTimer); });
+  return server;
 }

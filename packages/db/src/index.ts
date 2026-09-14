@@ -15,3 +15,7 @@ export * from './execution-repo.js';
 export * from './ledger-repo.js';
 export * from './positions-repo.js';
 export * from './analytics-repo.js';
+export * from './ops-repo.js';
+export * from './tenant-repo.js';
+export * from './futures-lock-repo.js';
+export * from './futures-position-repo.js';

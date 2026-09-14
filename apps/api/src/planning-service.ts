@@ -77,6 +77,16 @@ export interface PlanRequest {
   readonly limitPrice?: string | undefined;
   /** Slippage tolerance override; defaults to 0.5% inside the guard. */
   readonly slippageToleranceBp?: number | undefined;
+  // Phase-15 futures shape. All optional so a legacy caller (retry, spot) still compiles.
+  /** True when this is a futures perp trade. Persisted as `group_trade.is_futures`. */
+  readonly isFutures?: boolean | undefined;
+  /** 1..market's max leverage. Required when isFutures=true. */
+  readonly leverage?: string | undefined;
+  readonly marginCurrency?: 'INR' | 'USDT' | undefined;
+  readonly positionMarginType?: 'isolated' | 'crossed' | undefined;
+  readonly stopLossPrice?: string | undefined;
+  readonly takeProfitPrice?: string | undefined;
+  readonly reduceOnly?: boolean | undefined;
   /** Retry-failed scoping (T08.7): when present, plan ONLY these still-enabled
    *  members of the group. The trade ticket never sends this — retry-failed uses
    *  it to re-plan exactly the failed accounts as a fresh trade. */
@@ -262,6 +272,16 @@ export class PlanningService {
       marketMetaVersion: version,
       codeVersion: this.deps.codeVersion,
       dryRun: this.deps.dryRun ?? true,
+      // Phase-15 futures. When isFutures=true, the schema CHECK requires
+      // leverage/margin_currency/position_margin_type together; the ticket
+      // enforces the same shape client-side, but the DB is the safety net.
+      isFutures: req.isFutures ?? false,
+      leverage: req.leverage ?? null,
+      marginCurrency: req.marginCurrency ?? null,
+      positionMarginType: req.positionMarginType ?? null,
+      stopLossPrice: req.stopLossPrice ?? null,
+      takeProfitPrice: req.takeProfitPrice ?? null,
+      reduceOnly: req.reduceOnly ?? false,
     };
     const { groupTradeId } = await persistPlan(this.deps.tdb, trade, children, nowMs);
 
@@ -509,7 +529,8 @@ export class PlanningService {
       createdBy,
       asset: trade.asset,
       side: trade.side,
-      orderType: trade.orderType,
+      // Retry preserves the original order type; futures/conditional retry is Phase 15 T15.5+, not yet wired.
+      orderType: trade.orderType === 'market' || trade.orderType === 'limit' ? trade.orderType : 'market',
       sizingMode: trade.sizingMode,
       accountIds,
       ...(trade.orderType === 'limit' ? { limitPrice: trade.limitPrice ?? undefined } : {}),

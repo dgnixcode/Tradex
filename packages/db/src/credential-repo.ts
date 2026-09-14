@@ -171,9 +171,29 @@ export async function findByFingerprint(
   };
 }
 
+/**
+ * The credential attached to one account, or null when there is none.
+ *
+ * `exchange_credential_account_unique UNIQUE (account_id)` means there is at most
+ * one, so this needs no ordering. It exists so a caller can act on an account
+ * WITHOUT the client having to echo a credential id back — which is what lets a
+ * connect abandoned at the review step be finished later from the account's page.
+ */
+export async function findByAccount(
+  tdb: TenantDb,
+  accountId: string,
+): Promise<{ credentialId: string; status: CredentialStatus } | null> {
+  const row = await tdb.selectFrom('exchange_credential')
+    .select(['id as credential_id', 'status as status'] as unknown as never)
+    .where('account_id' as never, '=', accountId as never)
+    .executeTakeFirst();
+  if (row === undefined) return null;
+  const r = row as unknown as Record<string, unknown>;
+  return { credentialId: r['credential_id'] as string, status: r['status'] as CredentialStatus };
+}
+
 /** `pending_validation` -> `active`, once a live call has proved the key works. */
-export async function activate(tdb: TenantDb, credentialId: string, atMs = Date.now()): Promise<boolean> {
-  const result = await tdb.updateTable('exchange_credential')
+export async function activate(tdb: TenantDb, credentialId: string, atMs = Date.now()): Promise<boolean> {  const result = await tdb.updateTable('exchange_credential')
     .set({ status: 'active', validated_at: new Date(atMs), auth_error_count: 0 } as never)
     .where('id' as never, '=', credentialId as never)
     // Only from pending_validation or active. A revoked credential must never be

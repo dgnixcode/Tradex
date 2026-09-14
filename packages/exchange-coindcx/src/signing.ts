@@ -52,22 +52,21 @@ export function hmacHex(apiSecret: string, payload: string): string {
 export const nowMs = (): number => Math.floor(Date.now());
 
 /**
- * Serialise, stamp and sign. Key order in the emitted JSON follows insertion
- * order of the object passed in, with `timestamp` appended last; because we
- * return the string we signed, that order is irrelevant to correctness.
+ * Serialise and stamp a request body — the exact bytes that will be signed and
+ * sent.
+ *
+ * Split out of `signRequest` so a caller that does NOT hold the secret can still
+ * produce the bytes. The production path builds the body here, hands those bytes
+ * to the signer (the only process with KMS decrypt rights, which returns a
+ * signature and never the secret), and then sends the very same bytes.
  */
-export function signRequest(
-  apiKey: string,
-  apiSecret: string,
+export function requestBody(
   params: Readonly<Record<string, unknown>>,
   atMs: number = nowMs(),
-): SignedRequest {
-  if (typeof apiKey !== 'string' || apiKey === '') {
-    throw new SigningError('api key must be a non-empty string');
-  }
+): string {
   if (Object.hasOwn(params, 'timestamp')) {
     throw new SigningError(
-      'do not set timestamp yourself — signRequest stamps it at signing time so a queued body cannot go stale',
+      'do not set timestamp yourself — signing stamps it at signing time so a queued body cannot go stale',
     );
   }
   for (const [k, v] of Object.entries(params)) {
@@ -83,15 +82,82 @@ export function signRequest(
       );
     }
   }
-  const body = JSON.stringify({ ...params, timestamp: atMs });
+  return JSON.stringify({ ...params, timestamp: atMs });
+}
+
+/** The three headers every signed request carries. `signature` is hex. */
+export function headersFor(apiKey: string, signature: string): Readonly<Record<string, string>> {
+  if (typeof apiKey !== 'string' || apiKey === '') {
+    throw new SigningError('api key must be a non-empty string');
+  }
+  if (typeof signature !== 'string' || signature === '') {
+    throw new SigningError('signature must be a non-empty string');
+  }
   return {
-    body,
-    headers: {
-      'Content-Type': 'application/json',
-      [AUTH_KEY_HEADER]: apiKey,
-      [AUTH_SIGNATURE_HEADER]: hmacHex(apiSecret, body),
-    },
+    'Content-Type': 'application/json',
+    [AUTH_KEY_HEADER]: apiKey,
+    [AUTH_SIGNATURE_HEADER]: signature,
   };
+}
+
+/**
+ * How a body becomes a signature.
+ *
+ * Two implementations, one wire format. The plaintext one signs in-process from a
+ * secret the caller already holds; the production one asks the signer, which
+ * holds the only KMS decrypt right and returns `{apiKey, signature}` — never the
+ * secret. The venue cannot tell them apart because both produce the same three
+ * headers over the same bytes.
+ *
+ * The body arrives ALREADY serialised and stamped, because the signature must
+ * cover exactly what goes on the wire. Signing before serialisation is the bug
+ * the official sample ships with (see the module comment).
+ */
+export type BodySigner = (body: string) => Promise<{ readonly apiKey: string; readonly signature: string }>;
+
+/**
+ * Sign in-process from a plaintext secret.
+ *
+ * Checks and the sandbox use this. Production must NOT: the whole point of the
+ * signer process is that the API never holds a plaintext secret.
+ */
+export const plaintextSigner = (apiKey: string, apiSecret: string): BodySigner => {
+  // Validated eagerly rather than inside the closure, so a blank key is a
+  // synchronous error at the call site instead of a rejected promise.
+  if (typeof apiKey !== 'string' || apiKey === '') {
+    throw new SigningError('api key must be a non-empty string');
+  }
+  if (typeof apiSecret !== 'string' || apiSecret === '') {
+    throw new SigningError('api secret must be a non-empty string');
+  }
+  return async (body) => ({ apiKey, signature: hmacHex(apiSecret, body) });
+};
+
+/** Serialise, stamp, sign — the one path both signers share. */
+export async function signBody(
+  signer: BodySigner,
+  params: Readonly<Record<string, unknown>>,
+  atMs: number = nowMs(),
+): Promise<SignedRequest> {
+  const body = requestBody(params, atMs);
+  const signature = await signer(body);
+  return { body, headers: headersFor(signature.apiKey, signature.signature) };
+}
+
+/**
+ * Serialise, stamp and sign with a plaintext secret. Key order in the emitted
+ * JSON follows insertion order of the object passed in, with `timestamp` appended
+ * last; because we return the string we signed, that order is irrelevant to
+ * correctness.
+ */
+export function signRequest(
+  apiKey: string,
+  apiSecret: string,
+  params: Readonly<Record<string, unknown>>,
+  atMs: number = nowMs(),
+): SignedRequest {
+  const body = requestBody(params, atMs);
+  return { body, headers: headersFor(apiKey, hmacHex(apiSecret, body)) };
 }
 
 /**

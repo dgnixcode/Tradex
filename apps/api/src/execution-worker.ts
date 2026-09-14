@@ -34,7 +34,7 @@
 // the FakeVenue.
 
 import { clientOrderIdOf } from '@tradex/crypto';
-import { mapVenueOrderState } from '@tradex/exchange';
+import { futuresPairOf, mapVenueOrderState } from '@tradex/exchange';
 import type { Balance } from '@tradex/exchange';
 import { scaledFromMinor } from '@tradex/money';
 import {
@@ -56,6 +56,17 @@ const UNRESOLVED: readonly string[] = [
 /** States a plain poll may resolve — a send already confirmed, not yet settling. */
 const POLLABLE: ReadonlySet<string> = new Set(['acked', 'open', 'partially_filled']);
 
+/**
+ * The quote a futures `market` string is denominated in — `BTCUSDT` is USDT,
+ * anything else is INR.
+ *
+ * One definition, two callers: the send path (building the venue pair for the
+ * order) and the attach path (finding the position that order opened). Two copies
+ * of this rule is how the pair an order was sent with drifts from the pair its
+ * protection is attached to — and the venue answers that with "no position".
+ */
+const quoteOfMarket = (market: string): 'INR' | 'USDT' => (market.endsWith('USDT') ? 'USDT' : 'INR');
+
 /** States that should still appear in the venue's active list for this account. */
 const VENUE_LIVE: ReadonlySet<string> = new Set(['acked', 'open', 'partially_filled']);
 
@@ -69,6 +80,22 @@ export interface SubmitPortOutcome {
   readonly orderMayExist?: boolean | undefined;
   readonly code?: string | undefined;
   readonly detail?: string | undefined;
+  /**
+   * The outcome is genuinely UNDECIDABLE — not "unknown, keep looking".
+   *
+   * The futures L1-L4 protocol reaches this honestly: the venue has no
+   * `client_order_id` and no order-status endpoint, so ambiguity is resolved by
+   * reading back the order list and matching on
+   * (pair, side, order_type, total_quantity, price). When TWO OR MORE orders match
+   * — a customer placed an identical order by hand inside the search window — no
+   * amount of further reading can tell them apart, and guessing would attribute
+   * someone else's fill to this leg.
+   *
+   * Settles `needs_human` directly rather than scheduling a resolve that cannot
+   * resolve. Distinct from `orderMayExist`, which means "unknown, but more looking
+   * may settle it".
+   */
+  readonly needsHuman?: boolean | undefined;
 }
 
 export type SubmitPort = (coid: string, order: OrderToSend) => Promise<SubmitPortOutcome>;
@@ -90,6 +117,28 @@ export type ListActivePort = (accountId: string, market: string) => Promise<
   { readonly ok: true; readonly orders: readonly VenueActiveOrder[] } | { readonly ok: false }
 >;
 
+/** Per-leg result the venue reports on an attach (partial success at HTTP 200). */
+export interface AttachLegResult { readonly ok: boolean; readonly reason?: string | undefined; }
+
+/**
+ * Attach (or replace) a stop-loss and/or take-profit on a live futures position
+ * (phase-15 T15.5). The venue attaches to a POSITION, not to an order, so this
+ * is called only after an entry leg has filled and the composition root has
+ * resolved the venue position id for that (account, pair, marginCurrency).
+ *
+ * Partial success is normal: one leg can land while the other is refused.
+ */
+export type AttachTpSlPort = (args: {
+  readonly accountId: string;
+  readonly pair: string;
+  readonly marginCurrency: 'INR' | 'USDT';
+  readonly stopLossPrice: string | null;
+  readonly takeProfitPrice: string | null;
+}) => Promise<
+  | { readonly ok: true; readonly stopLoss?: AttachLegResult | undefined; readonly takeProfit?: AttachLegResult | undefined }
+  | { readonly ok: false; readonly code: string; readonly detail: string; readonly orderMayExist?: boolean | undefined }
+>;
+
 /** What a send needs from the row — built by the worker from child_order + its trade. */
 export interface OrderToSend {
   /** The account the order belongs to — so a real submit can route its credential. */
@@ -100,6 +149,36 @@ export interface OrderToSend {
   readonly quantity: string;
   readonly orderType: string;
   readonly limitPrice: string | null;
+  /**
+   * The `child_order` row this leg belongs to.
+   *
+   * Present because the futures L1 lock is keyed by
+   * (account, pair, child_order_id): futures has no `client_order_id`, so the lock
+   * is the only anti-duplicate mechanism there is, and it has to name the row it
+   * is protecting.
+   */
+  readonly childOrderId: string;
+  /**
+   * Present only for a FUTURES trade; absent means a spot send.
+   *
+   * Explicit rather than implied on purpose. A submit implementation must never
+   * have to GUESS whether to build a spot market order or a leveraged futures
+   * position — the two go to different endpoints with different bodies, and
+   * guessing wrong places a real order of the wrong kind. The product is
+   * futures-only, so a port that cannot express this can only send the thing we do
+   * not sell.
+   *
+   * `pair` is the venue form (`B-BTC_USDT`), not the orders/form market
+   * (`BTCUSDT`) — `futuresPairOf` does the conversion.
+   */
+  readonly futures?: {
+    readonly pair: string;
+    readonly marginCurrency: string;
+    /** A whole number, 1..the market's maximum. */
+    readonly leverage: number;
+    readonly positionMarginType: string;
+    readonly reduceOnly: boolean;
+  } | undefined;
 }
 
 export interface ExecutionWorkerDeps {
@@ -116,6 +195,10 @@ export interface ExecutionWorkerDeps {
   readonly cancel?: CancelPort | undefined;
   /** Phase-09 Loop B (active_orders sweep). When absent, loopBSweep is a no-op. */
   readonly listActive?: ListActivePort | undefined;
+  /** Phase-15 SL/TP fan-out. When absent, a filled futures entry settles
+   *  without attaching protection and its conditional legs are skipped with a
+   *  labelled reason — never silently left 'planned'. */
+  readonly attachTpSl?: AttachTpSlPort | undefined;
   /** Resolve-ladder schedule gaps (12 F3). Injected so a test runs it sleep-free. */
   readonly resolveScheduleGapsMs?: readonly number[] | undefined;
   /** Fired after each settle commits (T08.6). Nothing in the send path depends on
@@ -159,10 +242,22 @@ interface ChildRow {
   id: string; tenantId: string; groupTradeId: string; accountId: string; legSeq: number;
   state: string; clientOrderId: string | null; market: string | null; finalQuantity: string | null;
   priceUsed: string | null; quoteCurrency: string | null;
+  /** phase-15: 'entry' | 'stop_loss' | 'take_profit' — spot rows are always 'entry'. */
+  legKind: string;
+  /** phase-15: for a conditional leg, the entry it protects. */
+  linkedEntryChildOrderId: string | null;
 }
 interface TradeRow {
   side: string; orderType: string; limitPrice: string | null; asset: string;
   sizingMode: string | null; sizingValue: string | null;
+  /** phase-15 futures intent — carried on the parent trade, not the leg. */
+  isFutures: boolean;
+  marginCurrency: string | null;
+  stopLossPrice: string | null;
+  takeProfitPrice: string | null;
+  leverage: string | null;
+  positionMarginType: string | null;
+  reduceOnly: boolean;
 }
 
 export class ExecutionWorker {
@@ -372,6 +467,7 @@ export class ExecutionWorker {
         'id', 'group_trade_id as groupTradeId', 'account_id as accountId', 'leg_seq as legSeq',
         'state', 'client_order_id as clientOrderId', 'market', 'final_quantity as finalQuantity',
         'price_used as priceUsed', 'quote_currency as quoteCurrency',
+        'leg_kind as legKind', 'linked_entry_child_order_id as linkedEntryChildOrderId',
       ] as unknown as never)
       .executeTakeFirst();
     if (child === undefined) return null;
@@ -380,7 +476,11 @@ export class ExecutionWorker {
     c.tenantId = jobTenantId;
     const gt = await tdb.byId('group_trade', c.groupTradeId)
       .select(['side', 'order_type as orderType', 'limit_price as limitPrice', 'asset',
-        'sizing_mode as sizingMode', 'sizing_value as sizingValue'] as unknown as never)
+        'sizing_mode as sizingMode', 'sizing_value as sizingValue',
+        'is_futures as isFutures', 'margin_currency as marginCurrency',
+        'stop_loss_price as stopLossPrice', 'take_profit_price as takeProfitPrice',
+        'leverage', 'position_margin_type as positionMarginType', 'reduce_only as reduceOnly',
+      ] as unknown as never)
       .executeTakeFirst();
     const t = gt as unknown as TradeRow | null;
     return { tdb, child: c, trade: t };
@@ -458,7 +558,20 @@ export class ExecutionWorker {
       }
     }
 
-    const outcome = await this.deps.submit(coid, {
+    // A THROW from the port strands the leg. The `sending` reservation is already
+    // committed (write-before-send), so if this rejects — a signer refusal, a
+    // transport failure, a bug — and we let it propagate, the child sits `sending`
+    // FOREVER: nothing settles it, and it blocks this (account, market) with
+    // ORDER_IN_FLIGHT for every future trade. Observed for real: one signer
+    // misconfiguration froze an account.
+    //
+    // AMBIGUOUS, never rejected. We asked the venue and do not know the answer;
+    // `rejected` would claim the order does not exist, and that claim is what
+    // abandons a live position. Ambiguous enqueues a resolve job, which the
+    // server's sweep then re-checks.
+    let outcome;
+    try {
+      outcome = await this.deps.submit(coid, {
       accountId: child.accountId,
       tenantId: jobTenantId,
       side: trade.side,
@@ -466,13 +579,46 @@ export class ExecutionWorker {
       quantity: sendQuantity,
       orderType: trade.orderType,
       limitPrice: trade.limitPrice,
-    });
+      childOrderId: child.id,
+      // Only a futures trade carries this. The margin currency is NOT NULL in the
+      // schema whenever is_futures is set (group_trade_futures_required_fields),
+      // so the fallbacks here are for the type system, not for a real state.
+      ...(trade.isFutures === true
+        ? {
+            futures: {
+              pair: futuresPairOf({ asset: trade.asset, quote: quoteOfMarket(child.market) },
+                (trade.marginCurrency ?? 'INR') as 'INR' | 'USDT'),
+              marginCurrency: trade.marginCurrency ?? 'INR',
+              leverage: Number.parseInt(trade.leverage ?? '1', 10),
+              positionMarginType: trade.positionMarginType ?? 'isolated',
+              reduceOnly: trade.reduceOnly === true,
+            },
+          }
+          : {}),
+      });
+    } catch (e) {
+      await this.settle(tdb, child, 'ambiguous', {
+        refusalCode: 'submit_threw',
+        refusalDetail: e instanceof Error ? e.message : String(e),
+      });
+      return 'ambiguous';
+    }
 
     if (outcome.kind === 'accepted') {
       const canonical = mapVenueOrderState(outcome.statusRaw ?? '').state;
       await this.settle(tdb, child, canonical,
         outcome.exchangeOrderId !== undefined ? { exchangeOrderId: outcome.exchangeOrderId } : {});
       return 'sent';
+    }
+    // Undecidable is a STRONGER statement than ambiguous, so it is checked first:
+    // there is nothing left to look at, and a scheduled resolve would only delay
+    // the human who has to look anyway.
+    if (outcome.needsHuman === true) {
+      await this.settle(tdb, child, 'needs_human', {
+        refusalCode: outcome.code ?? 'undecidable',
+        refusalDetail: outcome.detail ?? '',
+      });
+      return 'rejected';
     }
     // A rejection where the order may still exist (timeout/5xx) is AMBIGUOUS:
     // resolve it, never re-send.
@@ -577,18 +723,21 @@ export class ExecutionWorker {
     tdb: TenantDb,
     child: Pick<ChildRow, 'id' | 'groupTradeId' | 'accountId'>,
     state: string,
-    extra: { exchangeOrderId?: string; refusalCode?: string; refusalDetail?: string } = {},
+    extra: { exchangeOrderId?: string; refusalCode?: string; refusalDetail?: string; triggerState?: string } = {},
   ): Promise<void> {
     const set: Record<string, unknown> = { state, last_observed_at: nowDate() };
     if (extra.exchangeOrderId !== undefined) set['exchange_order_id'] = extra.exchangeOrderId;
     if (extra.refusalCode !== undefined) set['refusal_code'] = extra.refusalCode;
     if (extra.refusalDetail !== undefined) set['refusal_detail'] = extra.refusalDetail;
+    if (extra.triggerState !== undefined) set['trigger_state'] = extra.triggerState;
     // A terminal state is stamped; the caller decides legality (12 F1 is app logic).
     if (state === 'not_placed' || state === 'rejected' || state === 'needs_human') set['terminal_at'] = nowDate();
-    await tdb.updateTable('child_order')
+    const updated = await tdb.updateTable('child_order')
       .set(set as never)
       .where('id' as never, '=', child.id as never)
-      .execute();
+      .returning(['leg_kind as legKind', 'market as market'] as unknown as never)
+      .executeTakeFirst();
+    const updatedRow = updated as unknown as { legKind: string; market: string | null } | undefined;
     // T08.6: publish AFTER the commit, so a subscriber only ever hears durable truth.
     if (this.deps.onChildState !== undefined) {
       this.deps.onChildState({
@@ -602,6 +751,18 @@ export class ExecutionWorker {
         at: Date.now(),
       });
     }
+    // T15.5 — a futures ENTRY leg carries conditional siblings (SL/TP) that were
+    // created at enqueue and are still 'planned'. The venue attaches protection
+    // to a POSITION, so the trigger is the entry SETTLING, not the confirm call:
+    // a filled entry owes an attach; a terminal non-fill owes a labelled skip
+    // (never a leg left 'planned' forever, which would wedge the trade open).
+    if (updatedRow?.legKind === 'entry') {
+      if (state === 'filled') {
+        await this.attachProtection(tdb, child, updatedRow.market);
+      } else if (ENTRY_NO_POSITION.has(state)) {
+        await this.skipConditionals(tdb, child, 'entry_' + state);
+      }
+    }
     // T09.7: once no child of this trade is still working, flip it to completed.
     // Guarded in SQL on `status = 'executing'`, so concurrent settles cannot
     // double-flip. A failure here must not disturb the already-committed settle.
@@ -613,7 +774,131 @@ export class ExecutionWorker {
       }
     }
   }
+
+  /**
+   * Attach the group trade's SL/TP to the position this entry opened (T15.5).
+   *
+   * Called only after an entry leg reports `filled` — the one entry state that
+   * guarantees a position exists at the venue. Each conditional sibling is
+   * settled by the venue's own per-leg answer: `untriggered` when the leg landed,
+   * `rejected` with the venue's reason when it did not. A leg the customer never
+   * asked for is settled `skipped` so the trade can still complete.
+   *
+   * When no attach port is wired (dry-run builds, pre-Phase-14) the conditionals
+   * are skipped with a labelled reason — the trade completes honestly rather than
+   * hanging on a leg nothing can ever place.
+   *
+   * Narrow gap, deliberately left: an entry that fills PARTIALLY and is then
+   * cancelled (`partially_cancelled`) may have left a position behind, and this
+   * path skips its conditionals. The customer can attach protection from the
+   * Positions page, and A21 watches for an unprotected position.
+   */
+  private async attachProtection(
+    tdb: TenantDb,
+    entry: Pick<ChildRow, 'id' | 'groupTradeId' | 'accountId'>,
+    market: string | null,
+  ): Promise<void> {
+    const conditionals = await tdb.selectFrom('child_order')
+      .select(['id', 'leg_kind as legKind', 'price_used as priceUsed'] as unknown as never)
+      .where('linked_entry_child_order_id' as never, '=', entry.id as never)
+      .where('state' as never, '=', 'planned' as never)
+      .execute();
+    if (conditionals.length === 0) return;
+
+    const rows = conditionals as unknown as Array<{ id: string; legKind: string; priceUsed: string | null }>;
+    const attach = this.deps.attachTpSl;
+
+    const trade = await tdb.byId('group_trade', entry.groupTradeId)
+      .select(['asset', 'margin_currency as marginCurrency'] as unknown as never)
+      .executeTakeFirst();
+    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null } | undefined;
+
+    // Nothing can be attached: no port, no market, or no margin currency. Skip
+    // every leg with a reason the customer can read, so the trade completes.
+    if (attach === undefined || market === null || tradeRow === undefined || tradeRow.marginCurrency === null) {
+      const why = attach === undefined
+        ? 'protection is not attached in this build (no futures engine wired)'
+        : 'this leg has no market or margin currency to attach protection against';
+      for (const leg of rows) await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'skipped', { refusalCode: 'TP_SL_NOT_ATTACHED', refusalDetail: why });
+      return;
+    }
+
+    const quote = quoteOfMarket(market);
+    const pair = futuresPairOf({ asset: tradeRow.asset, quote }, tradeRow.marginCurrency);
+    const slLeg = rows.find((l) => l.legKind === 'stop_loss');
+    const tpLeg = rows.find((l) => l.legKind === 'take_profit');
+
+    const out = await attach({
+      accountId: entry.accountId,
+      pair,
+      marginCurrency: tradeRow.marginCurrency,
+      stopLossPrice: slLeg?.priceUsed ?? null,
+      takeProfitPrice: tpLeg?.priceUsed ?? null,
+    });
+
+    if (!out.ok) {
+      // Venue refused the whole call (or could not be reached). Every leg is
+      // rejected with the same reason; the position is open and unprotected,
+      // which A21 surfaces.
+      for (const leg of rows) {
+        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'rejected', {
+          refusalCode: out.code,
+          refusalDetail: out.detail,
+        });
+      }
+      return;
+    }
+
+    const settleLeg = async (leg: { id: string } | undefined, res: AttachLegResult | undefined, label: string): Promise<void> => {
+      if (leg === undefined) return;
+      if (res === undefined) {
+        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'skipped', {
+          refusalCode: 'TP_SL_NOT_REQUESTED',
+          refusalDetail: `no ${label} was configured for this trade`,
+        });
+        return;
+      }
+      if (res.ok) {
+        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'untriggered', {
+          triggerState: 'untriggered',
+        });
+      } else {
+        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'rejected', {
+          refusalCode: 'TP_SL_REFUSED',
+          refusalDetail: res.reason ?? `the venue refused the ${label}`,
+        });
+      }
+    };
+    await settleLeg(slLeg, out.stopLoss, 'stop-loss');
+    await settleLeg(tpLeg, out.takeProfit, 'take-profit');
+  }
+
+  /**
+   * The entry can never open a position, so its conditional siblings are settled
+   * `skipped` with a reason derived from the entry's own outcome. Without this a
+   * 'planned' conditional would hold the trade in `executing` forever.
+   */
+  private async skipConditionals(
+    tdb: TenantDb,
+    entry: Pick<ChildRow, 'id' | 'groupTradeId' | 'accountId'>,
+    reason: string,
+  ): Promise<void> {
+    await tdb.updateTable('child_order')
+      .set({
+        state: 'skipped',
+        refusal_code: 'ENTRY_DID_NOT_FILL',
+        refusal_detail: `protection was not attached because the entry leg did not fill (${reason})`,
+      } as never)
+      .where('linked_entry_child_order_id' as never, '=', entry.id as never)
+      .where('state' as never, '=', 'planned' as never)
+      .execute();
+  }
 }
+
+/** Entry outcomes that prove no position was opened. */
+const ENTRY_NO_POSITION: ReadonlySet<string> = new Set([
+  'rejected', 'not_placed', 'skipped', 'needs_human', 'cancelled', 'partially_cancelled', 'liquidated',
+]);
 
 /** The states that keep a group trade executing (mirrors the DB WORKING set). */
 const WORKING_SET: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous', 'acked', 'open']);

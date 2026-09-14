@@ -14,7 +14,7 @@
 // send itself. The live-progress stream is an EventSource in the Execution page,
 // not a fetch, so it carries no send shape.
 
-import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PositionsResponse, PreviewResult } from '@tradex/api';
+import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PreviewResult } from '@tradex/api';
 import type { GroupHeader, GroupMember, GroupSummary } from '@tradex/db';
 
 /** A minimal fetch wrapper that throws a readable error on a non-2xx response. */
@@ -195,7 +195,7 @@ export const retryFailedTrade = (groupTradeId: string): Promise<PreviewResult> =
     body: JSON.stringify({}),
   });
 
-export type { PlanRequest, PreviewResult, PreviewRow, AccountListItem, ExecutionReport, PositionsResponse, PositionView, QuoteRollup, AnalyticsReport, BlotterChildRow, MetricValue, QuoteTotal } from '@tradex/api';
+export type { PlanRequest, PreviewResult, PreviewRow, AccountListItem, ExecutionReport, AnalyticsReport, BlotterChildRow, MetricValue, QuoteTotal } from '@tradex/api';
 export type { GroupSummary, GroupMember, GroupHeader } from '@tradex/db';
 
 // --- group management --------------------------------------------------------
@@ -250,9 +250,44 @@ export const removeGroupMember = (groupId: string, accountId: string): Promise<{
 export const fetchAccountList = (): Promise<readonly AccountListItem[]> =>
   request<readonly AccountListItem[]>('/accounts');
 
-/** The books per account/asset (phase-09 T09.6). Optional group narrows the roll-up. */
-export const fetchPositions = (groupId?: string): Promise<PositionsResponse> =>
-  request<PositionsResponse>(groupId === undefined || groupId === '' ? '/positions' : `/positions?groupId=${encodeURIComponent(groupId)}`);
+/**
+ * One account, everything the detail page renders. `deletable` is false once the
+ * account has traded, with `undeletableReason` carrying what to show instead —
+ * the ledger is append-only, so such an account can never be removed.
+ */
+export interface AccountDetail extends AccountListItem {
+  readonly createdAt: string;
+  readonly confirmedAt: string | null;
+  readonly balances: readonly AccountBalanceRow[];
+  readonly groupCount: number;
+  readonly groupNames: readonly string[];
+  readonly deletable: boolean;
+  readonly undeletableReason: string | null;
+}
+
+/** One stored balance: the venue's own figures, at the wallet scale it reported. */
+export interface AccountBalanceRow {
+  readonly currency: string;
+  readonly freeMinor: string;
+  readonly lockedMinor: string;
+  readonly scale: number;
+  readonly observedAt: string;
+}
+
+export const fetchAccount = (accountId: string): Promise<AccountDetail> =>
+  request<AccountDetail>(`/accounts/${accountId}`);
+
+/** Pause trading on one account. Reversible; the key and history are untouched. */
+export const suspendAccount = (accountId: string): Promise<{ ok: boolean }> =>
+  request<{ ok: boolean }>(`/accounts/${accountId}/suspend`, { method: 'POST', body: JSON.stringify({}) });
+
+/** Resume a deactivated account. */
+export const resumeAccount = (accountId: string): Promise<{ ok: boolean }> =>
+  request<{ ok: boolean }>(`/accounts/${accountId}/resume`, { method: 'POST', body: JSON.stringify({}) });
+
+/** Remove an account that has never traded. 409 — with the reason — once it has. */
+export const deleteAccount = (accountId: string): Promise<{ ok: boolean }> =>
+  request<{ ok: boolean }>(`/accounts/${accountId}`, { method: 'DELETE' });
 
 // --- phase 05: trading state, pause, limits ----------------------------------
 
@@ -320,8 +355,6 @@ export interface BalanceRow {
 
 export interface ValidateAccountInput {
   readonly accountName: string;
-  readonly allocatedCapitalMinor: string;
-  readonly allocatedCurrency: 'INR' | 'USDT';
   readonly apiKey: string;
   readonly apiSecret: string;
 }
@@ -330,34 +363,29 @@ export interface Reconciliation {
   readonly accountId: string;
   readonly credentialId: string;
   readonly apiKeyLast4: string;
+  /** Derived server-side from what the account can actually fund with. */
   readonly allocatedCurrency: 'INR' | 'USDT';
-  readonly typedCapitalMinor: string;
+  /** The venue's own free balance in that currency, minor units. Nothing typed. */
   readonly realFreeMinor: string;
-  readonly diverges: boolean;
   readonly fundingCurrencies: readonly string[];
   readonly balances: readonly BalanceRow[];
 }
 
 /**
- * Validate an exchange key: seals it, probes the venue, and returns the
- * reconciliation (typed vs real capital). Nothing is activated yet — confirm is
- * the separate step where the customer keeps a basis. Owner + re-auth server-side.
+ * Validate an exchange key: seals it, probes the venue, and returns what the
+ * account actually holds. Nothing is activated yet — confirm is the separate
+ * step that turns the key on.
  */
 export const validateAccount = (input: ValidateAccountInput): Promise<{ reconciliation: Reconciliation }> =>
   request<{ reconciliation: Reconciliation }>('/accounts/validate', { method: 'POST', body: JSON.stringify(input) });
 
-export interface ConfirmAccountInput {
-  readonly accountId: string;
-  readonly credentialId: string;
-  readonly confirmedAgainstMinor: string;
-  readonly adoptRealAsBasis: boolean;
-  readonly fundingCurrencies: readonly string[];
-  readonly balances: readonly BalanceRow[];
-}
-
-/** Activate a validated account, recording the customer's basis choice. */
-export const confirmAccount = (input: ConfirmAccountInput): Promise<{ ok: boolean }> =>
-  request<{ ok: boolean }>('/accounts/confirm', { method: 'POST', body: JSON.stringify(input) });
+/**
+ * Switch a validated account on. Nothing about the account is sent: its sizing
+ * basis, funding currencies and balances were all read from the venue during
+ * validate and are already stored, so this is the whole payload.
+ */
+export const confirmAccount = (accountId: string): Promise<{ ok: boolean }> =>
+  request<{ ok: boolean }>('/accounts/confirm', { method: 'POST', body: JSON.stringify({ accountId }) });
 
 // --- phase 12: blotter + analytics (our own records, never a live price) ------
 
@@ -410,3 +438,126 @@ export async function fetchAnalyticsCsv(q: AnalyticsQuery = {}): Promise<{ text:
   return { text, filename: m === null ? 'realised.csv' : m[1] };
 }
 
+
+// --- workspace settings -----------------------------------------------------
+
+export interface WorkspaceInfo {
+  readonly tenantId: string;
+  readonly name: string;
+  readonly valuationCurrency: 'INR' | 'USDT';
+  readonly status: 'active' | 'suspended' | 'closed';
+}
+
+/** Read the workspace this session belongs to (name, currency). */
+export const fetchWorkspace = (): Promise<WorkspaceInfo> =>
+  request<WorkspaceInfo>('/settings/workspace');
+
+/** Rename the workspace. Owner + fresh 2FA (server enforces both). */
+export const renameWorkspace = (name: string): Promise<{ oldName: string; newName: string }> =>
+  request<{ oldName: string; newName: string }>('/settings/workspace', {
+    method: 'PATCH', body: JSON.stringify({ name }),
+  });
+
+/** Satisfy the re-authentication requirement for the current session. */
+export async function stepUp(code: string): Promise<{ ok: boolean }> {
+  const res = await fetch('/api/auth/step-up', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    let msg = 'step-up failed';
+    try { const b = (await res.json()) as { message?: string }; if (typeof b.message === 'string') msg = b.message; } catch { /* keep */ }
+    throw new ApiError(res.status, msg);
+  }
+  return (await res.json()) as { ok: boolean };
+}
+
+// --- phase-15 futures ---------------------------------------------------------
+
+export interface FuturesPositionRow {
+  readonly venuePositionId: string;
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly pair: string;
+  readonly marginCurrency: 'INR' | 'USDT';
+  readonly side: 'long' | 'short' | 'flat';
+  readonly quantity: string;
+  readonly avgEntryPrice: string | null;
+  readonly markPrice: string | null;
+  readonly liquidationPrice: string | null;
+  readonly unrealisedPnlMinor: string | null;
+  readonly liqBufferBp: number | null;
+  readonly leverage: string | null;
+  readonly lockedMarginMinor: string | null;
+  readonly stopLossTrigger: string | null;
+  readonly takeProfitTrigger: string | null;
+  readonly fundingRateBp: number | null;
+  readonly markStaleForMs: number | null;
+}
+
+export interface FuturesPositionsResponse {
+  readonly views: readonly FuturesPositionRow[];
+  readonly at: string;
+}
+
+/**
+ * Partially close, or add to, a live futures position. `percentBp` is of the
+ * CURRENT position (2500 = 25%). The server floors to the instrument's step and
+ * refuses below the venue's minimums rather than nudging the size up.
+ */
+export const adjustFuturesPosition = (
+  venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number,
+): Promise<{ quantity: string; venueOrderId: string | null; full: boolean }> =>
+  request<{ quantity: string; venueOrderId: string | null; full: boolean }>(
+    `/futures/positions/${venuePositionId}/adjust`,
+    { method: 'POST', body: JSON.stringify({ direction, percentBp }) },
+  );
+
+/**
+ * Re-read the venue's positions and mirror them. The mirror otherwise refreshes
+ * only after a fan-out, so a position can outlive the trade that made it.
+ */
+export const refreshFuturesPositions = (): Promise<{ accounts: number; positions: number }> =>
+  request<{ accounts: number; positions: number }>('/futures/positions/refresh', {
+    method: 'POST', body: JSON.stringify({}),
+  });
+
+export const fetchFuturesPositions = (): Promise<FuturesPositionsResponse> =>
+  request<FuturesPositionsResponse>('/futures/positions');
+
+/**
+ * Hard-exit a position at market. The server cancels every conditional attached
+ * to the position FIRST, then calls positions/exit, then reconciles to zero.
+ * A 503 means the composition root has not wired the futures execution engine.
+ * A 409 means the safe sequence could not complete (e.g. a conditional could
+ * not be cancelled) — the position is untouched.
+ */
+export const exitFuturesPosition = (venuePositionId: string, marginCurrency: 'INR' | 'USDT'): Promise<{
+  readonly cancelled: readonly string[];
+  readonly cancelFailures: readonly { readonly venueOrderId: string; readonly reason: string }[];
+  readonly exited: boolean;
+  readonly venueGroupId: string | null;
+  readonly finalActivePos: string;
+}> =>
+  request(`/futures/positions/${encodeURIComponent(venuePositionId)}/exit`, {
+    method: 'POST',
+    body: JSON.stringify({ marginCurrency }),
+  });
+
+/**
+ * Attach or move a stop-loss / take-profit on an existing position. `moveExisting`
+ * = the server should cancel the current SL/TP first (research/04 F12: create_tpsl
+ * is not an upsert). Set only SL, only TP, or both.
+ */
+export const setFuturesProtection = (
+  venuePositionId: string,
+  body: { readonly stopLossPrice?: string; readonly takeProfitPrice?: string; readonly moveExisting?: boolean },
+): Promise<{
+  readonly stopLoss?: { readonly ok: boolean; readonly reason?: string } | undefined;
+  readonly takeProfit?: { readonly ok: boolean; readonly reason?: string } | undefined;
+}> =>
+  request(`/futures/positions/${encodeURIComponent(venuePositionId)}/tpsl`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });

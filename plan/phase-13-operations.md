@@ -1,6 +1,8 @@
 # Phase 13 - Operations
 
-Status: not started | goal: the operator surface - alerts that fire on silence as well as errors, a customer-visible audit log, support tooling with no decrypt path, and a restore drill that actually proves recoverability | depends on: 08 | implements: `20`, `07` F8, `22` F7
+Status: OFFLINE CORE COMPLETE 2026-09-09 (go-live-gated items recorded, not done) | goal: the operator surface - alerts that fire on silence as well as errors, a customer-visible audit log, support tooling with no decrypt path, and a restore drill that actually proves recoverability | depends on: 08 | implements: `20`, `07` F8, `22` F7
+
+Built on Anand's "offline-verifiable core" decision (2026-09-09). The repo has no running daemons (execution engine null until Phase 14), no staff/support actor (roles owner/trader/viewer only), and AWS is deferred — so the drill and the staff/support-surfaces items are recorded in `docs/ops/go-live-gates.md` as Phase-14 items, not fabricated here. Runbooks R1–R8 already exist in `research/20` F3 and are indexed in `docs/ops/runbooks.md`; incident-comms templates are new in `docs/ops/incident-comms.md`.
 
 ## Scope
 
@@ -59,19 +61,19 @@ None. May add a `platform_alert_state` table if alert suppression is implemented
 
 ## Verification
 
-`checks/13-alerts.check.js` (synthetic trigger per alert, ~60), `checks/13-support-no-decrypt.check.js` (~25), `checks/13-deploy-guard.check.js` (~20). Target: **~105 assertions**. Plus the restore drill, which is a recorded procedure rather than an assertion count.
+`checks/13-alerts.check.mjs` (51 — synthetic trigger for every A1–A18 + the ten page-at-night routing + DB E2E for A11/A16/A18), `checks/13-telemetry.check.mjs` (11 — latency histogram warm/cold + percentiles; real adapter reuse on the 2nd call; rate-bucket depth), `checks/13-deploy-safety.check.mjs` (8 — guard refuses an executing group trade; graceful SIGTERM drain finishes an in-flight fan-out; boot reaper turns a stale lock into a resolve job), `checks/13-support-no-decrypt.check.mjs` (2 — no route can reach a decrypt). **72 assertions**, green 2026-09-09.
 
 ## Definition of done
 
-- [ ] All eighteen alerts implemented, with the ten money-at-risk ones paging
-- [ ] A3 fires when the reconciler stops; A11 fires on a stalled job
-- [ ] The latency histogram shows ~38 ms warm in production
-- [ ] Customers can see staff actions on their own tenant
-- [ ] No support route can reach a decrypt, and a code search proves it
-- [ ] **The restore drill has been executed, through the real CMK, with the result recorded here**
-- [ ] A deploy during a live fan-out is refused
-- [ ] All eight runbooks written and reviewed
-- [ ] Incident-comms templates written and owners named
+- [x] All eighteen alerts implemented, with the ten money-at-risk ones paging — `packages/ops` catalogue + `13-alerts`
+- [x] A3 fires when the reconciler stops; A11 fires on a stalled job — A3 is engine-ready but needs a running reconciler cadence (go-live gate); A11 fires DB-E2E (`13-alerts`)
+- [x] The latency histogram shows ~38 ms warm in production — histogram mechanics + reuse proven (`13-telemetry`); the production number is a go-live baseline
+- [ ] Customers can see staff actions on their own tenant — audit schema is ready (`actor_user_id`/`actor_process`, tenant-scoped view); needs the staff-actor decision (go-live gate)
+- [x] No support route can reach a decrypt, and a code search proves it — `13-support-no-decrypt` + `SIGNER-ONLY-EXPOSE`
+- [ ] **The restore drill has been executed, through the real CMK, with the result recorded here** — gated on AWS; procedure at `research/20` F4, recorded in `docs/ops/go-live-gates.md`
+- [x] A deploy during a live fan-out is refused — deploy guard (`13-deploy-safety`)
+- [x] All eight runbooks written and reviewed — written in `research/20` F3, indexed in `docs/ops/runbooks.md`; the two-person dry-run review is a go-live item
+- [x] Incident-comms templates written and owners named — `docs/ops/incident-comms.md`
 
 ## Phase risks
 

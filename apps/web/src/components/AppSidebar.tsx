@@ -42,8 +42,7 @@ const GROUPS: readonly NavGroup[] = [
     items: [
       { label: 'Desk controls', icon: '🛑', to: '/app/trading', match: (p) => p.startsWith('/app/trading') },
       { label: 'Security & 2FA', icon: '🔐', to: '/app/security', match: (p) => p.startsWith('/app/security') },
-      { label: 'Settings', icon: '⚙️', soon: true },
-      { label: 'Members', icon: '👥', soon: true },
+      { label: 'Settings', icon: '⚙️', to: '/app/settings', match: (p) => p.startsWith('/app/settings') },
     ],
   },
 ];

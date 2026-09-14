@@ -402,48 +402,120 @@ export async function run(assert) {
     assert(audit.every((r) => r.actorProcess === 'api'), 'audit rows must name the acting process');
 
     // ------------------------------------------------ connect an exchange account
-    // The owner (fresh 2FA) connects a FakeVenue key: seal → probe → reconcile →
-    // confirm → the account appears in the list, active. The reconciliation must
-    // show the typed-vs-real divergence the FakeVenue is seeded to produce.
+    // The owner (fresh 2FA) connects a FakeVenue key: seal → probe → derive the
+    // currency and capital from the venue → confirm → the account appears in the
+    // list, active. The owner types no money figures at any point.
     const validate = await fetch(`${base}/api/accounts/validate`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
-      body: JSON.stringify({ accountName: 'New Exchange Acct', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
+      body: JSON.stringify({ accountName: 'New Exchange Acct', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
     });
     assert(validate.status === 200, `validating a good key should be 200, got ${validate.status}`);
     const rec = (await validate.json()).reconciliation;
-    assert(rec.typedCapitalMinor === '2000000' && rec.realFreeMinor === '24875034', 'the reconciliation must carry typed + real capital');
-    assert(rec.diverges === true, 'the FakeVenue balance must diverge from the typed capital');
+    assert(rec.allocatedCurrency === 'INR' && rec.realFreeMinor === '24875034',
+      'the reconciliation must carry the venue-derived currency and balance');
+    assert(rec.typedCapitalMinor === undefined && rec.diverges === undefined,
+      'the reconciliation must not carry a typed figure — nothing is typed any more');
     assert(rec.apiKeyLast4 === '6789', 'the reconciliation must report the key last-4');
 
     const badValidate = await fetch(`${base}/api/accounts/validate`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
-      body: JSON.stringify({ accountName: 'Bad', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: 'not-a-real-key-000', apiSecret: 'not-a-real-secret-000' }),
+      body: JSON.stringify({ accountName: 'Bad', apiKey: 'not-a-real-key-000', apiSecret: 'not-a-real-secret-000' }),
     });
     assert(badValidate.status === 401, 'an unknown key should fail validation with 401 (the three-cause message)');
+    // The rejected connect must have created NOTHING. Probing first is what removed
+    // the stranded pending accounts that had no way to be finished or removed.
+    const afterBad = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
+    assert(!afterBad.some((a) => a.name === 'Bad'),
+      'a rejected connect created an account row — a failed connect must leave nothing behind');
 
+    // A client that tries to state its own basis is ignored, not trusted: the field
+    // is not read, and the basis stays the venue's figure. Note the payload is now
+    // ONLY the account id — everything else was read from the venue and stored.
     const confirmConn = await fetch(`${base}/api/accounts/confirm`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) },
-      body: JSON.stringify({
-        accountId: rec.accountId, credentialId: rec.credentialId,
-        confirmedAgainstMinor: rec.typedCapitalMinor, adoptRealAsBasis: false,
-        fundingCurrencies: rec.fundingCurrencies, balances: rec.balances,
-      }),
+      body: JSON.stringify({ accountId: rec.accountId, confirmedAgainstMinor: '99999999999999', allocatedCurrency: 'USDT' }),
     });
-    assert(confirmConn.status === 200, 'confirming a validated account should be 200');
+    assert(confirmConn.status === 200, `confirming a validated account should be 200, got ${confirmConn.status}`);
 
     const afterConn = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
     const added = afterConn.find((a) => a.name === 'New Exchange Acct');
     assert(added !== undefined, 'the newly connected account must appear in the list');
     assert(added.status === 'active', 'a confirmed account must be active');
+    assert(added.allocatedCapitalMinor === '24875034' && added.allocatedCurrency === 'INR',
+      `a client-supplied basis was accepted: ${added.allocatedCapitalMinor} ${added.allocatedCurrency}`);
+
+    // ------------------------------------------------ the account detail page
+    const detailRes = await fetch(`${base}/api/accounts/${added.id}`, { headers: auth(owner2fa) });
+    assert(detailRes.status === 200, `the account detail should be 200, got ${detailRes.status}`);
+    const detail = await detailRes.json();
+    assert(detail.name === 'New Exchange Acct' && detail.status === 'active', 'the detail names the wrong account');
+    assert(Array.isArray(detail.balances) && detail.balances.length > 0,
+      'the detail must carry the balances read from the venue');
+    assert(detail.balances.some((b) => b.currency === 'INR' && b.scale === 2),
+      'the INR balance must be reported at the scale the venue used');
+    assert(detail.deletable === true, 'an account that never traded must be deletable');
+    assert(detail.undeletableReason === null, 'a deletable account must carry no reason');
+    // A viewer may read it (view.dashboards) — the detail is a read, not a write.
+    const viewerDetail = await fetch(`${base}/api/accounts/${added.id}`, { headers: auth(viewerCookie) });
+    assert(viewerDetail.status === 200, 'a viewer may read the account detail');
+    const missing = await fetch(`${base}/api/accounts/00000000-0000-0000-0000-000000000000`, { headers: auth(owner2fa) });
+    assert(missing.status === 404, `an unknown account must be 404, got ${missing.status}`);
+
+    // ------------------------------------------------ deactivate / reactivate
+    // A trader is refused: account.suspend is owner + reauth, because deciding
+    // whether an account trades is not a trader's call.
+    const traderSuspend = await fetch(`${base}/api/accounts/${added.id}/suspend`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) }, body: '{}',
+    });
+    assert(traderSuspend.status === 403, 'a trader must be 403 from deactivating an account');
+
+    const suspended = await fetch(`${base}/api/accounts/${added.id}/suspend`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: '{}',
+    });
+    assert(suspended.status === 200, `the owner should be able to deactivate, got ${suspended.status}`);
+    const afterSuspend = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
+    assert(afterSuspend.find((a) => a.id === added.id)?.status === 'suspended', 'the account is not suspended');
+
+    // Deactivating twice is a 409, not a silent success that changed nothing.
+    const resuspend = await fetch(`${base}/api/accounts/${added.id}/suspend`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: '{}',
+    });
+    assert(resuspend.status === 409, `re-deactivating must be 409, got ${resuspend.status}`);
+
+    const resumed = await fetch(`${base}/api/accounts/${added.id}/resume`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: '{}',
+    });
+    assert(resumed.status === 200, `reactivating should be 200, got ${resumed.status}`);
+    const afterResume = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
+    assert(afterResume.find((a) => a.id === added.id)?.status === 'active', 'the account was not reactivated');
+    const reresume = await fetch(`${base}/api/accounts/${added.id}/resume`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(owner2fa) }, body: '{}',
+    });
+    assert(reresume.status === 409, `reactivating an active account must be 409, got ${reresume.status}`);
+
+    // ------------------------------------------------------------- delete
+    const traderDelete = await fetch(`${base}/api/accounts/${added.id}`, {
+      method: 'DELETE', headers: auth(traderCookie),
+    });
+    assert(traderDelete.status === 403, 'a trader must be 403 from deleting an account');
+
+    const deleted = await fetch(`${base}/api/accounts/${added.id}`, {
+      method: 'DELETE', headers: auth(owner2fa),
+    });
+    assert(deleted.status === 200, `deleting a never-traded account should be 200, got ${deleted.status}`);
+    const goneRes = await fetch(`${base}/api/accounts/${added.id}`, { headers: auth(owner2fa) });
+    assert(goneRes.status === 404, `the deleted account must be gone, got ${goneRes.status}`);
+    const afterDelete = await (await fetch(`${base}/api/accounts`, { headers: auth(owner2fa) })).json();
+    assert(!afterDelete.some((a) => a.id === added.id), 'the deleted account is still in the list');
 
     // A trader (no credential.write) must be refused the connect routes.
     const traderValidate = await fetch(`${base}/api/accounts/validate`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
-      body: JSON.stringify({ accountName: 'X', allocatedCapitalMinor: '2000000', allocatedCurrency: 'INR', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
+      body: JSON.stringify({ accountName: 'X', apiKey: CONNECT_KEY, apiSecret: CONNECT_SECRET }),
     });
     assert(traderValidate.status === 403, 'a trader must be 403 from the connect route (credential.write is owner-only)');
 
-    console.log('     group mgmt + TOTP + connect-account: seal→probe→reconcile→confirm→active list; viewer/trader 403');
+    console.log('     connect→confirm→detail; deactivate/reactivate with 409s; delete; viewer/trader 403');
   } finally {
     if (srv !== null) await srv.stop();
     if (venue !== null) await venue.stop();

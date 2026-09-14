@@ -26,6 +26,7 @@ export function App() {
   else if (pathname.startsWith('/app/groups/')) title = 'Group';
   else if (pathname.startsWith('/app/groups')) title = 'Groups';
   else if (pathname.startsWith('/app/accounts/connect')) title = 'Connect account';
+  else if (pathname.startsWith('/app/accounts/')) title = 'Account';
   else if (pathname.startsWith('/app/accounts')) title = 'Accounts';
   else if (pathname.startsWith('/app/positions')) title = 'Positions';
   else if (pathname.startsWith('/app/activity')) title = 'Activity';
@@ -33,6 +34,7 @@ export function App() {
   else if (pathname.startsWith('/app/trading')) title = 'Desk controls';
   else if (pathname.startsWith('/app/security')) title = 'Security';
   else if (pathname.startsWith('/app/audit')) title = 'Audit';
+  else if (pathname.startsWith('/app/settings')) title = 'Settings';
 
   return (
     <div className="panel-light">

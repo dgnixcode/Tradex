@@ -27,7 +27,19 @@ export interface ReportRow {
   readonly market: string | null;
   readonly finalQuantity: string | null;
   readonly notionalMinor: string | null;
+  /**
+   * The human sentence, when the venue or a gate gave one. May be null while
+   * `refusalCode` is set — a gate that refuses with a code and no prose is
+   * normal, and this field alone would then render a FAILURE as a blank cell.
+   */
   readonly reason: string | null;
+  /**
+   * The machine-readable refusal, e.g. `ORDER_TYPE_NOT_ALLOWED`, `not_placed`,
+   * `ambiguous_duplicate_orders`. Carried separately from `reason` because it is
+   * the part that is always present on a refusal, and because two accounts can
+   * fail with the same prose for different reasons.
+   */
+  readonly refusalCode: string | null;
   readonly coid: string | null;
   readonly exchangeOrderId: string | null;
 }
@@ -69,6 +81,7 @@ export function buildReport(children: readonly ReportChild[]): ExecutionReport {
       finalQuantity: c.finalQuantity,
       notionalMinor: c.notionalMinor,
       reason: c.refusalDetail,
+      refusalCode: c.refusalCode,
       coid: c.coid,
       exchangeOrderId: c.exchangeOrderId,
     });

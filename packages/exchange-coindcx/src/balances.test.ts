@@ -56,14 +56,46 @@ describe('major units convert to minor without loss', () => {
 });
 
 describe('a balance it cannot represent is refused, never rounded', () => {
-  it('throws when a value carries more precision than the currency scale', () => {
-    // INR has 2 minor digits; a third non-zero one cannot be paise.
-    expect(() => mapBalances('[{"currency":"INR","balance":"100.005"}]')).toThrow(BalanceMappingError);
-    expect(() => mapBalances('[{"currency":"INR","balance":"100.005"}]')).toThrow(/without loss/);
+  it('widens to hold a value finer than the preferred scale', () => {
+    // INR's 2 is a convention about how rupees are written, not a limit on what a
+    // wallet holds. The digit is KEPT — the scale widens to hold it exactly.
+    const [inr] = mapBalances('[{"currency":"INR","balance":"100.005"}]');
+    expect(inr?.scale).toBe(3);
+    expect(inr?.freeMinor).toBe('100005');
   });
 
   it('accepts trailing zeros beyond the scale, which lose nothing', () => {
     expect(mapBalances('[{"currency":"INR","balance":"100.0000"}]')[0]?.freeMinor).toBe('10000');
+    expect(mapBalances('[{"currency":"INR","balance":"100.0000"}]')[0]?.scale).toBe(2);
+  });
+
+  it('widens a CRYPTO balance to fit the wallet precision the venue reported', () => {
+    // A real payload that hard-failed onboarding: a YFI dust balance with 14
+    // decimals, against the crypto convention of 8. It is not misread and not
+    // truncated — the scale widens to hold it exactly.
+    const [yfi] = mapBalances('[{"currency":"YFI","balance":0.00000000534923,"locked_balance":0}]');
+    expect(yfi?.currency).toBe('YFI');
+    expect(yfi?.scale).toBe(18);
+    expect(yfi?.freeMinor).toBe('5349230000');
+    // Round-trips: 5349230000 at scale 18 is exactly the venue's 5.34923e-9.
+    expect(BigInt(yfi?.freeMinor ?? '0')).toBe(5_349_230_000n);
+  });
+
+  it('widens a FIAT balance too — the live INR payload that failed onboarding', () => {
+    // `0.00508437692499` INR is what a real account actually returned. An earlier
+    // version of this file treated sub-paise INR as a venue bug and refused it,
+    // which hard-failed onboarding on real dust. The wallet scale is not the
+    // tradable step; storing the exact figure is what the scale widening is for.
+    const [inr] = mapBalances('[{"currency":"INR","balance":0.00508437692499,"locked_balance":0}]');
+    expect(inr?.currency).toBe('INR');
+    expect(inr?.scale).toBe(18);
+    expect(BigInt(inr?.freeMinor ?? '0')).toBe(5_084_376_924_990_000n);
+  });
+
+  it('refuses a value finer than the widest supported scale', () => {
+    // 19 decimals exceeds what the money layer can hold; still an error, never a round.
+    expect(() => mapBalances('[{"currency":"BTC","balance":"0.0000000000000000001"}]')).toThrow(BalanceMappingError);
+    expect(() => mapBalances('[{"currency":"BTC","balance":"0.0000000000000000001"}]')).toThrow(/without loss/);
   });
 
   it('rejects a malformed envelope or a duplicate currency', () => {
@@ -98,6 +130,27 @@ describe('funding currencies are derived from free balances, never typed', () =>
   it('is order-stable: INR before USDT regardless of response order', () => {
     const b = mapBalances('[{"currency":"USDT","balance":"1"},{"currency":"INR","balance":"1"}]');
     expect(deriveFundingCurrencies(b)).toEqual(['INR', 'USDT']);
+  });
+
+  it('does NOT let sub-paise INR dust win the derivation over real USDT', () => {
+    // The exact shape a live account returned: 0.00508437692499 INR free (no
+    // paise at all) alongside a real USDT balance. INR must not be derived —
+    // sizing a percentage buy against ₹0.00 would place nothing, and picking INR
+    // here would hide the USDT the account can actually trade with.
+    const b = mapBalances(
+      '[{"currency":"INR","balance":0.00508437692499,"locked_balance":0},{"currency":"USDT","balance":100,"locked_balance":0}]',
+    );
+    expect(deriveFundingCurrencies(b)).toEqual(['USDT']);
+    expect(freeBalanceMinor(b, 'INR')).toBe('0');
+    expect(freeBalanceMinor(b, 'USDT')).toBe('10000000000');
+  });
+
+  it('projects a wallet-scale balance onto the tradable step, never reading it raw', () => {
+    // The load-bearing half of the two-scale model: a scale-18 INR row read as if
+    // it were paise would overstate this account by 10^16.
+    const b = mapBalances('[{"currency":"INR","balance":1234.5,"locked_balance":0}]');
+    expect(b[0]?.scale).toBe(2);
+    expect(freeBalanceMinor(b, 'INR')).toBe('123450');
   });
 });
 

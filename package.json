@@ -21,7 +21,9 @@
     "db:seed": "node --env-file-if-exists=.env db/seed-demo.mjs",
     "checks:live": "node --env-file-if-exists=.env --env-file-if-exists=.env.live checks/run-all.mjs",
     "api": "npm run typecheck && npm run -w @tradex/api start",
-    "web": "npm run -w @tradex/web dev"
+    "sandbox-venue": "npm run typecheck && node scripts/sandbox-venue.mjs",
+    "web": "npm run -w @tradex/web dev",
+    "signer": "node --env-file-if-exists=.env apps/signer/server.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

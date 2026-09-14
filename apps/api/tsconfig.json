@@ -8,6 +8,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/exchange" },
     { "path": "../../packages/exchange-coindcx" },
+    { "path": "../../packages/futures-positions" },
     { "path": "../../packages/ledger" },
     { "path": "../../packages/metrics" },
     { "path": "../../packages/money" },

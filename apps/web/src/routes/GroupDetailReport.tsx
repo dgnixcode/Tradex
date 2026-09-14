@@ -55,6 +55,22 @@ export function GroupDetailReport() {
             <span style={{ marginRight: 18 }}>Rejected <strong>{report.data.report.rejected}</strong></span>
             <span>Needs review <strong>{report.data.report.needsReview}</strong></span>
           </div>
+
+          {/* A partial failure is the case that confuses most: the trade "worked"
+              but some accounts did not. Saying so up top, with the count, beats
+              making someone diff the rows. */}
+          {!report.data.report.allPlaced && (
+            <div className="spread-warning" style={{ marginBottom: 16 }}>
+              <strong>
+                {report.data.report.placed} of {report.data.report.planned}
+                {' '}account{report.data.report.planned === 1 ? '' : 's'} placed.
+              </strong>{' '}
+              {report.data.report.needsReview > 0
+                ? 'At least one leg needs a human — check the reasons below before re-trying.'
+                : 'The reasons are listed per account below.'}
+            </div>
+          )}
+
           <table>
             <thead>
               <tr>
@@ -64,13 +80,21 @@ export function GroupDetailReport() {
             </thead>
             <tbody>
               {report.data.report.rows.map((r) => (
-                <tr key={`${r.accountId}-${r.market}`}>
+                <tr key={`${r.accountId}-${r.market}`} className={badgeFor(r.state) === 'skipped' ? 'skipped' : ''}>
                   <td>{nameOf(r.accountId)}</td>
                   <td><span className={`badge ${badgeFor(r.state)}`}>{STATE_LABEL[r.state] ?? r.state}</span></td>
-                  <td className="mono">{r.market}</td>
+                  <td className="mono">{r.market ?? '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{r.finalQuantity ?? '—'}</td>
                   <td className="mono">{r.exchangeOrderId ?? '—'}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>{r.reason ?? '—'}</td>
+                  <td style={{ fontSize: 12 }}>
+                    {/* The CODE first: it is the part that is always present on a
+                        refusal, so a gate that refuses with a code and no prose no
+                        longer renders a failure as a blank cell. */}
+                    {r.refusalCode !== null && <span className="mono">{r.refusalCode}</span>}
+                    {r.refusalCode !== null && r.reason !== null && ' — '}
+                    {r.reason !== null && <span className="muted">{r.reason}</span>}
+                    {r.refusalCode === null && r.reason === null && <span className="muted">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -78,10 +102,14 @@ export function GroupDetailReport() {
 
           {report.data.report.groupedCauses.length > 0 && (
             <div style={{ marginTop: 16, fontSize: 13 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>Why legs failed, grouped by cause:</div>
               {report.data.report.groupedCauses.map((c) => (
                 <div key={`${c.code}-${c.detail ?? ''}`} className="muted" style={{ marginBottom: 4 }}>
-                  <strong>{c.count}×</strong> {c.code}
-                  {c.detail !== null && <> — {c.detail}</>} ({c.accounts.join(', ')})
+                  <strong>{c.count}×</strong> <span className="mono">{c.code}</span>
+                  {c.detail !== '' && <> — {c.detail}</>}{' '}
+                  {/* Names, not ids: "which account is broken" is the question this
+                      block exists to answer. */}
+                  <span style={{ opacity: 0.8 }}>({c.accounts.map(nameOf).join(', ')})</span>
                 </div>
               ))}
             </div>

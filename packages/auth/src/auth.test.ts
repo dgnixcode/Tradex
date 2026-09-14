@@ -182,7 +182,7 @@ describe('the role matrix from 19 F4', () => {
     for (const allowed of ['trade.place', 'trade.cancel', 'group.write', 'view.audit'] as const) {
       expect(authorise(principal('trader'), allowed).allowed, allowed).toBe(true);
     }
-    for (const denied of ['credential.write', 'limits.write', 'users.manage', 'account.disconnect', 'account.allocated.write'] as const) {
+    for (const denied of ['credential.write', 'limits.write', 'users.manage', 'account.disconnect', 'account.suspend', 'account.allocated.write'] as const) {
       const d = authorise(principal('trader'), denied);
       expect(d.allowed, denied).toBe(false);
       expect(d.allowed === false && d.code).toBe('forbidden_role');
@@ -234,8 +234,10 @@ describe('re-authentication', () => {
     expect(requiring).toEqual([
       'account.allocated.write',
       'account.disconnect',
+      'account.suspend',
       'credential.write',
       'limits.write',
+      'settings.write',
       'trade.place.large',
       'trading.resume',
       'users.manage',
@@ -249,9 +251,22 @@ describe('re-authentication', () => {
     expect(authorise(p, 'credential.write', new Date(fresh.getTime() + REAUTH_TTL_MS + 1)).allowed).toBe(false);
   });
 
-  it('refuses when the second factor was never enrolled', () => {
-    const d = authorise(owner({ totpEnabled: false }), 'credential.write');
-    expect(d.allowed === false && d.code).toBe('totp_not_enrolled');
+  it('allows an un-enrolled user — second-factor enrolment is optional', () => {
+    // Enrolment is optional: a user who has not enrolled cannot be asked for a
+    // code, so blocking them would make the action unreachable (which is what a
+    // first-time owner hit connecting their opening account). The role check
+    // still applies; the freshness gate applies only once enrolled.
+    expect(authorise(owner({ totpEnabled: false }), 'credential.write').allowed).toBe(true);
+    expect(authorise(owner({ totpEnabled: false, reauthAt: undefined }), 'account.disconnect').allowed).toBe(true);
+    // …but a VIEWER without a second factor is still refused on the role.
+    const viewer: Principal = { userId: 'v', tenantId: 't', role: 'viewer', totpEnabled: false };
+    expect(authorise(viewer, 'credential.write').allowed).toBe(false);
+  });
+
+  it('still demands a FRESH factor from an enrolled user', () => {
+    // The relaxation is about enrolment, not freshness: once a user HAS a second
+    // factor, a stale one is refused exactly as before.
+    expect(authorise(owner({ totpEnabled: true, reauthAt: undefined }), 'credential.write').allowed).toBe(false);
   });
 
   it('refuses when it never happened', () => {

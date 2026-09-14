@@ -12,6 +12,8 @@ import type { ColumnType, Generated } from 'kysely';
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 /** `numeric(38,0)` — always a string in and out. */
 type Numeric = ColumnType<string, string, string>;
+/** A `numeric(38,0)` the venue may not have reported yet. */
+type NumericOrNull = ColumnType<string | null, string | null, string | null>;
 /** `bigserial` — generated, and read as a string because int8 exceeds 2^53. */
 type BigSerial = Generated<string>;
 
@@ -126,10 +128,15 @@ export interface ExchangeAccountTable {
   tenant_id: string;
   name: string;
   exchange: Generated<'coindcx'>;
-  /** What the customer typed at onboarding. The percentage-sizing basis (09 F4). */
-  allocated_capital_minor: Numeric;
-  allocated_currency: SupportedQuote;
-  /** The live balance shown when they confirmed, so a later divergence is explainable. */
+  /**
+   * The percentage-sizing basis (09 F4) — the free balance the EXCHANGE reported
+   * when the account was connected, not a figure the customer typed. NULL while
+   * the account is `pending_validation` and the venue has not answered yet
+   * (migration 015). The two are always set together.
+   */
+  allocated_capital_minor: NumericOrNull;
+  allocated_currency: SupportedQuote | null;
+  /** The venue's figure, stamped at the moment of activation. */
   allocated_confirmed_against_minor: Numeric | null;
   allocated_confirmed_at: Timestamp | null;
   /** DERIVED from observed balances, never from user input (T02.6). */
@@ -314,7 +321,9 @@ export interface FxSnapshotTable {
 
 export type TradeSide = 'buy' | 'sell';
 /** Our canonical order type — 'market'/'limit', never the venue's *_order form. */
-export type CanonicalOrderType = 'market' | 'limit';
+export type CanonicalOrderType =
+  | 'market' | 'limit'
+  | 'stop_market' | 'stop_limit' | 'take_profit_market' | 'take_profit_limit';
 export type SizingMode =
   | 'quote_amount' | 'base_quantity' | 'pct_allocated' | 'pct_equity'
   | 'pct_free' | 'pct_position' | 'sell_all';
@@ -325,7 +334,20 @@ export type ExecutionJobKind = 'place' | 'resolve' | 'cancel' | 'poll';
 export type ChildOrderState =
   | 'planned' | 'skipped' | 'sending' | 'ambiguous' | 'not_placed' | 'acked' | 'open'
   | 'partially_filled' | 'filled' | 'cancelled' | 'partially_cancelled'
-  | 'rejected' | 'unknown' | 'needs_human';
+  | 'rejected' | 'unknown' | 'needs_human'
+  | 'untriggered' | 'sl_hit' | 'tp_hit' | 'liquidated';
+
+/** Which leg of a futures group trade a child_order carries. Spot rows are always 'entry'. */
+export type LegKind = 'entry' | 'stop_loss' | 'take_profit';
+
+/** Trigger lifecycle of a conditional (SL/TP) leg. Null on non-conditional legs. */
+export type TriggerState = 'untriggered' | 'triggered' | 'expired';
+
+/** Margin currency of a futures position — venue offers both. */
+export type MarginCurrency = 'INR' | 'USDT';
+
+/** How the venue holds margin against a position (research/03 F4). */
+export type PositionMarginType = 'isolated' | 'crossed';
 
 /**
  * A named subset of a tenant's accounts. Called `account_group`, not `group`:
@@ -388,6 +410,15 @@ export interface GroupTradeTable {
   completed_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   submitted_from_ip: string | null;
+  // phase-15 futures additions. is_futures is the top-level branch; the other
+  // columns are only meaningful when it's true (schema CHECK enforces).
+  is_futures: Generated<boolean>;
+  leverage: string | null;
+  margin_currency: MarginCurrency | null;
+  position_margin_type: PositionMarginType | null;
+  stop_loss_price: string | null;
+  take_profit_price: string | null;
+  reduce_only: Generated<boolean>;
 }
 
 /**
@@ -438,6 +469,11 @@ export interface ChildOrderTable {
   resolve_attempts: Generated<number>;
   divergence_count: Generated<number>;
   created_at: Generated<Timestamp>;
+  // phase-15 futures additions.
+  leg_kind: Generated<LegKind>;
+  linked_entry_child_order_id: string | null;
+  trigger_state: TriggerState | null;
+  venue_position_id: string | null;
 }
 
 /**
@@ -457,6 +493,51 @@ export interface ExecutionJobTable {
   locked_at: Timestamp | null;
   last_error: string | null;
   created_at: Generated<Timestamp>;
+}
+
+/**
+ * A cached mirror of the venue's futures position row. REST is the source of
+ * truth (research/04 D6); this table is what the positions view reads and what
+ * the reconciler refreshes. Holds mark_price / liquidation_price / margin —
+ * that is exactly the §6a carve-out futures requires (recorded in the
+ * 07-no-mark-to-market allowlist).
+ */
+export interface FuturesPositionTable {
+  id: Generated<string>;
+  tenant_id: string;
+  account_id: string;
+  pair: string;
+  margin_currency: MarginCurrency;
+  venue_position_id: string;
+  /** Signed base quantity: positive = long, negative = short, 0 = closed. */
+  active_pos: string;
+  avg_entry_price: string | null;
+  mark_price: string | null;
+  mark_observed_at: Timestamp | null;
+  liquidation_price: string | null;
+  leverage: string | null;
+  locked_margin_minor: Numeric | null;
+  take_profit_trigger: string | null;
+  stop_loss_trigger: string | null;
+  margin_type: PositionMarginType | null;
+  funding_rate_bp: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+/**
+ * The anti-duplicate-order substitute for the missing `client_order_id` on
+ * futures (research/03 Verdict). A leg holds the (account_id, pair) row-lock
+ * across write-before-send and the read-back window; INSERT ON CONFLICT DO
+ * NOTHING is the atomic race. Stale locks are reaped by the same boot reaper
+ * and periodic sweep that clears execution_job locks.
+ */
+export interface FuturesExecutionLockTable {
+  tenant_id: string;
+  account_id: string;
+  pair: string;
+  child_order_id: string;
+  acquired_at: Generated<Timestamp>;
+  locked_by: string;
 }
 
 export interface DB {
@@ -481,6 +562,8 @@ export interface DB {
   group_trade: GroupTradeTable;
   child_order: ChildOrderTable;
   execution_job: ExecutionJobTable;
+  futures_position: FuturesPositionTable;
+  futures_execution_lock: FuturesExecutionLockTable;
 }
 
 /**
@@ -507,6 +590,8 @@ export const TENANT_SCOPED_TABLES = [
   'group_trade',
   'child_order',
   'execution_job',
+  'futures_position',
+  'futures_execution_lock',
 ] as const satisfies readonly (keyof DB)[];
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];

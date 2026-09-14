@@ -4,10 +4,12 @@ import { fetchAccountList } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 
 // The Accounts section — the tenant's connected exchange accounts (T02.8's read
-// model): status, allocated capital, the typed-vs-real divergence cue, and the
-// currencies each can fund with. Connecting is a separate, owner + 2FA surface
-// (ConnectAccount) because it handles an exchange API key; disconnecting and
-// re-reconciling stay future work.
+// model): status, the capital the exchange reports, and the currencies each can
+// fund with. Connecting is a separate, owner + 2FA surface (ConnectAccount)
+// because it handles an exchange API key; disconnecting stays future work.
+//
+// There is no typed-vs-real column: the customer never types a capital figure, so
+// the allocated capital IS the venue's balance and has nothing to diverge from.
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'active',
@@ -20,7 +22,8 @@ const STATUS_LABEL: Record<string, string> = {
 const statusBadgeClass = (status: string): string =>
   status === 'active' ? 'planned' : status === 'pending_validation' ? 'skipped' : 'skipped';
 
-function capitalLabel(minor: string, currency: string): string {
+function capitalLabel(minor: string | null, currency: string | null): string {
+  if (minor === null || currency === null) return '—';
   const scale = currency === 'INR' ? 2 : 8;
   const digits = minor.padStart(scale + 1, '0');
   const whole = digits.slice(0, -scale);
@@ -46,6 +49,7 @@ export function Accounts() {
       </div>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         The exchange accounts connected to this workspace. One account, one set of keys.
+        Open an account to deactivate, reactivate or remove it.
       </p>
 
       {accounts.isLoading && <p className="muted">Loading accounts…</p>}
@@ -70,23 +74,21 @@ export function Accounts() {
               <th>Status</th>
               <th>Allocated</th>
               <th>Funding</th>
-              <th>Typed vs real</th>
+              <th>Connected</th>
             </tr>
           </thead>
           <tbody>
             {accounts.data.map((a) => (
               <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
-                <td>{a.name}</td>
+                <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
                 <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
                 <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
                 <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
                 <td>
                   {a.confirmedAgainstMinor === null ? (
-                    <span className="muted">not confirmed</span>
-                  ) : a.diverges ? (
-                    <span className="danger-text" style={{ color: 'var(--danger)' }}>diverged — re-check</span>
+                    <span className="muted">not activated</span>
                   ) : (
-                    <span style={{ color: 'var(--ok)' }}>matches</span>
+                    <span style={{ color: 'var(--ok)' }}>from the exchange</span>
                   )}
                 </td>
               </tr>

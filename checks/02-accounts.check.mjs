@@ -8,8 +8,8 @@
 //     asserted on the structured disclosures the UI must render verbatim
 //   - "exactly one route accepts a key" — a STRUCTURAL invariant, asserted by
 //     scanning apps/api source for how many exported functions ingest a secret
-//   - the accounts list read model returns name / currencies / allocated-vs-real
-//     / status, proven against a real database
+//   - the accounts list read model returns name / currencies / the venue's
+//     allocated capital / status, proven against a real database
 //
 // Skips the DB portion cleanly without DATABASE_URL; the source-scan and
 // disclosure assertions run regardless.
@@ -114,40 +114,50 @@ export async function run(assert) {
     // An empty tenant lists nothing.
     assert((await listAccounts(tdb)).length === 0, 'a fresh tenant already had accounts');
 
-    // Onboard one account and confirm it, keeping the typed figure so it diverges.
-    const v = await svc.validate({
-      accountName: 'Primary', allocatedCapitalMinor: '20000000', allocatedCurrency: 'INR', apiKey: KEY, apiSecret: SECRET,
-    });
+    // Onboard one account. Nothing about its money is typed: the FakeVenue holds
+    // INR, so the derived basis is the venue's INR free balance.
+    const v = await svc.validate({ accountName: 'Primary', apiKey: KEY, apiSecret: SECRET });
     assert(v.ok === true, 'onboarding failed to validate');
     const rec = v.ok === true ? v.reconciliation : null;
 
-    // Before confirm: the account lists as pending, with no confirmed figure and
-    // no funding currencies yet.
+    // Before confirm: the account lists as pending, with the venue's basis AND its
+    // funding currencies already recorded — both were read during validate, which
+    // is what makes a half-finished connect resumable. Only the confirmed-against
+    // stamp waits for the activation.
     const pending = await listAccounts(tdb);
     assert(pending.length === 1 && pending[0].status === 'pending_validation', 'the pending account did not list');
+    assert(pending[0].allocatedCapitalMinor === '24875034', 'the pending account is missing the venue basis');
+    assert(pending[0].allocatedCurrency === 'INR', 'the pending account is missing the venue currency');
     assert(pending[0].confirmedAgainstMinor === null, 'a pending account already has a confirmed figure');
-    assert(pending[0].diverges === false, 'a pending account cannot diverge — there is nothing to compare yet');
-    assert(pending[0].fundingCurrencies.length === 0, 'funding currencies are set before confirmation');
+    assert(pending[0].fundingCurrencies.join(',') === 'INR,USDT',
+      'the funding currencies read at validate are missing');
 
-    await svc.confirm({
-      accountId: rec.accountId, credentialId: rec.credentialId,
-      confirmedAgainstMinor: rec.realFreeMinor, adoptRealAsBasis: false,
-      fundingCurrencies: rec.fundingCurrencies, balances: rec.balances,
-    });
+    // The whole payload is the account id — nothing about the account's money is
+    // echoed back by the client.
+    await svc.confirm({ accountId: rec.accountId });
 
-    // After confirm: active, both figures present, divergence surfaced, funding set.
+    // After confirm: active, the basis stamped as reconciled.
     const listed = await listAccounts(tdb);
     assert(listed.length === 1, `expected one account, got ${listed.length}`);
     const a = listed[0];
     assert(a.name === 'Primary' && a.status === 'active', `account is ${a.name}/${a.status}`);
-    assert(a.allocatedCapitalMinor === '20000000', 'the typed figure is wrong in the list');
-    assert(a.confirmedAgainstMinor === '24875034', 'the confirmed real figure is wrong in the list');
-    assert(a.diverges === true, 'the list did not surface that typed and real diverge');
+    assert(a.allocatedCapitalMinor === '24875034', 'the basis is not the venue free balance');
+    assert(a.confirmedAgainstMinor === '24875034', 'the confirmed-against figure is wrong in the list');
     assert(a.allocatedCurrency === 'INR', 'the allocated currency is wrong');
     assert(a.fundingCurrencies.join(',') === 'INR,USDT', `funding currencies are ${a.fundingCurrencies.join(',')}`);
 
+    // A REJECTED connect leaves nothing to list. Probing before inserting is what
+    // removed the stranded `pending_validation` rows that had no way to be finished
+    // or removed — the state a basis-less account used to occupy is now unreachable.
+    const failed = await svc.validate({ accountName: 'BadKey', apiKey: 'unknown-key-00000000', apiSecret: 'unknown-secret-0000' });
+    assert(failed.ok === false, 'an unknown key was accepted');
+    const afterFail = await listAccounts(tdb);
+    assert(afterFail.length === 1, `a rejected connect left ${afterFail.length - 1} account row(s) behind`);
+    assert(afterFail.every((x) => x.allocatedCapitalMinor !== null),
+      'every listed account must carry a venue basis — a basis-less account is no longer reachable');
+
     await pool.query(`DROP SCHEMA ${SCHEMA} CASCADE`);
-    console.log('     2 disclosures + never-ask, single key-entry point, accounts list with divergence');
+    console.log('     2 disclosures + never-ask, single key-entry point, accounts list off the venue read');
   } finally {
     await venue.stop();
     await pool.end();
