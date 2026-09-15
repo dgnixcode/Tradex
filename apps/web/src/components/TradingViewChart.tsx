@@ -35,15 +35,15 @@ export const TradingViewChart = memo(function TradingViewChart({
     const container = containerRef.current;
     if (!container) return;
 
-    // Clear previous widget
-    container.innerHTML = '';
+    // Official TradingView Advanced Chart DOM structure
+    container.innerHTML = `
+      <div class="tradingview-widget-container" style="height: 100%; width: 100%;">
+        <div class="tradingview-widget-container__widget" style="height: 100%; width: 100%;"></div>
+      </div>
+    `;
 
-    const widgetId = `tradingview_${Math.random().toString(36).substring(2, 9)}`;
-    const widgetContainer = document.createElement('div');
-    widgetContainer.id = widgetId;
-    widgetContainer.style.height = '100%';
-    widgetContainer.style.width = '100%';
-    container.appendChild(widgetContainer);
+    const widgetDiv = container.querySelector('.tradingview-widget-container');
+    if (!widgetDiv) return;
 
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
@@ -69,10 +69,9 @@ export const TradingViewChart = memo(function TradingViewChart({
         'STD;SMA',
         'STD;RSI',
       ],
-      container_id: widgetId,
     });
 
-    container.appendChild(script);
+    widgetDiv.appendChild(script);
 
     return () => {
       if (container) {
@@ -88,7 +87,7 @@ export const TradingViewChart = memo(function TradingViewChart({
         position: 'relative',
         width: '100%',
         height,
-        minHeight: 420,
+        minHeight: 440,
         borderRadius: 12,
         overflow: 'hidden',
         background: '#131722',
