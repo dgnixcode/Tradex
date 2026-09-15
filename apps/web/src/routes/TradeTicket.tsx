@@ -211,6 +211,7 @@ export function TradeTicket() {
   const preview = useMutation({
     mutationFn: (req: PlanRequest) => previewTrade(req),
     onSuccess: (result) => navigate(`/app/trades/${result.groupTradeId}`),
+    onError: (err) => { console.error('preview failed:', err); },
   });
 
   // Cross margin is USDT-only (research/03 F4). If the operator flips to INR
@@ -330,13 +331,14 @@ export function TradeTicket() {
     && slValid && tpValid;
 
   const submitPreview = (): void => {
+    console.log('[submitPreview] called', { sizingMode, percent, quantity, sizingRefPrice, marginCurrency, quoteCurrency, groupId, asset, side, leverage });
     // Backend expects percentBp, so convert from quantity if needed
     let finalPercentBp: number;
     if (sizingMode === 'quantity') {
       // Convert quantity → percent before submitting
-      if (!selectedGroup || !leverageValid || sizingRefPrice === '') return;
+      if (!selectedGroup || !leverageValid || sizingRefPrice === '') { console.log('[submitPreview] bail: quantity guard'); return; }
       const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
-      if (allocatedMinor === '0') return;
+      if (allocatedMinor === '0') { console.log('[submitPreview] bail: allocatedMinor is 0'); return; }
       const scale = marginCurrency === 'INR' ? 2 : 8;
       const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
       const notional = Number(quantity) * Number(sizingRefPrice);
@@ -371,6 +373,7 @@ export function TradeTicket() {
         trailingStepBp: Math.round(Number(trailingStepPercent) * 100),
       } : {}),
     };
+    console.log('[submitPreview] calling preview.mutate with:', req);
     preview.mutate(req);
   };
 
