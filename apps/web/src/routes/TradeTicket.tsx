@@ -331,6 +331,7 @@ export function TradeTicket() {
     && slValid && tpValid;
 
   const submitPreview = (): void => {
+    window.alert('submitPreview called! sizingMode=' + sizingMode + ', percent=' + percent);
     console.log('[submitPreview] called', { sizingMode, percent, quantity, sizingRefPrice, marginCurrency, quoteCurrency, groupId, asset, side, leverage });
     // Backend expects percentBp, so convert from quantity if needed
     let finalPercentBp: number;
