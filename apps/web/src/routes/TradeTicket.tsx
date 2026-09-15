@@ -230,10 +230,12 @@ export function TradeTicket() {
   const leverageAtMin = Number(leverage) <= 1;
   const leverageAtMax = Number(leverage) >= MAX_LEVERAGE;
 
+  const sizingRefPrice = orderType === 'limit' ? limitPrice : marketRefPrice;
+
   // Convert between percentage and quantity sizing modes.
   // Conversion needs: allocated capital, leverage, and current price.
   const convertPercentToQuantity = (): void => {
-    if (!selectedGroup || !percentValid || !leverageValid || limitPrice === '') return;
+    if (!selectedGroup || !percentValid || !leverageValid || sizingRefPrice === '') return;
     const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
     if (allocatedMinor === '0') return;
 
@@ -244,18 +246,18 @@ export function TradeTicket() {
       margin = margin / usdtInrRate;
     }
     const notional = margin * Number(leverage);
-    const qty = notional / Number(limitPrice);
+    const qty = notional / Number(sizingRefPrice);
     setQuantity(qty.toFixed(8).replace(/\.?0+$/, ''));
   };
 
   const convertQuantityToPercent = (): void => {
-    if (!selectedGroup || !leverageValid || limitPrice === '' || quantity === '') return;
+    if (!selectedGroup || !leverageValid || sizingRefPrice === '' || quantity === '') return;
     const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
     if (allocatedMinor === '0') return;
 
     const scale = marginCurrency === 'INR' ? 2 : 8;
     const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
-    const notional = Number(quantity) * Number(limitPrice);
+    const notional = Number(quantity) * Number(sizingRefPrice);
     let margin = notional / Number(leverage);
     if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
       margin = margin * usdtInrRate;
@@ -266,9 +268,9 @@ export function TradeTicket() {
 
   const switchSizingMode = (mode: 'percent' | 'quantity'): void => {
     if (mode === sizingMode) return;
-    if (mode === 'quantity' && percentValid && leverageValid && limitPrice !== '') {
+    if (mode === 'quantity' && percentValid && leverageValid && sizingRefPrice !== '') {
       convertPercentToQuantity();
-    } else if (mode === 'percent' && quantity !== '' && leverageValid && limitPrice !== '') {
+    } else if (mode === 'percent' && quantity !== '' && leverageValid && sizingRefPrice !== '') {
       convertQuantityToPercent();
     }
     setSizingMode(mode);
@@ -332,12 +334,12 @@ export function TradeTicket() {
     let finalPercentBp: number;
     if (sizingMode === 'quantity') {
       // Convert quantity → percent before submitting
-      if (!selectedGroup || !leverageValid || limitPrice === '') return;
+      if (!selectedGroup || !leverageValid || sizingRefPrice === '') return;
       const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
       if (allocatedMinor === '0') return;
       const scale = marginCurrency === 'INR' ? 2 : 8;
       const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
-      const notional = Number(quantity) * Number(limitPrice);
+      const notional = Number(quantity) * Number(sizingRefPrice);
       let margin = notional / Number(leverage);
       if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
         margin = margin * usdtInrRate;
@@ -693,9 +695,9 @@ export function TradeTicket() {
               onChange={(e) => handleQuantityChange(e.target.value)}
             />
             <div className="hint">
-              {quantityValid && leverageValid && limitPrice !== ""
-                ? `${quantity} ${asset} @ ${limitPrice} = notional ${(Number(quantity) * Number(limitPrice)).toFixed(2)} ${quoteCurrency}`
-                : `Direct quantity in ${asset || "the selected asset"}. Switch to limit order and set a price to see notional.`}
+              {quantityValid && leverageValid && sizingRefPrice !== ""
+                ? `${quantity} ${asset} @ ${sizingRefPrice} = notional ${(Number(quantity) * Number(sizingRefPrice)).toFixed(2)} ${quoteCurrency}`
+                : `Direct quantity in ${asset || "the selected asset"}. Wait for market price or switch to limit order to see notional.`}
             </div>
           </>
         )}
