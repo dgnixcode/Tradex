@@ -45,7 +45,7 @@ describe('a valid key validates and returns its balances', () => {
   it('proves the signature was actually checked — the venue recorded it valid', async () => {
     await probeCredential(KEY, SECRET, { baseUrl });
     expect(venue.requests.at(-1)?.signatureValid).toBe(true);
-    expect(venue.requests.at(-1)?.path).toBe('/exchange/v1/users/balances');
+    expect(venue.requests.at(-1)?.path).toBe('/exchange/v1/derivatives/futures/wallets');
   });
 });
 
@@ -65,7 +65,7 @@ describe('a bad credential is a classified failure, never a throw', () => {
   });
 
   it('surfaces a venue rate-limit as retry-safe, not as a bad key', async () => {
-    venue.injectFault({ path: '/users/balances', status: 429, body: '{"code":429,"message":"Too Many Requests"}' });
+    venue.injectFault({ path: '/derivatives/futures/wallets', status: 429, body: '{"code":429,"message":"Too Many Requests"}' });
     const probe = await probeCredential(KEY, SECRET, { baseUrl });
     expect(probe.ok).toBe(false);
     expect(probe.failure?.class).toBe('rate_limited');
@@ -75,7 +75,7 @@ describe('a bad credential is a classified failure, never a throw', () => {
 
   it('does not treat a 200 with an unparseable body as success', async () => {
     // Returning ok here would activate a credential we never really validated.
-    venue.injectFault({ path: '/users/balances', status: 200, body: 'not json at all' });
+    venue.injectFault({ path: '/derivatives/futures/wallets', status: 200, body: 'not json at all' });
     const probe = await probeCredential(KEY, SECRET, { baseUrl });
     expect(probe.ok).toBe(false);
     expect(probe.failure).toBeDefined();
@@ -93,7 +93,7 @@ describe('a request that never reached the venue is marked never-sent', () => {
   });
 
   it('reports the timeout case as ambiguous, not never-sent', async () => {
-    venue.injectFault({ path: '/users/balances', blackhole: true });
+    venue.injectFault({ path: '/derivatives/futures/wallets', blackhole: true });
     const probe = await probeCredential(KEY, SECRET, { baseUrl, deadlineMs: 200 });
     expect(probe.ok).toBe(false);
     expect(probe.neverSent).toBe(false); // the request may have been read
