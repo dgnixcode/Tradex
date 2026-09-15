@@ -855,12 +855,24 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
       
       const pos = await tdb.selectFrom('futures_position')
-        .select(['pair', 'mark_price'])
+        .select('pair')
         .where('venue_position_id', '=', venuePositionId)
         .executeTakeFirst();
       
-      if (pos === undefined || pos.mark_price === null) {
-        throw new HttpError(400, 'Cannot enable trailing SL: unknown mark price');
+      if (pos === undefined) {
+        throw new HttpError(400, 'Cannot enable trailing SL: unknown position');
+      }
+
+      let quote: 'INR' | 'USDT' = 'USDT';
+      let asset = pos.pair;
+      if (pos.pair.endsWith('USDT')) { quote = 'USDT'; asset = pos.pair.slice(0, -4); }
+      else if (pos.pair.endsWith('INR')) { quote = 'INR'; asset = pos.pair.slice(0, -3); }
+      
+      const book = await deps.getOrderBook({ asset, quote }, 1);
+      const startingPrice = book.bids[0]?.price ?? book.asks[0]?.price;
+
+      if (!startingPrice) {
+         throw new HttpError(400, 'Cannot enable trailing SL: orderbook is empty');
       }
       
       const { upsertTrailingSl } = await import('@tradex/db');
@@ -870,7 +882,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         pair: pos.pair,
         distanceBp: body.distanceBp,
         stepBp: body.stepBp,
-        highWaterMark: pos.mark_price,
+        highWaterMark: startingPrice,
         currentSlPrice: body.currentSlPrice,
       });
       
