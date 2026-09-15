@@ -135,6 +135,8 @@ export type AttachTpSlPort = (args: {
   readonly stopLossPrice: string | null;
   readonly takeProfitPrice: string | null;
   readonly trailingStopLoss?: boolean | undefined;
+  readonly trailingDistanceBp?: string | null | undefined;
+  readonly trailingStepBp?: string | null | undefined;
 }) => Promise<
   | { readonly ok: true; readonly stopLoss?: AttachLegResult | undefined; readonly takeProfit?: AttachLegResult | undefined }
   | { readonly ok: false; readonly code: string; readonly detail: string; readonly orderMayExist?: boolean | undefined }
@@ -257,6 +259,8 @@ interface TradeRow {
   stopLossPrice: string | null;
   takeProfitPrice: string | null;
   trailingStopLoss: boolean;
+  trailingDistanceBp: string | null;
+  trailingStepBp: string | null;
   leverage: string | null;
   positionMarginType: string | null;
   reduceOnly: boolean;
@@ -481,7 +485,7 @@ export class ExecutionWorker {
         'sizing_mode as sizingMode', 'sizing_value as sizingValue',
         'is_futures as isFutures', 'margin_currency as marginCurrency',
         'stop_loss_price as stopLossPrice', 'take_profit_price as takeProfitPrice',
-        'trailing_stop_loss as trailingStopLoss',
+        'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp',
         'leverage', 'position_margin_type as positionMarginType', 'reduce_only as reduceOnly',
       ] as unknown as never)
       .executeTakeFirst();
@@ -812,9 +816,9 @@ export class ExecutionWorker {
     const attach = this.deps.attachTpSl;
 
     const trade = await tdb.byId('group_trade', entry.groupTradeId)
-      .select(['asset', 'margin_currency as marginCurrency', 'trailing_stop_loss as trailingStopLoss'] as unknown as never)
+      .select(['asset', 'margin_currency as marginCurrency', 'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp'] as unknown as never)
       .executeTakeFirst();
-    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean } | undefined;
+    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean; trailingDistanceBp: string | null; trailingStepBp: string | null } | undefined;
 
     // Nothing can be attached: no port, no market, or no margin currency. Skip
     // every leg with a reason the customer can read, so the trade completes.
@@ -838,6 +842,8 @@ export class ExecutionWorker {
       stopLossPrice: slLeg?.priceUsed ?? null,
       takeProfitPrice: tpLeg?.priceUsed ?? null,
       trailingStopLoss: tradeRow.trailingStopLoss,
+      trailingDistanceBp: tradeRow.trailingDistanceBp,
+      trailingStepBp: tradeRow.trailingStepBp,
     });
 
     if (!out.ok) {

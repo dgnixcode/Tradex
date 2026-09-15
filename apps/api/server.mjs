@@ -573,6 +573,8 @@ if (sending) {
         venuePositionId: position.venuePositionId,
         pair: args.pair,
         currentSlPrice: args.stopLossPrice,
+        distanceBp: args.trailingDistanceBp ?? '500',
+        stepBp: args.trailingStepBp ?? '100',
       });
     }
     return {

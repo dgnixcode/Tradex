@@ -419,6 +419,8 @@ export interface GroupTradeTable {
   stop_loss_price: string | null;
   take_profit_price: string | null;
   trailing_stop_loss: Generated<boolean>;
+  trailing_distance_bp: string | null;
+  trailing_step_bp: string | null;
   reduce_only: Generated<boolean>;
 }
 

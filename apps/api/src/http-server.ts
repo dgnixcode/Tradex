@@ -1472,7 +1472,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (!existsSync(filePath) || !statSync(filePath).isFile()) {
         const indexPath = join(distDir, 'index.html');
         if (existsSync(indexPath)) {
-          res.writeHead(200, { 'content-type': contentTypeFor(indexPath) });
+          res.writeHead(200, { 'content-type': contentTypeFor(indexPath), 'cache-control': 'no-cache, no-store, must-revalidate' });
           createReadStream(indexPath).pipe(res);
           return true;
         }
@@ -1481,7 +1481,11 @@ export function createHttpServer(deps: HttpDeps): Server {
     } catch {
       return false;
     }
-    res.writeHead(200, { 'content-type': contentTypeFor(filePath) });
+    const headers: Record<string, string> = { 'content-type': contentTypeFor(filePath) };
+    if (filePath.endsWith('index.html')) {
+      headers['cache-control'] = 'no-cache, no-store, must-revalidate';
+    }
+    res.writeHead(200, headers);
     createReadStream(filePath).pipe(res);
     return true;
   };

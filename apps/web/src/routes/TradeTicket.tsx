@@ -137,6 +137,8 @@ export function TradeTicket() {
   const [stopLossPrice, setStopLossPrice] = useState('');
   const [takeProfitPrice, setTakeProfitPrice] = useState('');
   const [trailingStopLoss, setTrailingStopLoss] = useState(false);
+  const [trailingDistancePercent, setTrailingDistancePercent] = useState('5');
+  const [trailingStepPercent, setTrailingStepPercent] = useState('1');
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   // SL/TP percentage mode state — one toggle controls both fields.
@@ -339,7 +341,11 @@ export function TradeTicket() {
       positionMarginType: effectiveMarginType,
       ...(effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
       ...(effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
-      ...(trailingStopLoss ? { trailingStopLoss: true } : {}),
+      ...(trailingStopLoss ? { 
+        trailingStopLoss: true,
+        trailingDistanceBp: Math.round(Number(trailingDistancePercent) * 100),
+        trailingStepBp: Math.round(Number(trailingStepPercent) * 100),
+      } : {}),
     };
     preview.mutate(req);
   };
@@ -770,10 +776,27 @@ export function TradeTicket() {
                   )}
                 </>
               )}
-              <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
-                <input type="checkbox" id="ticket-tsl" checked={trailingStopLoss} onChange={(e) => setTrailingStopLoss(e.target.checked)} />
-                <label htmlFor="ticket-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-dim)' }}>Make Trailing (1% step)</label>
-              </div>
+                <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+                  <select
+                    id="ticket-tsl-type"
+                    value={trailingStopLoss ? 'trailing' : 'fixed'}
+                    onChange={(e) => setTrailingStopLoss(e.target.value === 'trailing')}
+                    style={{ fontSize: 12, padding: '4px 8px' }}
+                  >
+                    <option value="fixed">Fixed Stop Loss</option>
+                    <option value="trailing">Trailing Stop Loss</option>
+                  </select>
+                </div>
+                {trailingStopLoss && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, fontSize: 12, alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-dim)' }}>Distance:</span>
+                    <input type="text" inputMode="decimal" value={trailingDistancePercent} onChange={(e) => setTrailingDistancePercent(e.target.value)} style={{ width: 40, padding: '2px 4px' }} />
+                    <span style={{ color: 'var(--text-dim)' }}>%</span>
+                    <span style={{ color: 'var(--text-dim)', marginLeft: 8 }}>Step:</span>
+                    <input type="text" inputMode="decimal" value={trailingStepPercent} onChange={(e) => setTrailingStepPercent(e.target.value)} style={{ width: 40, padding: '2px 4px' }} />
+                    <span style={{ color: 'var(--text-dim)' }}>%</span>
+                  </div>
+                )}
             </div>
 
             {/* ── Take-profit ── */}

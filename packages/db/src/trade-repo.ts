@@ -61,6 +61,8 @@ export interface NewGroupTrade {
   readonly stopLossPrice?: string | null | undefined;
   readonly takeProfitPrice?: string | null | undefined;
   readonly trailing_stop_loss?: boolean | undefined;
+  readonly trailing_distance_bp?: string | null | undefined;
+  readonly trailing_step_bp?: string | null | undefined;
   readonly reduceOnly?: boolean | undefined;
 }
 
