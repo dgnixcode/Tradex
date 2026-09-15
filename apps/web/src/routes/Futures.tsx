@@ -330,7 +330,7 @@ export function Futures() {
   });
 
   const protMut = useMutation({
-    mutationFn: async (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined; readonly trailing?: boolean }) => {
+    mutationFn: async (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined; readonly trailing?: boolean | undefined }) => {
       const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
       if (args.slp !== undefined && args.slp !== '') body.stopLossPrice = args.slp;
       if (args.tpp !== undefined && args.tpp !== '') body.takeProfitPrice = args.tpp;
