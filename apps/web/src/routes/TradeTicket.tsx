@@ -474,7 +474,45 @@ export function TradeTicket() {
         <div style={{ display: rightPanelTab === 'trade' ? 'flex' : 'none', flexDirection: 'column', width: '100%' }}>
           <div className="panel trading-ticket-panel">
       <div className="field">
-        <label htmlFor="group">Group</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <label htmlFor="group" style={{ margin: 0 }}>Group</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Funding wallet:</span>
+            <div style={{
+              display: 'flex',
+              background: '#0e1014',
+              border: '1px solid #1f232b',
+              borderRadius: 6,
+              padding: 2,
+              gap: 2,
+            }}>
+              {(['INR', 'USDT'] as const).map((curr) => {
+                const active = marginCurrency === curr;
+                return (
+                  <button
+                    key={curr}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setMarginCurrency(curr)}
+                    style={{
+                      padding: '2px 10px',
+                      fontSize: 11,
+                      fontWeight: active ? 700 : 500,
+                      background: active ? '#ffffff' : 'transparent',
+                      color: active ? '#000000' : '#9ca3af',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {curr}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
         <select id="group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
           <option value="">Select a group…</option>
           {groups.data?.map((g) => (
@@ -493,15 +531,41 @@ export function TradeTicket() {
           return (
             <div style={{
               display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-              marginTop: 8, padding: '8px 10px', borderRadius: 8,
+              marginTop: 8, padding: '6px', borderRadius: 8,
               background: '#0e1014', border: '1px solid #1f232b',
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>INR Capital</span>
+              <div
+                onClick={() => setMarginCurrency('INR')}
+                title="Click to fund from INR wallet"
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer',
+                  padding: '6px 8px', borderRadius: 6,
+                  border: marginCurrency === 'INR' ? '1px solid #ffffff' : '1px solid transparent',
+                  background: marginCurrency === 'INR' ? '#161922' : 'transparent',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>INR Capital</span>
+                  {marginCurrency === 'INR' && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#000000', background: '#ffffff', padding: '1px 4px', borderRadius: 3 }}>FUNDING</span>}
+                </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: hasInr ? '#f3f4f6' : '#4b5563' }}>{inrFormatted}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>USDT Capital</span>
+              <div
+                onClick={() => setMarginCurrency('USDT')}
+                title="Click to fund from USDT wallet"
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer',
+                  padding: '6px 8px', borderRadius: 6,
+                  border: marginCurrency === 'USDT' ? '1px solid #ffffff' : '1px solid transparent',
+                  background: marginCurrency === 'USDT' ? '#161922' : 'transparent',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>USDT Capital</span>
+                  {marginCurrency === 'USDT' && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#000000', background: '#ffffff', padding: '1px 4px', borderRadius: 3 }}>FUNDING</span>}
+                </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: hasUsdt ? '#f3f4f6' : '#4b5563' }}>{usdtFormatted}</span>
               </div>
             </div>
@@ -611,30 +675,22 @@ export function TradeTicket() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Choice
-          label="Funding wallet"
-          value={marginCurrency}
-          onChange={setMarginCurrency}
-          hint="Picks wallet to fund from."
-          options={[
-            { value: 'INR' as MarginCurrency, label: 'INR' },
-            { value: 'USDT' as MarginCurrency, label: 'USDT' },
-          ]}
-        />
-        <div className="field">
-          <label htmlFor="mt">Margin mode</label>
-          <select
-            id="mt"
-            value={effectiveMarginType}
-            onChange={(e) => setPositionMarginType(e.target.value as PositionMarginType)}
-          >
-            <option value="isolated">Isolated</option>
-            {/* Cross is USDT-only per venue (research/03 F4) + schema CHECK. */}
-            {marginCurrency === 'USDT' && <option value="crossed">Crossed</option>}
-          </select>
-        </div>
-      </div>
+      <Choice
+        label="Margin mode"
+        value={effectiveMarginType}
+        onChange={(v) => setPositionMarginType(v as PositionMarginType)}
+        hint={marginCurrency === 'USDT' ? 'Crossed shares collateral across positions; Isolated confines risk.' : 'INR funding uses Isolated margin.'}
+        options={
+          marginCurrency === 'USDT'
+            ? [
+                { value: 'isolated' as PositionMarginType, label: 'Isolated' },
+                { value: 'crossed' as PositionMarginType, label: 'Crossed' },
+              ]
+            : [
+                { value: 'isolated' as PositionMarginType, label: 'Isolated' },
+              ]
+        }
+      />
 
       <div className="field" style={{ marginTop: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
