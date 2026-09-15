@@ -538,6 +538,25 @@ export const fetchFuturesPositions = (): Promise<FuturesPositionsResponse> =>
   request<FuturesPositionsResponse>('/futures/positions');
 
 /**
+ * Fetch the current market price (best bid/ask) for a futures pair.
+ * Used to auto-fill the limit price field on the trade ticket.
+ */
+export const fetchMarketPrice = (asset: string, marginCurrency: 'INR' | 'USDT'): Promise<{
+  readonly asset: string;
+  readonly marginCurrency: string;
+  readonly bestBid: string | null;
+  readonly bestAsk: string | null;
+  readonly observedAtMs: number;
+}> =>
+  request<{
+    readonly asset: string;
+    readonly marginCurrency: string;
+    readonly bestBid: string | null;
+    readonly bestAsk: string | null;
+    readonly observedAtMs: number;
+  }>(`/market-price/${asset}/${marginCurrency}`);
+
+/**
  * Hard-exit a position at market. The server cancels every conditional attached
  * to the position FIRST, then calls positions/exit, then reconciles to zero.
  * A 503 means the composition root has not wired the futures execution engine.

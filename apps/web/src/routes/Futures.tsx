@@ -314,13 +314,81 @@ interface ProtectionEditorProps {
   readonly existing: FuturesPositionRow | undefined;
 }
 
+/** Common SL percentage distances for quick-select chips. */
+const SL_PCT_CHIPS = [1, 2, 5, 10] as const;
+/** TP chips include wider targets (15%, 20%) since take-profits are typically further out. */
+const TP_PCT_CHIPS = [1, 2, 5, 10, 15, 20] as const;
+
+type ProtectionMode = 'price' | 'percent';
+
+/**
+ * Compute the absolute trigger price from a percentage offset.
+ * - SL on Long / TP on Short → price moves DOWN from reference
+ * - TP on Long / SL on Short → price moves UP from reference
+ */
+function pctToTrigger(refPrice: number, pct: number, positionSide: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (positionSide === 'long' && leg === 'sl') || (positionSide === 'short' && leg === 'tp');
+  return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
+}
+
+/** Reverse: compute the percentage distance from entry to trigger price. */
+function triggerToPct(refPrice: number, triggerPrice: number, positionSide: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (positionSide === 'long' && leg === 'sl') || (positionSide === 'short' && leg === 'tp');
+  const pct = down
+    ? ((refPrice - triggerPrice) / refPrice) * 100
+    : ((triggerPrice - refPrice) / refPrice) * 100;
+  return Math.abs(pct);
+}
+
 function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionEditorProps) {
   const [sl, setSl] = useState(existing?.stopLossTrigger ?? '');
   const [tp, setTp] = useState(existing?.takeProfitTrigger ?? '');
+  const [slTpMode, setSlTpMode] = useState<ProtectionMode>('percent');
+  const [slPct, setSlPct] = useState('');
+  const [tpPct, setTpPct] = useState('');
+
   const valid = /^\d+(\.\d+)?$/;
-  const slOk = sl === '' || valid.test(sl);
-  const tpOk = tp === '' || valid.test(tp);
-  const canSubmit = slOk && tpOk && (sl !== '' || tp !== '');
+  const pctValid = (p: string): boolean => p === '' || (valid.test(p) && Number(p) > 0 && Number(p) <= 100);
+
+  const refPrice = existing?.avgEntryPrice !== null && existing?.avgEntryPrice !== undefined
+    ? Number(existing.avgEntryPrice)
+    : NaN;
+  const hasRef = Number.isFinite(refPrice) && refPrice > 0;
+  const positionSide = existing?.side ?? 'long';
+  const sideOk = positionSide === 'long' || positionSide === 'short';
+
+  // Compute effective absolute prices from percent when needed.
+  const effectiveSl = slTpMode === 'percent' && slPct !== '' && hasRef && sideOk
+    ? pctToTrigger(refPrice, Number(slPct), positionSide as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
+    : sl;
+  const effectiveTp = slTpMode === 'percent' && tpPct !== '' && hasRef && sideOk
+    ? pctToTrigger(refPrice, Number(tpPct), positionSide as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
+    : tp;
+
+  const slOk = slTpMode === 'price' ? (sl === '' || valid.test(sl)) : pctValid(slPct);
+  const tpOk = slTpMode === 'price' ? (tp === '' || valid.test(tp)) : pctValid(tpPct);
+  const hasSomething = (slTpMode === 'price' ? sl !== '' : slPct !== '') || (slTpMode === 'price' ? tp !== '' : tpPct !== '');
+  const canSubmit = slOk && tpOk && hasSomething;
+
+  const handleSubmit = (): void => {
+    onSubmit(effectiveSl || undefined, effectiveTp || undefined);
+  };
+
+  const pillStyle = (active: boolean) => ({
+    padding: '2px 10px', fontSize: 11,
+    background: active ? 'var(--accent-soft)' : 'transparent',
+    color: active ? 'var(--text)' : 'var(--text-dim)',
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+  });
+
+  const chipStyle = (active: boolean) => ({
+    flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
+    background: active ? 'var(--accent-soft)' : 'transparent',
+    color: active ? 'var(--text)' : 'var(--text-dim)',
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+    borderRadius: 'var(--radius-pill)',
+  } as const);
+
   return (
     <div
       style={{
@@ -337,19 +405,114 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="edit-sl">Stop-loss trigger</label>
-          <input id="edit-sl" inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="leave empty to skip" />
+      {/* Single Price / % toggle for both SL and TP */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Mode
+        </span>
+        <div style={{ display: 'flex', gap: 3 }}>
+          <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'percent'} style={pillStyle(slTpMode === 'percent')} onClick={() => setSlTpMode('percent')}>%</button>
+          <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'price'} style={pillStyle(slTpMode === 'price')} onClick={() => setSlTpMode('price')}>Price</button>
         </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="edit-tp">Take-profit trigger</label>
-          <input id="edit-tp" inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} placeholder="leave empty to skip" />
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* ── Stop-loss ── */}
+        <div className="field" style={{ margin: 0, minWidth: 180, flex: 1 }}>
+          <label htmlFor="edit-sl" style={{ marginBottom: 5 }}>Stop-loss trigger</label>
+          {slTpMode === 'price' ? (
+            <>
+              <input id="edit-sl" inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="leave empty to skip" />
+              {sl !== '' && hasRef && sideOk && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  ≈ {triggerToPct(refPrice, Number(sl), positionSide as 'long' | 'short', 'sl').toFixed(2)}% from entry
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                id="edit-sl"
+                inputMode="decimal"
+                value={slPct}
+                placeholder="e.g. 5"
+                disabled={!hasRef || !sideOk}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                  if (v === '' || Number(v) <= 100) setSlPct(v);
+                }}
+              />
+              <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+                {SL_PCT_CHIPS.map((v) => (
+                  <button
+                    key={v} type="button" className="btn btn-sm"
+                    aria-pressed={slPct !== '' && Number(slPct) === v}
+                    disabled={!hasRef || !sideOk}
+                    style={chipStyle(slPct !== '' && Number(slPct) === v)}
+                    onClick={() => setSlPct(String(v))}
+                  >{v}%</button>
+                ))}
+              </div>
+              {hasRef && sideOk && slPct !== '' && pctValid(slPct) && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  ≈ {pctToTrigger(refPrice, Number(slPct), positionSide as 'long' | 'short', 'sl').toFixed(2)} trigger price
+                </div>
+              )}
+            </>
+          )}
         </div>
-        <button className="btn btn-sm" disabled={!canSubmit || pending} onClick={() => onSubmit(sl || undefined, tp || undefined)}>
-          {pending ? 'Saving…' : 'Save'}
-        </button>
-        <button className="btn btn-sm secondary" onClick={onCancel} disabled={pending}>Cancel</button>
+
+        {/* ── Take-profit ── */}
+        <div className="field" style={{ margin: 0, minWidth: 180, flex: 1 }}>
+          <label htmlFor="edit-tp" style={{ marginBottom: 5 }}>Take-profit trigger</label>
+          {slTpMode === 'price' ? (
+            <>
+              <input id="edit-tp" inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} placeholder="leave empty to skip" />
+              {tp !== '' && hasRef && sideOk && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  ≈ {triggerToPct(refPrice, Number(tp), positionSide as 'long' | 'short', 'tp').toFixed(2)}% from entry
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                id="edit-tp"
+                inputMode="decimal"
+                value={tpPct}
+                placeholder="e.g. 5"
+                disabled={!hasRef || !sideOk}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                  if (v === '' || Number(v) <= 100) setTpPct(v);
+                }}
+              />
+              <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+                {TP_PCT_CHIPS.map((v) => (
+                  <button
+                    key={v} type="button" className="btn btn-sm"
+                    aria-pressed={tpPct !== '' && Number(tpPct) === v}
+                    disabled={!hasRef || !sideOk}
+                    style={chipStyle(tpPct !== '' && Number(tpPct) === v)}
+                    onClick={() => setTpPct(String(v))}
+                  >{v}%</button>
+                ))}
+              </div>
+              {hasRef && sideOk && tpPct !== '' && pctValid(tpPct) && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  ≈ {pctToTrigger(refPrice, Number(tpPct), positionSide as 'long' | 'short', 'tp').toFixed(2)} trigger price
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── Actions ── */}
+        <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end', flexShrink: 0 }}>
+          <button className="btn btn-sm" disabled={!canSubmit || pending} onClick={handleSubmit}>
+            {pending ? 'Saving…' : 'Save'}
+          </button>
+          <button className="btn btn-sm secondary" onClick={onCancel} disabled={pending}>Cancel</button>
+        </div>
       </div>
       <p className="sub muted" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>
         The venue does not allow &ldquo;move&rdquo; on a live SL/TP — the server cancels the current leg and creates a fresh one. There is a brief window while the swap happens where the position is unprotected.

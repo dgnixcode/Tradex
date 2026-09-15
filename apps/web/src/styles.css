@@ -1021,3 +1021,9 @@ tr.skipped td { color: var(--muted); }
   word-break: break-all;
   user-select: all;
 }
+
+/* Live ticker pulse dot */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

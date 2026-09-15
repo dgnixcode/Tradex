@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { fetchAssets, fetchGroups, previewTrade } from '../api.ts';
+import { fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
 import type { AssetOption, GroupSummary, PlanRequest } from '../api.ts';
 
 // The futures trade ticket — plan/phase-15 T15.10.
@@ -24,6 +25,96 @@ type Side = 'buy' | 'sell';
 type OrderType = 'market' | 'limit';
 type MarginCurrency = 'INR' | 'USDT';
 type PositionMarginType = 'isolated' | 'crossed';
+type SlTpMode = 'price' | 'percent';
+
+/** The client-side ceiling. The venue enforces a per-tier max on top of this. */
+const MAX_LEVERAGE = 100;
+
+/** Common SL percentage distances for quick-select chips. */
+const SL_PERCENT_CHIPS = [1, 2, 5, 10] as const;
+/** TP chips include wider targets (15%, 20%) since take-profits are typically further out. */
+const TP_PERCENT_CHIPS = [1, 2, 5, 10, 15, 20] as const;
+
+/**
+ * Compute the absolute trigger price from a percentage offset.
+ * - SL on Long / TP on Short → price moves DOWN from reference
+ * - TP on Long / SL on Short → price moves UP from reference
+ */
+function percentToPrice(refPrice: number, pct: number, side: Side, leg: 'sl' | 'tp'): number {
+  const down = (side === 'buy' && leg === 'sl') || (side === 'sell' && leg === 'tp');
+  return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
+}
+
+/** Reverse: compute the percentage distance from entry to trigger price. */
+function priceToPercent(refPrice: number, triggerPrice: number, side: Side, leg: 'sl' | 'tp'): number {
+  const down = (side === 'buy' && leg === 'sl') || (side === 'sell' && leg === 'tp');
+  const pct = down
+    ? ((refPrice - triggerPrice) / refPrice) * 100
+    : ((triggerPrice - refPrice) / refPrice) * 100;
+  return Math.abs(pct);
+}
+
+/**
+ * A segmented choice — buttons instead of a dropdown.
+ *
+ * A `<select>` for SIDE is a mistake waiting to happen: "Long" and "Short" sit one
+ * keystroke apart in a closed control that shows only the current value, so a
+ * wrong pick is invisible until the order is placed. Buttons show every option at
+ * once, and `tone` colours them by MEANING — long is green, short is red — so the
+ * direction is legible before anything is clicked, not after.
+ *
+ * `aria-pressed` rather than a visual-only state: the selected button must be
+ * announced, or the colour is the only signal and it is the one signal a
+ * colour-blind customer cannot read.
+ */
+function Choice<T extends string>({ label, value, options, onChange, hint }: {
+  readonly label: string;
+  readonly value: T;
+  readonly options: readonly {
+    readonly value: T;
+    readonly label: string;
+    readonly tone?: 'long' | 'short' | undefined;
+  }[];
+  readonly onChange: (next: T) => void;
+  readonly hint?: string | undefined;
+}) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {options.map((o) => {
+          const active = o.value === value;
+          const colour = o.tone === 'long' ? 'var(--ok)' : o.tone === 'short' ? 'var(--danger)' : undefined;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={active}
+              className="btn"
+              style={{
+                flex: 1,
+                ...(colour !== undefined
+                  ? active
+                    // Chosen: filled, so it reads as a state.
+                    ? { background: colour, color: '#fff', border: '1px solid transparent' }
+                    // Not chosen: outlined in its own colour, so the MEANING is
+                    // still visible without being the current selection.
+                    : { background: 'transparent', color: colour, border: `1px solid ${colour}` }
+                  : active
+                    ? {}
+                    : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--line)' }),
+              }}
+              onClick={() => onChange(o.value)}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      {hint !== undefined && <div className="hint">{hint}</div>}
+    </div>
+  );
+}
 
 export function TradeTicket() {
   const navigate = useNavigate();
@@ -41,9 +132,21 @@ export function TradeTicket() {
   const [marginCurrency, setMarginCurrency] = useState<MarginCurrency>('USDT');
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>('isolated');
   const [percent, setPercent] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>('percent');
   const [stopLossPrice, setStopLossPrice] = useState('');
   const [takeProfitPrice, setTakeProfitPrice] = useState('');
-  const [reduceOnly, setReduceOnly] = useState(false);
+  const [fetchingPrice, setFetchingPrice] = useState(false);
+
+  // SL/TP percentage mode state — one toggle controls both fields.
+  const [slTpMode, setSlTpMode] = useState<SlTpMode>('percent');
+  const [slPercent, setSlPercent] = useState('');
+  const [tpPercent, setTpPercent] = useState('');
+  // Stores the latest market price for use as SL/TP reference on market orders.
+  const [marketRefPrice, setMarketRefPrice] = useState('');
+
+  // ── Live WebSocket ticker — streams best bid/ask from CoinDCX every 2-3s ──
+  const liveTicker = useLiveTicker(asset, marginCurrency);
 
   const selectedGroup: GroupSummary | undefined = useMemo(
     () => groups.data?.find((g) => g.id === groupId),
@@ -53,6 +156,42 @@ export function TradeTicket() {
     () => assets.data?.find((a) => a.asset === asset),
     [assets.data, asset],
   );
+
+  // Fetch and set the current market price.
+  const fetchAndSetPrice = (): void => {
+    if (asset === '') return;
+
+    setFetchingPrice(true);
+    fetchMarketPrice(asset, marginCurrency)
+      .then((price) => {
+        const fill = side === 'buy' ? price.bestAsk : price.bestBid;
+        if (fill !== null && fill !== undefined) {
+          setLimitPrice(fill);
+          // Also store as the SL/TP reference for market orders.
+          setMarketRefPrice(fill);
+        }
+      })
+      .catch(() => {
+        // Silent failure: auto-fill is a convenience
+      })
+      .finally(() => setFetchingPrice(false));
+  };
+
+  // Auto-fill the limit price when switching to limit order type or changing asset/currency/side.
+  // Uses best ask for buy (you buy at the ask), best bid for sell (you sell at the bid).
+  useEffect(() => {
+    if (orderType !== 'limit' || asset === '') return;
+    fetchAndSetPrice();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderType, asset, marginCurrency, side]);
+
+  // Keep marketRefPrice continuously synced from the live WebSocket ticker.
+  // For market orders this is the only source; for limit orders the user's
+  // typed limit price is the reference instead (handled in slTpRefPrice below).
+  useEffect(() => {
+    const fill = side === 'buy' ? liveTicker.bestAsk : liveTicker.bestBid;
+    if (fill !== null) setMarketRefPrice(fill);
+  }, [liveTicker.bestAsk, liveTicker.bestBid, side]);
 
   const preview = useMutation({
     mutationFn: (req: PlanRequest) => previewTrade(req),
@@ -65,18 +204,125 @@ export function TradeTicket() {
   const effectiveMarginType: PositionMarginType =
     marginCurrency === 'INR' && positionMarginType === 'crossed' ? 'isolated' : positionMarginType;
 
+  // Stepping works on the integer part so a typed 2.5 does not produce 3.5 on the
+  // next click, and it CLAMPS rather than wrapping — a wrap from 100 to 1 on a
+  // stray click is the kind of surprise this control exists to remove.
+  const bumpLeverage = (delta: number): void => {
+    const n = Number(leverage);
+    const base = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+    setLeverage(String(Math.min(MAX_LEVERAGE, Math.max(1, base + delta))));
+  };
+  const leverageAtMin = Number(leverage) <= 1;
+  const leverageAtMax = Number(leverage) >= MAX_LEVERAGE;
+
+  // Convert between percentage and quantity sizing modes.
+  // Conversion needs: allocated capital, leverage, and current price.
+  const convertPercentToQuantity = (): void => {
+    if (!selectedGroup || !percentValid || !leverageValid || limitPrice === '') return;
+    const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
+    if (allocatedMinor === '0') return;
+
+    const scale = marginCurrency === 'INR' ? 2 : 8;
+    const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
+    const margin = allocatedMajor * (Number(percent) / 100);
+    const notional = margin * Number(leverage);
+    const qty = notional / Number(limitPrice);
+    setQuantity(qty.toFixed(8).replace(/\.?0+$/, ''));
+  };
+
+  const convertQuantityToPercent = (): void => {
+    if (!selectedGroup || !leverageValid || limitPrice === '' || quantity === '') return;
+    const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
+    if (allocatedMinor === '0') return;
+
+    const scale = marginCurrency === 'INR' ? 2 : 8;
+    const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
+    const notional = Number(quantity) * Number(limitPrice);
+    const margin = notional / Number(leverage);
+    const pct = (margin / allocatedMajor) * 100;
+    setPercent(pct.toFixed(2));
+  };
+
+  const switchSizingMode = (mode: 'percent' | 'quantity'): void => {
+    if (mode === sizingMode) return;
+    if (mode === 'quantity' && percentValid && leverageValid && limitPrice !== '') {
+      convertPercentToQuantity();
+    } else if (mode === 'percent' && quantity !== '' && leverageValid && limitPrice !== '') {
+      convertQuantityToPercent();
+    }
+    setSizingMode(mode);
+  };
+
+  // Only allow numeric input with optional decimal point
+  const filterNumeric = (value: string): string => {
+    // Allow digits, one decimal point, and filter everything else
+    return value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+  };
+
+  const handlePercentChange = (value: string): void => {
+    const filtered = filterNumeric(value);
+    // Prevent values over 100
+    if (filtered === '' || (Number(filtered) <= 100)) {
+      setPercent(filtered);
+    }
+  };
+
+  const handleQuantityChange = (value: string): void => {
+    setQuantity(filterNumeric(value));
+  };
+
   const accountCount = selectedGroup?.enabledCount ?? 0;
-  const leverageValid = /^\d+(\.\d+)?$/.test(leverage) && Number(leverage) >= 1 && Number(leverage) <= 100;
+  const leverageValid = /^\d+(\.\d+)?$/.test(leverage)
+    && Number(leverage) >= 1 && Number(leverage) <= MAX_LEVERAGE;
   const percentValid = /^\d+(\.\d+)?$/.test(percent) && Number(percent) > 0 && Number(percent) <= 100;
+  const quantityValid = /^\d+(\.\d+)?$/.test(quantity) && Number(quantity) > 0;
   const priceOk = (p: string): boolean => p === '' || /^\d+(\.\d+)?$/.test(p);
+
+  // The reference price for SL/TP percentage calculation:
+  // limit orders use the limit price, market orders use the last-fetched market price.
+  const slTpRefPrice: string = orderType === 'limit' ? limitPrice : marketRefPrice;
+  const slTpRefNum = Number(slTpRefPrice);
+  const hasRef = slTpRefPrice !== '' && Number.isFinite(slTpRefNum) && slTpRefNum > 0;
+
+  // Validate a SL/TP percent string: 0 < pct <= 100, decimal format.
+  const pctOk = (p: string): boolean => p === '' || (/^\d+(\.\d+)?$/.test(p) && Number(p) > 0 && Number(p) <= 100);
+
+  // Compute the effective absolute SL/TP prices (for validation + submission).
+  const effectiveSlPrice: string = slTpMode === 'percent' && slPercent !== '' && hasRef
+    ? percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(8).replace(/\.?0+$/, '')
+    : stopLossPrice;
+  const effectiveTpPrice: string = slTpMode === 'percent' && tpPercent !== '' && hasRef
+    ? percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(8).replace(/\.?0+$/, '')
+    : takeProfitPrice;
+
+  const sizeValid = sizingMode === 'percent' ? percentValid : quantityValid;
+
+  const slValid = slTpMode === 'price' ? priceOk(stopLossPrice) : pctOk(slPercent);
+  const tpValid = slTpMode === 'price' ? priceOk(takeProfitPrice) : pctOk(tpPercent);
 
   const canPreview =
     groupId !== '' && asset !== '' && accountCount > 0
-    && leverageValid && percentValid
+    && leverageValid && sizeValid
     && (orderType !== 'limit' || (limitPrice !== '' && priceOk(limitPrice)))
-    && priceOk(stopLossPrice) && priceOk(takeProfitPrice);
+    && slValid && tpValid;
 
   const submitPreview = (): void => {
+    // Backend expects percentBp, so convert from quantity if needed
+    let finalPercentBp: number;
+    if (sizingMode === 'quantity') {
+      // Convert quantity → percent before submitting
+      if (!selectedGroup || !leverageValid || limitPrice === '') return;
+      const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
+      if (allocatedMinor === '0') return;
+      const scale = marginCurrency === 'INR' ? 2 : 8;
+      const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
+      const notional = Number(quantity) * Number(limitPrice);
+      const margin = notional / Number(leverage);
+      const pct = (margin / allocatedMajor) * 100;
+      finalPercentBp = Math.round(pct * 100);
+    } else {
+      finalPercentBp = Math.round(Number(percent) * 100);
+    }
     const req: PlanRequest = {
       groupId,
       createdBy: '',
@@ -84,15 +330,14 @@ export function TradeTicket() {
       side,
       orderType,
       sizingMode: 'pct_allocated',
-      percentBp: Math.round(Number(percent) * 100),
+      percentBp: finalPercentBp,
       ...(orderType === 'limit' ? { limitPrice } : {}),
       isFutures: true,
       leverage,
       marginCurrency,
       positionMarginType: effectiveMarginType,
-      ...(stopLossPrice !== '' ? { stopLossPrice } : {}),
-      ...(takeProfitPrice !== '' ? { takeProfitPrice } : {}),
-      ...(reduceOnly ? { reduceOnly: true } : {}),
+      ...(effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
+      ...(effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
     };
     preview.mutate(req);
   };
@@ -142,43 +387,98 @@ export function TradeTicket() {
       </div>
 
       <div className="row">
-        <div className="field">
-          <label htmlFor="side">Side</label>
-          <select id="side" value={side} onChange={(e) => setSide(e.target.value as Side)}>
-            <option value="buy">Long (buy)</option>
-            <option value="sell">Short (sell)</option>
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="type">Order type</label>
-          <select id="type" value={orderType} onChange={(e) => setOrderType(e.target.value as OrderType)}>
-            <option value="market">Market</option>
-            <option value="limit">Limit</option>
-          </select>
-        </div>
+        <Choice
+          label="Side"
+          value={side}
+          onChange={setSide}
+          options={[
+            { value: 'buy' as Side, label: 'Long', tone: 'long' },
+            { value: 'sell' as Side, label: 'Short', tone: 'short' },
+          ]}
+        />
+        <Choice
+          label="Order type"
+          value={orderType}
+          onChange={setOrderType}
+          options={[
+            { value: 'market' as OrderType, label: 'Market' },
+            { value: 'limit' as OrderType, label: 'Limit' },
+          ]}
+        />
       </div>
 
+      {/* ── Live price ticker ── */}
+      {asset !== '' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+          background: 'var(--panel-bg, #fafafa)',
+          border: '1px solid var(--line)',
+          marginBottom: 6,
+        }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%',
+            background: liveTicker.connected ? '#22c55e' : 'var(--text-dim)',
+            display: 'inline-block', flexShrink: 0,
+            animation: liveTicker.connected ? 'pulse 2s ease-in-out infinite' : 'none',
+          }} />
+          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+            {liveTicker.connected ? 'Live' : 'Connecting…'}
+          </span>
+          {liveTicker.bestBid !== null && (
+            <span style={{ color: 'var(--text-dim)' }}>
+              Bid <strong style={{ color: 'var(--text)' }}>{liveTicker.bestBid}</strong>
+            </span>
+          )}
+          {liveTicker.bestAsk !== null && (
+            <span style={{ color: 'var(--text-dim)' }}>
+              Ask <strong style={{ color: 'var(--text)' }}>{liveTicker.bestAsk}</strong>
+            </span>
+          )}
+          {liveTicker.updatedAtMs !== null && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--faint)' }}>
+              {new Date(liveTicker.updatedAtMs).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      )}
       {orderType === 'limit' && (
         <div className="field">
           <label htmlFor="limit">Limit price</label>
-          <input
-            id="limit"
-            inputMode="decimal"
-            value={limitPrice}
-            placeholder="e.g. 85000"
-            onChange={(e) => setLimitPrice(e.target.value)}
-          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              id="limit"
+              inputMode="decimal"
+              value={limitPrice}
+              placeholder="e.g. 85000"
+              style={{ flex: 1 }}
+              onChange={(e) => setLimitPrice(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={fetchingPrice || asset === ''}
+              style={{ whiteSpace: 'nowrap', padding: '0 12px' }}
+              onClick={() => fetchAndSetPrice()}
+              title="Fetch the current market price"
+            >
+              {fetchingPrice ? '⟳' : '↻'} Live price
+            </button>
+          </div>
         </div>
       )}
 
       <div className="row">
-        <div className="field">
-          <label htmlFor="mc">Margin currency</label>
-          <select id="mc" value={marginCurrency} onChange={(e) => setMarginCurrency(e.target.value as MarginCurrency)}>
-            <option value="USDT">USDT</option>
-            <option value="INR">INR</option>
-          </select>
-        </div>
+        <Choice
+          label="Margin currency"
+          value={marginCurrency}
+          onChange={setMarginCurrency}
+          hint="Picks which market the trade uses."
+          options={[
+            { value: 'INR' as MarginCurrency, label: 'INR' },
+            { value: 'USDT' as MarginCurrency, label: 'USDT' },
+          ]}
+        />
         <div className="field">
           <label htmlFor="mt">Margin mode</label>
           <select
@@ -193,50 +493,349 @@ export function TradeTicket() {
         </div>
         <div className="field">
           <label htmlFor="lev">Leverage</label>
-          <input
-            id="lev"
-            inputMode="decimal"
-            value={leverage}
-            placeholder="5"
-            onChange={(e) => setLeverage(e.target.value)}
-          />
-          <div className="hint">1× to the market&rsquo;s per-tier max (server enforces).</div>
+          {/* A stepper AND a free-text field. The buttons make the common case one
+              click and put the bounds in reach; the input keeps the exact value
+              typeable, because a trader who wants 37× should not have to click 36
+              times. Both write the same state, so neither can drift from the other. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              className="btn secondary"
+              aria-label="Decrease leverage"
+              disabled={leverageAtMin}
+              style={{ padding: '4px 12px', fontSize: 16, lineHeight: 1 }}
+              onClick={() => bumpLeverage(-1)}
+            >
+              −
+            </button>
+            <input
+              id="lev"
+              inputMode="decimal"
+              value={leverage}
+              placeholder="5"
+              style={{ flex: 1, textAlign: 'center' }}
+              onChange={(e) => setLeverage(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              aria-label="Increase leverage"
+              disabled={leverageAtMax}
+              style={{ padding: '4px 12px', fontSize: 16, lineHeight: 1 }}
+              onClick={() => bumpLeverage(1)}
+            >
+              +
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            {[1, 5, 10, 20].map((v) => {
+              const active = Number(leverage) === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={active}
+                  // DELIBERATELY NOT `btn ghost`: that class is transparent with
+                  // `--text-dim`, which on this panel rendered as near-invisible
+                  // text. Every colour here is stated outright, so the control
+                  // reads on any theme rather than depending on what it inherits.
+                  className="btn btn-sm"
+                  style={{
+                    flex: 1,
+                    padding: '4px 0',
+                    fontSize: 11.5,
+                    fontWeight: active ? 600 : 500,
+                    // Selected: filled and bordered in the accent, so it reads as a
+                    // state. Unselected: a visible outline on the panel's own
+                    // background, so the SET of choices is legible before choosing.
+                    background: active ? 'var(--accent-soft)' : 'transparent',
+                    color: active ? 'var(--text)' : 'var(--text-dim)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                    borderRadius: 'var(--radius-pill)',
+                  }}
+                  onClick={() => setLeverage(String(v))}
+                >
+                  {v}×
+                </button>
+              );
+            })}
+          </div>
+          <div className="hint">
+            1× to {MAX_LEVERAGE}× here; the market&rsquo;s own per-tier max is enforced server-side.
+          </div>
         </div>
       </div>
 
       <div className="field">
-        <label htmlFor="pct">Size (% of allocated capital)</label>
-        <input
-          id="pct"
-          inputMode="decimal"
-          value={percent}
-          placeholder="e.g. 20"
-          onChange={(e) => setPercent(e.target.value)}
-        />
-        <div className="hint">
-          {percentValid && leverageValid
-            ? `${percent}% × ${leverage}× = ${(Number(percent) * Number(leverage)).toFixed(0)}% of allocated as notional exposure.`
-            : 'Percent of the group’s allocated capital is used as margin; notional = margin × leverage.'}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+          <label htmlFor="size" style={{ margin: 0 }}>Size</label>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              aria-pressed={sizingMode === "percent"}
+              style={{
+                padding: "2px 10px",
+                fontSize: 11,
+                background: sizingMode === "percent" ? "var(--accent-soft)" : "transparent",
+                color: sizingMode === "percent" ? "var(--text)" : "var(--text-dim)",
+                border: `1px solid ${sizingMode === "percent" ? "var(--accent)" : "var(--line)"}`,
+              }}
+              onClick={() => switchSizingMode("percent")}
+            >
+              Percent
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              aria-pressed={sizingMode === "quantity"}
+              style={{
+                padding: "2px 10px",
+                fontSize: 11,
+                background: sizingMode === "quantity" ? "var(--accent-soft)" : "transparent",
+                color: sizingMode === "quantity" ? "var(--text)" : "var(--text-dim)",
+                border: `1px solid ${sizingMode === "quantity" ? "var(--accent)" : "var(--line)"}`,
+              }}
+              onClick={() => switchSizingMode("quantity")}
+            >
+              Quantity
+            </button>
+          </div>
         </div>
+        {sizingMode === "percent" ? (
+          <>
+            <input
+              id="size"
+              inputMode="decimal"
+              value={percent}
+              placeholder="e.g. 20"
+              onChange={(e) => handlePercentChange(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              {[10, 25, 50, 75, 100].map((v) => {
+                const active = Number(percent) === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={active}
+                    className="btn btn-sm"
+                    style={{
+                      flex: 1,
+                      padding: '4px 0',
+                      fontSize: 11.5,
+                      fontWeight: active ? 600 : 500,
+                      background: active ? 'var(--accent-soft)' : 'transparent',
+                      color: active ? 'var(--text)' : 'var(--text-dim)',
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                      borderRadius: 'var(--radius-pill)',
+                    }}
+                    onClick={() => setPercent(String(v))}
+                  >
+                    {v}%
+                  </button>
+                );
+              })}
+            </div>
+            <div className="hint">
+              {percentValid && leverageValid
+                ? `${percent}% × ${leverage}× = ${(Number(percent) * Number(leverage)).toFixed(0)}% of allocated as notional exposure.`
+                : "Percent of the group's allocated capital is used as margin; notional = margin × leverage."}
+            </div>
+          </>
+        ) : (
+          <>
+            <input
+              id="size"
+              inputMode="decimal"
+              value={quantity}
+              placeholder={`e.g. 0.5 ${asset || "BTC"}`}
+              onChange={(e) => handleQuantityChange(e.target.value)}
+            />
+            <div className="hint">
+              {quantityValid && leverageValid && limitPrice !== ""
+                ? `${quantity} ${asset} @ ${limitPrice} = notional ${(Number(quantity) * Number(limitPrice)).toFixed(2)} ${marginCurrency}`
+                : `Direct quantity in ${asset || "the selected asset"}. Switch to limit order and set a price to see notional.`}
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="row">
-        <div className="field">
-          <label htmlFor="sl">Stop-loss trigger (optional)</label>
-          <input id="sl" inputMode="decimal" value={stopLossPrice} placeholder="e.g. 80000" onChange={(e) => setStopLossPrice(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="tp">Take-profit trigger (optional)</label>
-          <input id="tp" inputMode="decimal" value={takeProfitPrice} placeholder="e.g. 92000" onChange={(e) => setTakeProfitPrice(e.target.value)} />
-        </div>
-      </div>
+      {/* SL/TP section — only shown after an asset is selected */}
+      {asset !== '' && (
+        <>
+          {/* Single Price / % toggle for both SL and TP */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 4 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              SL / TP mode
+            </span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={slTpMode === 'percent'}
+                style={{
+                  padding: '2px 12px', fontSize: 11,
+                  background: slTpMode === 'percent' ? 'var(--accent-soft)' : 'transparent',
+                  color: slTpMode === 'percent' ? 'var(--text)' : 'var(--text-dim)',
+                  border: `1px solid ${slTpMode === 'percent' ? 'var(--accent)' : 'var(--line)'}`,
+                }}
+                onClick={() => setSlTpMode('percent')}
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={slTpMode === 'price'}
+                style={{
+                  padding: '2px 12px', fontSize: 11,
+                  background: slTpMode === 'price' ? 'var(--accent-soft)' : 'transparent',
+                  color: slTpMode === 'price' ? 'var(--text)' : 'var(--text-dim)',
+                  border: `1px solid ${slTpMode === 'price' ? 'var(--accent)' : 'var(--line)'}`,
+                }}
+                onClick={() => setSlTpMode('price')}
+              >
+                Price
+              </button>
+            </div>
+            {slTpMode === 'percent' && !hasRef && (
+              <span style={{ fontSize: 11, color: 'var(--faint)' }}>
+                {orderType === 'market' ? 'Fetching price…' : 'Set a limit price first'}
+              </span>
+            )}
+          </div>
 
-      <div className="field">
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
-          <span>Reduce-only (never increases an existing position)</span>
-        </label>
-      </div>
+          <div className="row">
+            {/* ── Stop-loss ── */}
+            <div className="field">
+              <label htmlFor="sl">Stop-loss (optional)</label>
+              {slTpMode === 'price' ? (
+                <>
+                  <input id="sl" inputMode="decimal" value={stopLossPrice} placeholder="e.g. 80000" onChange={(e) => setStopLossPrice(e.target.value)} />
+                  {stopLossPrice !== '' && hasRef && (
+                    <div className="hint">
+                      ≈ {priceToPercent(slTpRefNum, Number(stopLossPrice), side, 'sl').toFixed(2)}% from entry
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input
+                    id="sl"
+                    inputMode="decimal"
+                    value={slPercent}
+                    placeholder="e.g. 5"
+                    disabled={!hasRef}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                      if (v === '' || Number(v) <= 100) setSlPercent(v);
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    {SL_PERCENT_CHIPS.map((v) => {
+                      const active = slPercent !== '' && Number(slPercent) === v;
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={active}
+                          className="btn btn-sm"
+                          disabled={!hasRef}
+                          style={{
+                            flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
+                            background: active ? 'var(--accent-soft)' : 'transparent',
+                            color: active ? 'var(--text)' : 'var(--text-dim)',
+                            border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                            borderRadius: 'var(--radius-pill)',
+                          }}
+                          onClick={() => setSlPercent(String(v))}
+                        >
+                          {v}%
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {hasRef && slPercent !== '' && pctOk(slPercent) && (
+                    <div className="hint">
+                      ≈ {percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(2)} trigger price
+                    </div>
+                  )}
+                  {hasRef && orderType === 'market' && (
+                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>
+                      Based on current market price — actual fill may differ.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Take-profit ── */}
+            <div className="field">
+              <label htmlFor="tp">Take-profit (optional)</label>
+              {slTpMode === 'price' ? (
+                <>
+                  <input id="tp" inputMode="decimal" value={takeProfitPrice} placeholder="e.g. 92000" onChange={(e) => setTakeProfitPrice(e.target.value)} />
+                  {takeProfitPrice !== '' && hasRef && (
+                    <div className="hint">
+                      ≈ {priceToPercent(slTpRefNum, Number(takeProfitPrice), side, 'tp').toFixed(2)}% from entry
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input
+                    id="tp"
+                    inputMode="decimal"
+                    value={tpPercent}
+                    placeholder="e.g. 5"
+                    disabled={!hasRef}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                      if (v === '' || Number(v) <= 100) setTpPercent(v);
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    {TP_PERCENT_CHIPS.map((v) => {
+                      const active = tpPercent !== '' && Number(tpPercent) === v;
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          aria-pressed={active}
+                          className="btn btn-sm"
+                          disabled={!hasRef}
+                          style={{
+                            flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
+                            background: active ? 'var(--accent-soft)' : 'transparent',
+                            color: active ? 'var(--text)' : 'var(--text-dim)',
+                            border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                            borderRadius: 'var(--radius-pill)',
+                          }}
+                          onClick={() => setTpPercent(String(v))}
+                        >
+                          {v}%
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {hasRef && tpPercent !== '' && pctOk(tpPercent) && (
+                    <div className="hint">
+                      ≈ {percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(2)} trigger price
+                    </div>
+                  )}
+                  {hasRef && orderType === 'market' && (
+                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>
+                      Based on current market price — actual fill may differ.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
 
       {orderType === 'market' && (
         <div className="spread-warning">

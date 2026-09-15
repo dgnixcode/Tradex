@@ -1185,6 +1185,26 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- GET /api/market-price/:pair/:marginCurrency — best bid/ask for limit order auto-fill ----
+    const priceMatch = /^\/api\/market-price\/([A-Z]+)\/([A-Z]+)$/.exec(path);
+    if (method === 'GET' && priceMatch !== null) {
+      requireAction(principal, 'view.dashboards');
+      const asset = priceMatch[1]!;
+      const quote = priceMatch[2]!;
+      if (quote !== 'INR' && quote !== 'USDT') {
+        throw new HttpError(400, 'marginCurrency must be INR or USDT');
+      }
+      try {
+        const book = await deps.getOrderBook({ asset, quote: quote as 'INR' | 'USDT' }, 5);
+        const bestBid = book.bids[0]?.price ?? null;
+        const bestAsk = book.asks[0]?.price ?? null;
+        sendJson(ctx.res, 200, { asset, marginCurrency: quote, bestBid, bestAsk, observedAtMs: book.observedAtMs });
+      } catch (e) {
+        throw new HttpError(500, `could not fetch market price: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
+      return;
+    }
+
     // ---- POST /api/orders/cancel — the cancel fan-out, group-scoped (T09.1) ----
     // Cancels the STILL-CANCELLABLE legs of ONE group trade — never `cancel_all`
     // (30/60s rate limit, and it would cancel orders we did not place). The
