@@ -102,7 +102,9 @@ export function mapBalances(responseText: string): Balance[] {
       throw new BalanceMappingError('a balance row is not an object');
     }
     const row = entry as { [key: string]: DecimalJson };
-    const currency = requireScalar(row, 'currency').toUpperCase();
+    const currencyRaw = optionalScalar(row, 'currency') ?? optionalScalar(row, 'currency_short_name');
+    if (currencyRaw === null) throw new BalanceMappingError('a balance row lacks both currency and currency_short_name');
+    const currency = currencyRaw.toUpperCase();
     if (seen.has(currency)) throw new BalanceMappingError(`currency ${currency} appears twice in one response`);
     seen.add(currency);
 

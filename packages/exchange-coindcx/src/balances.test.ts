@@ -53,6 +53,12 @@ describe('major units convert to minor without loss', () => {
   it('upper-cases the currency code', () => {
     expect(mapBalances('[{"currency":"usdt","balance":"1"}]')[0]?.currency).toBe('USDT');
   });
+
+  it('maps a futures wallet format with currency_short_name', () => {
+    const f = mapBalances('[{"currency_short_name":"INR","balance":"100.50","locked_balance":"0"}]');
+    expect(f[0]?.currency).toBe('INR');
+    expect(f[0]?.freeMinor).toBe('10050');
+  });
 });
 
 describe('a balance it cannot represent is refused, never rounded', () => {

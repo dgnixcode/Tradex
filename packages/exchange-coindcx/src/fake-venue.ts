@@ -521,7 +521,7 @@ export class FakeVenue {
 
     // ---- authenticated ----
     if (route.startsWith('/exchange/v1/')) {
-      if (req.method !== 'POST') {
+      if (req.method !== 'POST' && !(req.method === 'GET' && route.includes('wallets'))) {
         this.send(res, 404, '{"code":404,"message":"Not Found","status":"error"}');
         return;
       }
@@ -530,7 +530,20 @@ export class FakeVenue {
       // The real venue carried NO rate-limit headers on an authenticated
       // response we have seen (only a 401), so E3 stays open and the adapter
       // must keep working when they are absent.
-      if (route === '/exchange/v1/users/balances') {
+      if (route === '/exchange/v1/derivatives/futures/wallets' && req.method === 'GET') {
+        // map our synthetic balances to the futures wallet response format
+        const futuresWallets = this.balanceRows.map(r => ({
+          id: 'uuid',
+          currency_short_name: r.currency,
+          balance: String(r.balance),
+          locked_balance: String(r.locked_balance ?? 0),
+          cross_order_margin: '0.0',
+          cross_user_margin: '0.0'
+        }));
+        this.send(res, 200, JSON.stringify(futuresWallets));
+        return;
+      }
+      if (route === '/exchange/v1/users/balances' && req.method === 'POST') {
         this.send(res, 200, JSON.stringify(this.balanceRows));
         return;
       }

@@ -24,7 +24,7 @@ import type { BodySigner } from './signing.js';
 
 /** Where authenticated reads live. Overridable so the fake venue can stand in. */
 export const DEFAULT_BASE_URL = 'https://api.coindcx.com';
-const BALANCES_PATH = '/exchange/v1/users/balances';
+const BALANCES_PATH = '/exchange/v1/derivatives/futures/wallets';
 
 /**
  * Pull the venue's error message out of a non-200 body, tolerating both the
@@ -63,7 +63,7 @@ export async function probeCredential(
   let result;
   try {
     result = await send({
-      method: 'POST',
+      method: 'GET',
       url,
       body: signed.body,
       headers: signed.headers,
@@ -101,12 +101,7 @@ export async function probeCredential(
 
 
 /**
- * Read balances with a SIGNER instead of a plaintext secret.
- *
- * Same endpoint, same mapping, same classification as `probeCredential` — the only
- * difference is who holds the key. Onboarding signs with the plaintext the customer
- * just typed; this path signs through the signer process, because by then the
- * credential is sealed and the API is not allowed to see it.
+ * Read balances again for an ALREADY-connected account.
  *
  * WHY IT EXISTS: a balance is not a fact we may cache indefinitely. The customer
  * withdraws or deposits, and every later trade is sized from whatever we hold —
@@ -124,7 +119,7 @@ export async function readBalancesSigned(
   let result;
   try {
     result = await send({
-      method: 'POST',
+      method: 'GET',
       url,
       body: signed.body,
       headers: signed.headers,
