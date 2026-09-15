@@ -124,16 +124,40 @@ export function TradeTicket() {
   const assets = useQuery({ queryKey: ['assets'], queryFn: fetchAssets });
 
   const [groupId, setGroupId] = useState('');
-  const [asset, setAsset] = useState('BTC');
+  const [asset, setAsset] = useState<string>(() => {
+    try {
+      return localStorage.getItem('tradex_selected_asset') || 'BTC';
+    } catch {
+      return 'BTC';
+    }
+  });
   const [side, setSide] = useState<Side>('buy');
   const [orderType, setOrderType] = useState<OrderType>('market');
   const [limitPrice, setLimitPrice] = useState('');
-  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'watchlist'>('trade');
+  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'watchlist'>(() => {
+    try {
+      return (localStorage.getItem('tradex_active_tab') as 'trade' | 'watchlist') || 'trade';
+    } catch {
+      return 'trade';
+    }
+  });
 
   // Futures shape — every field required except the two conditionals + reduceOnly.
   const [leverage, setLeverage] = useState('5');
-  const [marginCurrency, setMarginCurrency] = useState<MarginCurrency>('USDT');
-  const [quoteCurrency, setQuoteCurrency] = useState<MarginCurrency>('USDT');
+  const [marginCurrency, setMarginCurrency] = useState<MarginCurrency>(() => {
+    try {
+      return (localStorage.getItem('tradex_selected_margin') as MarginCurrency) || 'USDT';
+    } catch {
+      return 'USDT';
+    }
+  });
+  const [quoteCurrency, setQuoteCurrency] = useState<MarginCurrency>(() => {
+    try {
+      return (localStorage.getItem('tradex_selected_quote') as MarginCurrency) || 'USDT';
+    } catch {
+      return 'USDT';
+    }
+  });
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>('isolated');
   const [percent, setPercent] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -152,6 +176,30 @@ export function TradeTicket() {
   // Stores the latest market price for use as SL/TP reference on market orders.
   const [marketRefPrice, setMarketRefPrice] = useState('');
   const [usdtInrRate, setUsdtInrRate] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (asset) {
+      try { localStorage.setItem('tradex_selected_asset', asset); } catch {}
+    }
+  }, [asset]);
+
+  useEffect(() => {
+    if (marginCurrency) {
+      try { localStorage.setItem('tradex_selected_margin', marginCurrency); } catch {}
+    }
+  }, [marginCurrency]);
+
+  useEffect(() => {
+    if (quoteCurrency) {
+      try { localStorage.setItem('tradex_selected_quote', quoteCurrency); } catch {}
+    }
+  }, [quoteCurrency]);
+
+  useEffect(() => {
+    if (rightPanelTab) {
+      try { localStorage.setItem('tradex_active_tab', rightPanelTab); } catch {}
+    }
+  }, [rightPanelTab]);
 
   useEffect(() => {
     fetchMarketPrice('USDT', 'INR').then(p => {

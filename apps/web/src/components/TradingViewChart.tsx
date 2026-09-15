@@ -57,18 +57,17 @@ export const TradingViewChart = memo(function TradingViewChart({
       theme,
       style: '1', // Candlestick
       locale: 'en',
-      enable_publishing: false,
+      enable_publishing: true,
       allow_symbol_change: true,
       calendar: false,
       support_host: 'https://www.tradingview.com',
       hide_side_toolbar: false,
       hide_top_toolbar: false,
       withdateranges: true,
-      save_image: false,
-      studies: [
-        'STD;SMA',
-        'STD;RSI',
-      ],
+      save_image: true,
+      show_popup_button: true,
+      popup_width: '1000',
+      popup_height: '650',
     });
 
     widgetDiv.appendChild(script);
