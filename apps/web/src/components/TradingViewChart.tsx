@@ -26,7 +26,7 @@ export const TradingViewChart = memo(function TradingViewChart({
   asset,
   quoteCurrency = 'USDT',
   theme = 'dark',
-  height = 500,
+  height = '100%',
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const symbol = resolveTradingViewSymbol(asset, quoteCurrency);
@@ -87,11 +87,9 @@ export const TradingViewChart = memo(function TradingViewChart({
         position: 'relative',
         width: '100%',
         height,
-        minHeight: 440,
-        borderRadius: 12,
         overflow: 'hidden',
-        background: '#131722',
-        border: '1px solid var(--line, #232838)',
+        background: '#000000',
+        border: 'none',
       }}
     >
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />

@@ -101,9 +101,9 @@ export function WatchlistPanel({
         width: '100%',
         height: '100%',
         minHeight: 480,
-        background: '#131722',
-        borderRadius: 12,
-        border: '1px solid var(--line, #232838)',
+        background: '#0d0e12',
+        borderRadius: 8,
+        border: '1px solid #1e2229',
         overflow: 'hidden',
       }}
     >
@@ -114,13 +114,13 @@ export function WatchlistPanel({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '12px 14px',
-          borderBottom: '1px solid var(--line, #232838)',
-          background: '#10141d',
+          borderBottom: '1px solid #1e2229',
+          background: '#111317',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 16 }}>★</span>
-          <span style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--text, #f0f3f8)', letterSpacing: '0.02em' }}>
+          <span style={{ fontSize: 15, color: '#f59e0b' }}>★</span>
+          <span style={{ fontWeight: 700, fontSize: 13.5, color: '#f3f4f6', letterSpacing: '0.02em' }}>
             Watchlist
           </span>
           <span
@@ -128,8 +128,8 @@ export function WatchlistPanel({
               fontSize: 11,
               padding: '1px 6px',
               borderRadius: 999,
-              background: 'var(--surface-3, #222938)',
-              color: 'var(--muted, #828e9e)',
+              background: '#1b1e25',
+              color: '#9ca3af',
             }}
           >
             {watchlist.length}
@@ -140,9 +140,9 @@ export function WatchlistPanel({
           type="button"
           onClick={() => setShowAddMenu((v) => !v)}
           style={{
-            background: showAddMenu ? 'var(--accent, #2962ff)' : 'var(--surface-3, #222938)',
-            color: showAddMenu ? '#fff' : 'var(--text-dim, #c5cdd9)',
-            border: 'none',
+            background: showAddMenu ? '#2563eb' : '#1b1e25',
+            color: showAddMenu ? '#fff' : '#d1d5db',
+            border: '1px solid #282d37',
             borderRadius: 6,
             padding: '4px 10px',
             fontSize: 12,
@@ -158,7 +158,7 @@ export function WatchlistPanel({
       </div>
 
       {/* ── Search Bar ── */}
-      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line, #232838)' }}>
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid #1e2229' }}>
         <input
           type="text"
           placeholder="Filter or search coin…"
@@ -167,12 +167,12 @@ export function WatchlistPanel({
           style={{
             width: '100%',
             boxSizing: 'border-box',
-            background: '#0b0e14',
-            border: '1px solid var(--line, #232838)',
+            background: '#07080a',
+            border: '1px solid #1e2229',
             borderRadius: 6,
             padding: '7px 10px',
             fontSize: 12.5,
-            color: 'var(--text, #f0f3f8)',
+            color: '#f3f4f6',
             outline: 'none',
           }}
         />
@@ -183,13 +183,13 @@ export function WatchlistPanel({
         <div
           style={{
             padding: '10px 12px',
-            background: '#0e121a',
-            borderBottom: '1px solid var(--line, #232838)',
+            background: '#0d0e12',
+            borderBottom: '1px solid #1e2229',
             maxHeight: 180,
             overflowY: 'auto',
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted, #828e9e)', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', marginBottom: 6 }}>
             QUICK ADD TO WATCHLIST:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -199,9 +199,9 @@ export function WatchlistPanel({
                 type="button"
                 onClick={() => addCoin(coin)}
                 style={{
-                  background: '#1a202c',
-                  color: 'var(--text-dim, #c5cdd9)',
-                  border: '1px solid var(--line, #232838)',
+                  background: '#16181f',
+                  color: '#d1d5db',
+                  border: '1px solid #232730',
                   borderRadius: 4,
                   padding: '4px 8px',
                   fontSize: 11.5,

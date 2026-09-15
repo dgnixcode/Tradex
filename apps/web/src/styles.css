@@ -1275,44 +1275,53 @@ tr.skipped td { color: var(--muted); }
    Trading Terminal Dark Theme & Layout
    ========================================================================= */
 .panel-dark {
-  --bg: #0a0d14;
-  --bg-2: #0f131d;
-  --panel: #131722;
-  --panel-2: #181d2a;
-  --surface-3: #1f2637;
-  --line: #202634;
-  --line-strong: #2c3547;
-  --text: #f0f3f8;
-  --text-dim: #c5cdd9;
-  --muted: #828e9e;
-  --faint: #546070;
-  --accent: #2962ff;
-  --accent-2: #3875f6;
-  --accent-soft: rgba(41, 98, 255, 0.15);
-  --ink: #f0f3f8;
-  --ok: #0ecb81;
-  --danger: #f6465d;
-  --warn: #f0b90b;
+  --bg: #000000;
+  --bg-2: #08090c;
+  --panel: #0d0e12;
+  --panel-2: #13151b;
+  --surface-3: #181b22;
+  --line: #1c2027;
+  --line-strong: #262b35;
+  --text: #f3f4f6;
+  --text-dim: #cbd5e1;
+  --muted: #94a3b8;
+  --faint: #64748b;
+  --accent: #2563eb;
+  --accent-2: #3b82f6;
+  --accent-soft: rgba(37, 99, 235, 0.16);
+  --ink: #f3f4f6;
+  --ok: #10b981;
+  --danger: #ef4444;
+  --warn: #f59e0b;
 
   position: relative;
   z-index: 1;
+  height: 100vh;
   min-height: 100vh;
-  background: var(--bg);
+  background: #000000;
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+
+body:has(.panel-dark)::before {
+  display: none !important;
 }
 
 .panel-dark .app-layout {
   display: grid;
   grid-template-columns: 72px 1fr;
+  height: 100vh;
   min-height: 100vh;
+  background: #000000;
+  overflow: hidden;
 }
 
 /* Thin Sidebar */
 .panel-dark .app-sidebar {
   width: 72px;
-  padding: 16px 6px;
-  background: #0c0f17;
+  padding: 14px 6px;
+  background: #08090c;
   border-right: 1px solid var(--line);
   align-items: center;
   position: sticky;
@@ -1471,52 +1480,82 @@ tr.skipped td { color: var(--muted); }
   color: var(--muted);
 }
 
-/* Full width app content in dark mode */
+/* Full width and full height app content in dark mode */
+.panel-dark .app-main {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #000000;
+}
+
 .panel-dark .app-content {
-  padding: 10px 14px;
+  padding: 0 !important;
   max-width: 100% !important;
   width: 100%;
-  margin: 0;
+  margin: 0 !important;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #000000;
+}
+
+/* Other non-terminal panels get clean padding */
+.panel-dark .app-content > *:not(.trading-terminal-layout) {
+  padding: 24px 32px;
+  max-width: 1300px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100vh;
   box-sizing: border-box;
 }
 
-/* Trading Terminal Full-Width Layout */
+/* Trading Terminal Full 100vh Screen Layout */
 .trading-terminal-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
-  gap: 14px;
+  gap: 0;
   width: 100%;
-  height: calc(100vh - 82px);
-  min-height: 600px;
+  height: 100vh;
   box-sizing: border-box;
+  background: #000000;
+  overflow: hidden;
 }
 
 .trading-chart-col {
-  height: 100%;
-  min-height: 500px;
+  height: 100vh;
+  border-right: 1px solid #1c2027;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: #000000;
 }
 
 .trading-chart-col .tv-chart-wrapper {
   flex: 1;
   height: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: #000000 !important;
 }
 
 .trading-right-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   overflow-y: auto;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  background: #08090c;
 }
 
 /* Switcher Bar */
 .panel-tab-switcher {
   display: flex;
-  background: #10141d;
+  background: #0f1115;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 3px;
   gap: 4px;
   flex-shrink: 0;
@@ -1529,11 +1568,11 @@ tr.skipped td { color: var(--muted); }
   justify-content: center;
   gap: 6px;
   padding: 8px 12px;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1545,14 +1584,14 @@ tr.skipped td { color: var(--muted); }
 }
 
 .panel-tab-btn.active {
-  background: var(--accent);
+  background: #2563eb;
   color: #fff;
-  box-shadow: 0 2px 10px rgba(41, 98, 255, 0.35);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
 }
 
 .panel-tab-asset-pill {
-  font-size: 10.5px;
-  padding: 1px 7px;
+  font-size: 10px;
+  padding: 1px 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.2);
   font-weight: 700;
@@ -1562,6 +1601,10 @@ tr.skipped td { color: var(--muted); }
 .trading-ticket-panel {
   width: 100%;
   box-sizing: border-box;
+  background: #0d0e12 !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+  padding: 16px !important;
 }
 
 .watchlist-row:hover {
@@ -1572,9 +1615,10 @@ tr.skipped td { color: var(--muted); }
   .trading-terminal-layout {
     grid-template-columns: 1fr;
     height: auto;
+    overflow-y: auto;
   }
   .trading-chart-col {
-    height: 480px;
+    height: 50vh;
   }
   .trading-right-panel {
     height: auto;
