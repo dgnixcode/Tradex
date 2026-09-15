@@ -1471,41 +1471,113 @@ tr.skipped td { color: var(--muted); }
   color: var(--muted);
 }
 
-/* Trading Terminal Layout Grid */
+/* Full width app content in dark mode */
+.panel-dark .app-content {
+  padding: 10px 14px;
+  max-width: 100% !important;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Trading Terminal Full-Width Layout */
 .trading-terminal-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 310px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 14px;
   width: 100%;
-  max-width: 1720px;
-  margin: 0 auto;
-  align-items: start;
+  height: calc(100vh - 82px);
+  min-height: 600px;
+  box-sizing: border-box;
 }
 
-.trading-main-col {
+.trading-chart-col {
+  height: 100%;
+  min-height: 500px;
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
 
-.trading-watchlist-col {
-  position: sticky;
-  top: 72px;
-  height: calc(100vh - 90px);
-  min-height: 520px;
+.trading-chart-col .tv-chart-wrapper {
+  flex: 1;
+  height: 100% !important;
+}
+
+.trading-right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  gap: 8px;
+}
+
+/* Switcher Bar */
+.panel-tab-switcher {
+  display: flex;
+  background: #10141d;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.panel-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.panel-tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.panel-tab-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(41, 98, 255, 0.35);
+}
+
+.panel-tab-asset-pill {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.trading-ticket-panel {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .watchlist-row:hover {
   background: rgba(255, 255, 255, 0.04) !important;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1100px) {
   .trading-terminal-layout {
     grid-template-columns: 1fr;
+    height: auto;
   }
-  .trading-watchlist-col {
-    position: static;
+  .trading-chart-col {
     height: 480px;
+  }
+  .trading-right-panel {
+    height: auto;
   }
 }
 

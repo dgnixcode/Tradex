@@ -128,6 +128,7 @@ export function TradeTicket() {
   const [side, setSide] = useState<Side>('buy');
   const [orderType, setOrderType] = useState<OrderType>('market');
   const [limitPrice, setLimitPrice] = useState('');
+  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'watchlist'>('trade');
 
   // Futures shape — every field required except the two conditionals + reduceOnly.
   const [leverage, setLeverage] = useState('5');
@@ -374,24 +375,47 @@ export function TradeTicket() {
 
   return (
     <div className="trading-terminal-layout">
-      {/* Left / Main Column: Chart + Order Ticket */}
-      <div className="trading-main-col">
-        {/* TradingView Advanced Live Chart */}
-        <div className="trading-chart-card" style={{ marginBottom: 18 }}>
-          <TradingViewChart
-            asset={asset || 'BTC'}
-            quoteCurrency={quoteCurrency}
-            theme="dark"
-            height={480}
-          />
+      {/* Left Column: Full-View TradingView Advanced Live Chart */}
+      <div className="trading-chart-col">
+        <TradingViewChart
+          asset={asset || 'BTC'}
+          quoteCurrency={quoteCurrency}
+          theme="dark"
+          height="100%"
+        />
+      </div>
+
+      {/* Right Column: Switcher Tabs + Panel (Trade Order vs Watchlist) */}
+      <div className="trading-right-panel">
+        {/* Switcher Bar */}
+        <div className="panel-tab-switcher">
+          <button
+            type="button"
+            className={`panel-tab-btn ${rightPanelTab === 'trade' ? 'active' : ''}`}
+            onClick={() => setRightPanelTab('trade')}
+          >
+            <span style={{ fontSize: 13 }}>⚡</span>
+            <span>Trade Order</span>
+            <span className="panel-tab-asset-pill">{asset}/{quoteCurrency}</span>
+          </button>
+          <button
+            type="button"
+            className={`panel-tab-btn ${rightPanelTab === 'watchlist' ? 'active' : ''}`}
+            onClick={() => setRightPanelTab('watchlist')}
+          >
+            <span style={{ fontSize: 13 }}>★</span>
+            <span>Watchlist</span>
+          </button>
         </div>
 
-        <div className="panel trading-ticket-panel">
-          <h2>New futures trade</h2>
-          <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
-            A perpetual-futures order sized across every enabled account in the group. Leverage, margin currency,
-            and any attached SL/TP travel with every leg.
-          </p>
+        {/* Tab 1: Trade Order Form */}
+        <div style={{ display: rightPanelTab === 'trade' ? 'flex' : 'none', flexDirection: 'column', width: '100%' }}>
+          <div className="panel trading-ticket-panel">
+            <h2>New futures trade</h2>
+            <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+              A perpetual-futures order sized across every enabled account in the group. Leverage, margin currency,
+              and any attached SL/TP travel with every leg.
+            </p>
 
       <div className="field">
         <label htmlFor="group">Group</label>
@@ -924,19 +948,21 @@ export function TradeTicket() {
       <button className="btn" disabled={!canPreview || preview.isPending} onClick={submitPreview}>
         {preview.isPending ? 'Previewing…' : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
       </button>
+          </div>
         </div>
-      </div>
 
-      {/* Right-Side Column: Watchlist Panel */}
-      <div className="trading-watchlist-col">
-        <WatchlistPanel
-          selectedAsset={asset || 'BTC'}
-          onSelectAsset={(newAsset) => {
-            setAsset(newAsset);
-          }}
-          allAssets={assets.data}
-          quoteCurrency={quoteCurrency}
-        />
+        {/* Tab 2: Watchlist */}
+        <div style={{ display: rightPanelTab === 'watchlist' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 480 }}>
+          <WatchlistPanel
+            selectedAsset={asset || 'BTC'}
+            onSelectAsset={(newAsset) => {
+              setAsset(newAsset);
+            }}
+            onOpenTrade={() => setRightPanelTab('trade')}
+            allAssets={assets.data}
+            quoteCurrency={quoteCurrency}
+          />
+        </div>
       </div>
     </div>
   );

@@ -26,6 +26,7 @@ interface WatchlistPanelProps {
   readonly onSelectAsset: (asset: string) => void;
   readonly allAssets?: readonly AssetOption[] | undefined;
   readonly quoteCurrency?: string | undefined;
+  readonly onOpenTrade?: (() => void) | undefined;
 }
 
 export function WatchlistPanel({
@@ -33,6 +34,7 @@ export function WatchlistPanel({
   onSelectAsset,
   allAssets = [],
   quoteCurrency = 'USDT',
+  onOpenTrade,
 }: WatchlistPanelProps) {
   const [watchlist, setWatchlist] = useState<string[]>(() => {
     try {
@@ -319,6 +321,44 @@ export function WatchlistPanel({
           </div>
         )}
       </div>
+
+      {/* ── Bottom Action Bar ── */}
+      {selectedAsset && onOpenTrade && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderTop: '1px solid var(--line, #232838)',
+            background: '#10141d',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--muted, #828e9e)' }}>
+            Active: <strong style={{ color: 'var(--text, #f0f3f8)' }}>{selectedAsset}/{quoteCurrency}</strong>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenTrade}
+            style={{
+              background: 'var(--accent, #2962ff)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            Trade {selectedAsset} ⚡
+          </button>
+        </div>
+      )}
     </div>
   );
 }
