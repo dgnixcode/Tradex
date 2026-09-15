@@ -183,15 +183,34 @@ export async function dailySpentMinor(
   sinceMs: number,
 ): Promise<string> {
   const rows = await tdb.selectFrom('child_order')
-    .select(['notional_minor', 'state'])
-    .where('account_id' as never, '=', accountId as never)
-    .where('quote_currency' as never, '=', quote as never)
-    .where('created_at' as never, '>=', new Date(sinceMs) as never)
+    .leftJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
+    .select([
+      'child_order.notional_minor as notional_minor',
+      'child_order.state as state',
+      'group_trade.status as group_trade_status',
+      'group_trade.preview_expires_at as preview_expires_at',
+    ])
+    .where('child_order.account_id' as never, '=', accountId as never)
+    .where('child_order.quote_currency' as never, '=', quote as never)
+    .where('child_order.created_at' as never, '>=', new Date(sinceMs) as never)
     .execute();
   let sum = 0n;
-  for (const row of rows as ReadonlyArray<{ notional_minor: string | null; state: string }>) {
+  const now = new Date();
+  for (const row of rows as ReadonlyArray<{
+    notional_minor: string | null;
+    state: string;
+    group_trade_status: string | null;
+    preview_expires_at: Date | null;
+  }>) {
     if (row.notional_minor === null) continue;
     if (row.state === 'skipped' || row.state === 'rejected' || row.state === 'not_placed') continue;
+    // An unconfirmed preview that has expired or been abandoned never spent anything
+    if (
+      row.state === 'planned' &&
+      (row.group_trade_status === 'abandoned' || (row.preview_expires_at !== null && row.preview_expires_at < now))
+    ) {
+      continue;
+    }
     sum += BigInt(row.notional_minor);
   }
   return String(sum);

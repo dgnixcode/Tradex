@@ -273,6 +273,13 @@ export class PlanningService {
     const referenceBook = this.pickReferenceBook(books, candidates);
     const decisionMid = referenceBook === null ? null : bookMid(referenceBook);
 
+    // Supercede any previous unconfirmed previews for this group
+    await this.deps.tdb.updateTable('group_trade')
+      .set({ status: 'abandoned' as never })
+      .where('group_id' as never, '=', req.groupId as never)
+      .where('status' as never, '=', 'previewed' as never)
+      .execute();
+
     // --- per-account planning -------------------------------------------------
     const children: NewChildOrder[] = [];
     for (const member of members) {
@@ -443,8 +450,9 @@ export class PlanningService {
       const lev = nat(req.leverage);
       effectiveAllocatedMinor = toStr(mul(nat(effectiveAllocatedMinor), lev, 0));
       effectiveFreeMinor = toStr(mul(nat(effectiveFreeMinor), lev, 0));
-      // In futures, per-order cap limits the margin committed, so notional cap scales with leverage
+      // In futures, caps limit the margin committed, so notional caps scale with leverage
       effectiveOrderCap = toStr(mul(nat(effectiveOrderCap), lev, 0));
+      effectiveDailyCap = toStr(mul(nat(effectiveDailyCap), lev, 0));
     }
 
     if (req.isFutures) {
