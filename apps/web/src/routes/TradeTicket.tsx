@@ -484,12 +484,6 @@ export function TradeTicket() {
         {/* Tab 1: Trade Order Form */}
         <div style={{ display: rightPanelTab === 'trade' ? 'flex' : 'none', flexDirection: 'column', width: '100%' }}>
           <div className="panel trading-ticket-panel">
-            <h2>New futures trade</h2>
-            <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
-              A perpetual-futures order sized across every enabled account in the group. Leverage, margin currency,
-              and any attached SL/TP travel with every leg.
-            </p>
-
       <div className="field">
         <label htmlFor="group">Group</label>
         <select id="group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
