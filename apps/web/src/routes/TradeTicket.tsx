@@ -176,13 +176,8 @@ export function TradeTicket() {
       return 'USDT';
     }
   });
-  const [quoteCurrency, setQuoteCurrency] = useState<MarginCurrency>(() => {
-    try {
-      return (localStorage.getItem('tradex_selected_quote') as MarginCurrency) || 'USDT';
-    } catch {
-      return 'USDT';
-    }
-  });
+  // Futures trade exclusively on USDT pairs.
+  const quoteCurrency: MarginCurrency = 'USDT';
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>('isolated');
   const [percent, setPercent] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -213,12 +208,6 @@ export function TradeTicket() {
       try { localStorage.setItem('tradex_selected_margin', marginCurrency); } catch {}
     }
   }, [marginCurrency]);
-
-  useEffect(() => {
-    if (quoteCurrency) {
-      try { localStorage.setItem('tradex_selected_quote', quoteCurrency); } catch {}
-    }
-  }, [quoteCurrency]);
 
   useEffect(() => {
     if (rightPanelTab) {
@@ -624,16 +613,6 @@ export function TradeTicket() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Choice
-          label="Trade pair quote"
-          value={quoteCurrency}
-          onChange={setQuoteCurrency}
-          hint="Picks market to trade on."
-          options={[
-            { value: 'INR' as MarginCurrency, label: 'INR' },
-            { value: 'USDT' as MarginCurrency, label: 'USDT' },
-          ]}
-        />
-        <Choice
           label="Funding wallet"
           value={marginCurrency}
           onChange={setMarginCurrency}
@@ -643,9 +622,6 @@ export function TradeTicket() {
             { value: 'USDT' as MarginCurrency, label: 'USDT' },
           ]}
         />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
         <div className="field">
           <label htmlFor="mt">Margin mode</label>
           <select
@@ -658,64 +634,68 @@ export function TradeTicket() {
             {marginCurrency === 'USDT' && <option value="crossed">Crossed</option>}
           </select>
         </div>
-        <div className="field">
-          <label htmlFor="lev">Leverage</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button
-              type="button"
-              className="btn secondary"
-              aria-label="Decrease leverage"
-              disabled={leverageAtMin}
-              style={{ padding: '4px 10px', fontSize: 15, lineHeight: 1 }}
-              onClick={() => bumpLeverage(-1)}
-            >
-              −
-            </button>
-            <input
-              id="lev"
-              inputMode="decimal"
-              value={leverage}
-              placeholder="5"
-              style={{ flex: 1, minWidth: 0, textAlign: 'center' }}
-              onChange={(e) => setLeverage(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn secondary"
-              aria-label="Increase leverage"
-              disabled={leverageAtMax}
-              style={{ padding: '4px 10px', fontSize: 15, lineHeight: 1 }}
-              onClick={() => bumpLeverage(1)}
-            >
-              +
-            </button>
-          </div>
-          <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-            {[1, 5, 10, 20].map((v) => {
-              const active = Number(leverage) === v;
-              return (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={active}
-                  className="btn btn-sm"
-                  style={{
-                    flex: 1,
-                    padding: '3px 0',
-                    fontSize: 11,
-                    fontWeight: active ? 700 : 500,
-                    background: active ? '#ffffff' : '#111318',
-                    color: active ? '#000000' : '#9ca3af',
-                    border: `1px solid ${active ? '#ffffff' : '#222631'}`,
-                    borderRadius: 'var(--radius-pill)',
-                  }}
-                  onClick={() => setLeverage(String(v))}
-                >
-                  {v}×
-                </button>
-              );
-            })}
-          </div>
+      </div>
+
+      <div className="field" style={{ marginTop: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <label htmlFor="lev" style={{ margin: 0 }}>Leverage</label>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Max {MAX_LEVERAGE}×</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            type="button"
+            className="btn secondary"
+            aria-label="Decrease leverage"
+            disabled={leverageAtMin}
+            style={{ padding: '4px 12px', fontSize: 15, lineHeight: 1 }}
+            onClick={() => bumpLeverage(-1)}
+          >
+            −
+          </button>
+          <input
+            id="lev"
+            inputMode="decimal"
+            value={leverage}
+            placeholder="5"
+            style={{ flex: 1, minWidth: 0, textAlign: 'center', fontWeight: 600 }}
+            onChange={(e) => setLeverage(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn secondary"
+            aria-label="Increase leverage"
+            disabled={leverageAtMax}
+            style={{ padding: '4px 12px', fontSize: 15, lineHeight: 1 }}
+            onClick={() => bumpLeverage(1)}
+          >
+            +
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          {[1, 5, 10, 20].map((v) => {
+            const active = Number(leverage) === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={active}
+                className="btn btn-sm"
+                style={{
+                  flex: 1,
+                  padding: '4px 0',
+                  fontSize: 11,
+                  fontWeight: active ? 700 : 500,
+                  background: active ? '#ffffff' : '#111318',
+                  color: active ? '#000000' : '#9ca3af',
+                  border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+                  borderRadius: 'var(--radius-pill)',
+                }}
+                onClick={() => setLeverage(String(v))}
+              >
+                {v}×
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -841,14 +821,10 @@ export function TradeTicket() {
             {quantityValid && leverageValid && sizingRefPrice !== "" ? (() => {
               const notionalAmt = Number(quantity) * Number(sizingRefPrice);
               const marginAmt = notionalAmt / Number(leverage);
-              const currSymbol = quoteCurrency === 'INR' ? '₹' : '';
-              const currSuffix = quoteCurrency === 'USDT' ? ' USDT' : '';
-              const fmtNotional = quoteCurrency === 'INR'
-                ? `${currSymbol}${notionalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-                : `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
-              const fmtMargin = quoteCurrency === 'INR'
-                ? `${currSymbol}${marginAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-                : `${marginAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
+              const fmtNotional = `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
+              const fmtMargin = marginCurrency === 'INR' && usdtInrRate
+                ? `₹${(marginAmt * usdtInrRate).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                : `${marginAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
               return (
                 <div style={{
                   display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
