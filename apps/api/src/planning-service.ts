@@ -31,7 +31,7 @@
 //    venue call; there is no placeOrder path from here.
 
 import { randomBytes } from 'node:crypto';
-import { add, cmp, div } from '@tradex/money';
+import { add, cmp, div, mul } from '@tradex/money';
 import type { Balance, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
@@ -256,6 +256,13 @@ export class PlanningService {
     for (const [symbol, ref] of marketsToRead) {
       books.set(symbol, await this.deps.getOrderBook(ref, BOOK_DEPTH));
     }
+    let usdtInrMid: string | null = null;
+    if (req.isFutures) {
+      try {
+        const usdtInrBook = await this.deps.getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
+        usdtInrMid = bookMid(usdtInrBook);
+      } catch {}
+    }
 
     // Market-scope switches (phase 05): the operator-set mode for each market the
     // asset resolves to on any member. One read for the whole trade, like the books.
@@ -271,7 +278,7 @@ export class PlanningService {
     for (const member of members) {
       children.push(await this.planMember(member, {
         req, candidates, platform, caps, states, balancesByAccount, books, marketModes, dayStartMs,
-        holdingsByAccount,
+        holdingsByAccount, usdtInrMid,
       }));
     }
 
@@ -295,6 +302,7 @@ export class PlanningService {
       isFutures: req.isFutures ?? false,
       leverage: req.leverage ?? null,
       marginCurrency: req.marginCurrency ?? null,
+      quoteCurrency: req.quoteCurrency ?? null,
       positionMarginType: req.positionMarginType ?? null,
       stopLossPrice: req.stopLossPrice ?? null,
       takeProfitPrice: req.takeProfitPrice ?? null,
@@ -335,6 +343,7 @@ export class PlanningService {
       books: ReadonlyMap<string, OrderBook>;
       marketModes: Readonly<Record<string, MarketStateRow>>;
       dayStartMs: number;
+      usdtInrMid: string | null;
     },
   ): Promise<NewChildOrder> {
     const { req } = ctx;
@@ -394,6 +403,24 @@ export class PlanningService {
     const accountOverride = state?.maxOrderNotionalMinor ?? null;
     const effectiveOrderCap = accountOverride ?? ctx.caps.perOrderNotionalMinor;
 
+    let effectiveAllocatedMinor = member.allocatedCapitalMinor;
+    let effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, quote);
+    
+    // Cross-currency sizing (Phase 15 backport)
+    if (req.isFutures && quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {
+      const inrFree = freeQuoteMinorOf(effectiveBalances, 'INR');
+      // Convert INR minor (paise) to USDT minor (8 decimals).
+      // rate is USDT/INR, so 1 USDT = 88 INR.
+      // USDT = INR / rate.
+      // USDT minor = (INR minor / 100) / rate * 10^8 = (INR minor * 10^6) / rate.
+      const rate = nat(ctx.usdtInrMid);
+      const allocatedScaled = mul(nat(member.allocatedCapitalMinor), nat('1000000'), 0);
+      effectiveAllocatedMinor = toStr(div(allocatedScaled, rate, 0));
+      
+      const freeScaled = mul(nat(inrFree), nat('1000000'), 0);
+      effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
+    }
+
     const gateState: GateState = {
       platformKillSwitch: ctx.platform.killSwitch,
       platformMode: ctx.platform.mode,
@@ -408,9 +435,9 @@ export class PlanningService {
       // picked with it, so the gates must judge with it, or the leg would be
       // gated against one currency and sent in another.
       ...(quoteFor(req) !== undefined ? { preferredQuote: quoteFor(req) } : {}),
-      allocatedCapitalMinor: member.allocatedCapitalMinor,
-      freeQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote),
-      equityQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote), // equity == free until holdings are valued (Phase 07)
+      allocatedCapitalMinor: effectiveAllocatedMinor,
+      freeQuoteMinor: effectiveFreeMinor,
+      equityQuoteMinor: effectiveFreeMinor, // equity == free until holdings are valued (Phase 07)
       positionQuantity: positionQuantityOf(effectiveBalances, req.asset),
       book: effectiveBook,
       ...(req.slippageToleranceBp !== undefined ? { slippageToleranceBp: req.slippageToleranceBp } : {}),

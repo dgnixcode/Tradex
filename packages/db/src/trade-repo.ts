@@ -56,8 +56,9 @@ export interface NewGroupTrade {
   // Phase-15 futures. All optional; a spot row leaves is_futures=false and the rest null.
   readonly isFutures?: boolean | undefined;
   readonly leverage?: string | null | undefined;
-  readonly marginCurrency?: 'INR' | 'USDT' | null | undefined;
-  readonly positionMarginType?: 'isolated' | 'crossed' | null | undefined;
+  readonly marginCurrency?: string | null | undefined;
+  readonly quoteCurrency?: string | null | undefined;
+  readonly positionMarginType?: string | null | undefined;
   readonly stopLossPrice?: string | null | undefined;
   readonly takeProfitPrice?: string | null | undefined;
   readonly trailing_stop_loss?: boolean | undefined;
@@ -140,9 +141,10 @@ export async function persistPlan(
       // Phase-15 futures — every column has a schema DEFAULT except is_futures,
       // which the CHECK requires paired with leverage/margin/margin-type when true.
       is_futures: trade.isFutures ?? false,
-      leverage: trade.leverage ?? null,
-      margin_currency: trade.marginCurrency ?? null,
-      position_margin_type: trade.positionMarginType ?? null,
+      leverage: trade.leverage,
+      margin_currency: trade.marginCurrency as 'INR' | 'USDT' | null,
+      quote_currency: trade.quoteCurrency as 'INR' | 'USDT' | null,
+      position_margin_type: (trade.positionMarginType as 'isolated' | 'crossed' | null) ?? null,
       stop_loss_price: trade.stopLossPrice ?? null,
       take_profit_price: trade.takeProfitPrice ?? null,
       reduce_only: trade.reduceOnly ?? false,

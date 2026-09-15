@@ -256,6 +256,7 @@ interface TradeRow {
   /** phase-15 futures intent — carried on the parent trade, not the leg. */
   isFutures: boolean;
   marginCurrency: string | null;
+  quoteCurrency: string | null;
   stopLossPrice: string | null;
   takeProfitPrice: string | null;
   trailingStopLoss: boolean;
@@ -483,7 +484,7 @@ export class ExecutionWorker {
     const gt = await tdb.byId('group_trade', c.groupTradeId)
       .select(['side', 'order_type as orderType', 'limit_price as limitPrice', 'asset',
         'sizing_mode as sizingMode', 'sizing_value as sizingValue',
-        'is_futures as isFutures', 'margin_currency as marginCurrency',
+        'is_futures as isFutures', 'margin_currency as marginCurrency', 'quote_currency as quoteCurrency',
         'stop_loss_price as stopLossPrice', 'take_profit_price as takeProfitPrice',
         'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp',
         'leverage', 'position_margin_type as positionMarginType', 'reduce_only as reduceOnly',
@@ -816,9 +817,9 @@ export class ExecutionWorker {
     const attach = this.deps.attachTpSl;
 
     const trade = await tdb.byId('group_trade', entry.groupTradeId)
-      .select(['asset', 'margin_currency as marginCurrency', 'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp'] as unknown as never)
+      .select(['asset', 'margin_currency as marginCurrency', 'quote_currency as quoteCurrency', 'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp'] as unknown as never)
       .executeTakeFirst();
-    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean; trailingDistanceBp: string | null; trailingStepBp: string | null } | undefined;
+    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; quoteCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean; trailingDistanceBp: string | null; trailingStepBp: string | null } | undefined;
 
     // Nothing can be attached: no port, no market, or no margin currency. Skip
     // every leg with a reason the customer can read, so the trade completes.
@@ -830,8 +831,8 @@ export class ExecutionWorker {
       return;
     }
 
-    const quote = quoteOfMarket(market);
-    const pair = futuresPairOf({ asset: tradeRow.asset, quote }, tradeRow.marginCurrency);
+    const quote = tradeRow.quoteCurrency ?? tradeRow.marginCurrency ?? 'INR';
+    const pair = futuresPairOf({ asset: tradeRow.asset, quote }, tradeRow.marginCurrency as 'USDT' | 'INR');
     const slLeg = rows.find((l) => l.legKind === 'stop_loss');
     const tpLeg = rows.find((l) => l.legKind === 'take_profit');
 

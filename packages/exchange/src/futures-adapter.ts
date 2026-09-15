@@ -246,6 +246,6 @@ export interface FuturesAdapter {
  * and the test venue construct pairs the same way.
  */
 export function futuresPairOf(market: MarketRef, marginCurrency: FuturesMarginCurrency): string {
-  if (marginCurrency === 'INR') return `INR-${market.asset}_INR`;
-  return `B-${market.asset}_${market.quote === 'INR' ? 'USDT' : market.quote}`;
+  if (market.quote === 'INR') return `INR-${market.asset}_INR`;
+  return `B-${market.asset}_${market.quote}`;
 }

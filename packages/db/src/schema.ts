@@ -415,6 +415,7 @@ export interface GroupTradeTable {
   is_futures: Generated<boolean>;
   leverage: string | null;
   margin_currency: MarginCurrency | null;
+  quote_currency: SupportedQuote | null;
   position_margin_type: PositionMarginType | null;
   stop_loss_price: string | null;
   take_profit_price: string | null;

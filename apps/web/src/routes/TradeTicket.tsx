@@ -130,6 +130,7 @@ export function TradeTicket() {
   // Futures shape — every field required except the two conditionals + reduceOnly.
   const [leverage, setLeverage] = useState('5');
   const [marginCurrency, setMarginCurrency] = useState<MarginCurrency>('USDT');
+  const [quoteCurrency, setQuoteCurrency] = useState<MarginCurrency>('USDT');
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>('isolated');
   const [percent, setPercent] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -147,9 +148,20 @@ export function TradeTicket() {
   const [tpPercent, setTpPercent] = useState('');
   // Stores the latest market price for use as SL/TP reference on market orders.
   const [marketRefPrice, setMarketRefPrice] = useState('');
+  const [usdtInrRate, setUsdtInrRate] = useState<number | null>(null);
 
-  // ── Live WebSocket ticker — streams best bid/ask from CoinDCX every 2-3s ──
-  const liveTicker = useLiveTicker(asset, marginCurrency);
+  useEffect(() => {
+    fetchMarketPrice('USDT', 'INR').then(p => {
+      const ask = Number(p.bestAsk);
+      const bid = Number(p.bestBid);
+      if (ask > 0 && bid > 0) setUsdtInrRate((ask + bid) / 2);
+      else if (ask > 0) setUsdtInrRate(ask);
+      else if (bid > 0) setUsdtInrRate(bid);
+    }).catch(() => {});
+  }, []);
+
+  // ─── Live WebSocket ticker — streams best bid/ask from CoinDCX every 2-3s ───
+  const liveTicker = useLiveTicker(asset, quoteCurrency);
 
   const selectedGroup: GroupSummary | undefined = useMemo(
     () => groups.data?.find((g) => g.id === groupId),
@@ -165,7 +177,7 @@ export function TradeTicket() {
     if (asset === '') return;
 
     setFetchingPrice(true);
-    fetchMarketPrice(asset, marginCurrency)
+    fetchMarketPrice(asset, quoteCurrency)
       .then((price) => {
         const fill = side === 'buy' ? price.bestAsk : price.bestBid;
         if (fill !== null && fill !== undefined) {
@@ -186,7 +198,7 @@ export function TradeTicket() {
     if (orderType !== 'limit' || asset === '') return;
     fetchAndSetPrice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderType, asset, marginCurrency, side]);
+  }, [orderType, asset, quoteCurrency, side]);
 
   // Keep marketRefPrice continuously synced from the live WebSocket ticker.
   // For market orders this is the only source; for limit orders the user's
@@ -227,7 +239,10 @@ export function TradeTicket() {
 
     const scale = marginCurrency === 'INR' ? 2 : 8;
     const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
-    const margin = allocatedMajor * (Number(percent) / 100);
+    let margin = allocatedMajor * (Number(percent) / 100);
+    if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
+      margin = margin / usdtInrRate;
+    }
     const notional = margin * Number(leverage);
     const qty = notional / Number(limitPrice);
     setQuantity(qty.toFixed(8).replace(/\.?0+$/, ''));
@@ -241,7 +256,10 @@ export function TradeTicket() {
     const scale = marginCurrency === 'INR' ? 2 : 8;
     const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
     const notional = Number(quantity) * Number(limitPrice);
-    const margin = notional / Number(leverage);
+    let margin = notional / Number(leverage);
+    if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
+      margin = margin * usdtInrRate;
+    }
     const pct = (margin / allocatedMajor) * 100;
     setPercent(pct.toFixed(2));
   };
@@ -320,7 +338,10 @@ export function TradeTicket() {
       const scale = marginCurrency === 'INR' ? 2 : 8;
       const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
       const notional = Number(quantity) * Number(limitPrice);
-      const margin = notional / Number(leverage);
+      let margin = notional / Number(leverage);
+      if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
+        margin = margin * usdtInrRate;
+      }
       const pct = (margin / allocatedMajor) * 100;
       finalPercentBp = Math.round(pct * 100);
     } else {
@@ -338,6 +359,7 @@ export function TradeTicket() {
       isFutures: true,
       leverage,
       marginCurrency,
+      quoteCurrency,
       positionMarginType: effectiveMarginType,
       ...(effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
       ...(effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
@@ -478,10 +500,20 @@ export function TradeTicket() {
 
       <div className="row">
         <Choice
-          label="Margin currency"
+          label="Trade pair quote"
+          value={quoteCurrency}
+          onChange={setQuoteCurrency}
+          hint="Picks which market to trade on."
+          options={[
+            { value: 'INR' as MarginCurrency, label: 'INR' },
+            { value: 'USDT' as MarginCurrency, label: 'USDT' },
+          ]}
+        />
+        <Choice
+          label="Funding wallet"
           value={marginCurrency}
           onChange={setMarginCurrency}
-          hint="Picks which market the trade uses."
+          hint="Picks which wallet to size and fund from."
           options={[
             { value: 'INR' as MarginCurrency, label: 'INR' },
             { value: 'USDT' as MarginCurrency, label: 'USDT' },
@@ -662,7 +694,7 @@ export function TradeTicket() {
             />
             <div className="hint">
               {quantityValid && leverageValid && limitPrice !== ""
-                ? `${quantity} ${asset} @ ${limitPrice} = notional ${(Number(quantity) * Number(limitPrice)).toFixed(2)} ${marginCurrency}`
+                ? `${quantity} ${asset} @ ${limitPrice} = notional ${(Number(quantity) * Number(limitPrice)).toFixed(2)} ${quoteCurrency}`
                 : `Direct quantity in ${asset || "the selected asset"}. Switch to limit order and set a price to see notional.`}
             </div>
           </>
