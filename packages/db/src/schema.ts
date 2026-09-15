@@ -418,6 +418,7 @@ export interface GroupTradeTable {
   position_margin_type: PositionMarginType | null;
   stop_loss_price: string | null;
   take_profit_price: string | null;
+  trailing_stop_loss: Generated<boolean>;
   reduce_only: Generated<boolean>;
 }
 

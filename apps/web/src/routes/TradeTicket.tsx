@@ -136,6 +136,7 @@ export function TradeTicket() {
   const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>('percent');
   const [stopLossPrice, setStopLossPrice] = useState('');
   const [takeProfitPrice, setTakeProfitPrice] = useState('');
+  const [trailingStopLoss, setTrailingStopLoss] = useState(false);
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   // SL/TP percentage mode state — one toggle controls both fields.
@@ -338,6 +339,7 @@ export function TradeTicket() {
       positionMarginType: effectiveMarginType,
       ...(effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
       ...(effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
+      ...(trailingStopLoss ? { trailingStopLoss: true } : {}),
     };
     preview.mutate(req);
   };
@@ -768,6 +770,10 @@ export function TradeTicket() {
                   )}
                 </>
               )}
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+                <input type="checkbox" id="ticket-tsl" checked={trailingStopLoss} onChange={(e) => setTrailingStopLoss(e.target.checked)} />
+                <label htmlFor="ticket-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-dim)' }}>Make Trailing (1% step)</label>
+              </div>
             </div>
 
             {/* ── Take-profit ── */}

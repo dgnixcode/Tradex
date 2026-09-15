@@ -96,6 +96,7 @@ export interface PlanRequest {
   readonly positionMarginType?: 'isolated' | 'crossed' | undefined;
   readonly stopLossPrice?: string | undefined;
   readonly takeProfitPrice?: string | undefined;
+  readonly trailingStopLoss?: boolean | undefined;
   readonly reduceOnly?: boolean | undefined;
   /** Retry-failed scoping (T08.7): when present, plan ONLY these still-enabled
    *  members of the group. The trade ticket never sends this — retry-failed uses
@@ -295,6 +296,7 @@ export class PlanningService {
       positionMarginType: req.positionMarginType ?? null,
       stopLossPrice: req.stopLossPrice ?? null,
       takeProfitPrice: req.takeProfitPrice ?? null,
+      trailing_stop_loss: req.trailingStopLoss ?? false,
       reduceOnly: req.reduceOnly ?? false,
     };
     const { groupTradeId } = await persistPlan(this.deps.tdb, trade, children, nowMs);

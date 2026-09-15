@@ -60,6 +60,7 @@ export interface NewGroupTrade {
   readonly positionMarginType?: 'isolated' | 'crossed' | null | undefined;
   readonly stopLossPrice?: string | null | undefined;
   readonly takeProfitPrice?: string | null | undefined;
+  readonly trailing_stop_loss?: boolean | undefined;
   readonly reduceOnly?: boolean | undefined;
 }
 

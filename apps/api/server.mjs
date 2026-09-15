@@ -566,6 +566,15 @@ if (sending) {
         ? { takeProfit: { triggerPrice: args.takeProfitPrice, orderType: 'take_profit_market' } } : {}),
     }, { baseUrl: VENUE_BASE });
     if (!out.ok) return { ok: false, code: out.failure.code ?? 'attach_failed', detail: out.failure.detail ?? '' };
+    if (args.trailingStopLoss && args.stopLossPrice !== null && out.stopLoss?.ok === true) {
+      const { upsertTrailingSl } = await import('@tradex/db');
+      await upsertTrailingSl(db, {
+        accountId: args.accountId,
+        venuePositionId: position.venuePositionId,
+        pair: args.pair,
+        currentSlPrice: args.stopLossPrice,
+      });
+    }
     return {
       ok: true,
       ...(out.stopLoss !== undefined ? { stopLoss: out.stopLoss } : {}),
