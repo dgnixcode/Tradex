@@ -421,6 +421,12 @@ export class PlanningService {
       effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
     }
 
+    if (req.isFutures && req.leverage) {
+      const lev = nat(req.leverage);
+      effectiveAllocatedMinor = toStr(mul(nat(effectiveAllocatedMinor), lev, 0));
+      effectiveFreeMinor = toStr(mul(nat(effectiveFreeMinor), lev, 0));
+    }
+
     if (req.isFutures) {
       console.log('DEBUG FUTURES SIZING:', {
         quote, allocatedCurrency: member.allocatedCurrency,
