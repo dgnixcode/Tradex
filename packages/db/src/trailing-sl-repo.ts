@@ -1,5 +1,4 @@
 import type { TenantDb } from './tenant-scope.js';
-import type { FuturesTrailingSlTable } from './schema.js';
 
 export interface TrailingSlConfig {
   readonly accountId: string;

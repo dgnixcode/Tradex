@@ -1,5 +1,5 @@
 import type { FuturesTrailingSlTable, DB } from '@tradex/db';
-import type { Kysely } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 
 import type { MarketRef, OrderBook } from '@tradex/exchange';
 
@@ -25,19 +25,19 @@ export class TrailingSlEngine {
     this.getOrderBook = getOrderBook;
   }
 
-  public start() {
+  public start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.evaluate(), 3000);
+    this.timer = setInterval(() => void this.evaluate(), 3000);
   }
 
-  public stop() {
+  public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
   }
 
-  private async evaluate() {
+  private async evaluate(): Promise<void> {
     try {
       const activeRows = await this.db.selectFrom('futures_trailing_sl')
         .selectAll()
@@ -65,14 +65,14 @@ export class TrailingSlEngine {
       }
 
       for (const row of activeRows) {
-        await this.evaluateRow(row as any);
+        await this.evaluateRow(row);
       }
     } catch (err) {
       console.error('TrailingSlEngine loop failed', err);
     }
   }
 
-  private async evaluateRow(row: FuturesTrailingSlTable) {
+  private async evaluateRow(row: Selectable<FuturesTrailingSlTable>): Promise<void> {
     const livePriceStr = this.livePrices.get(row.pair);
     if (livePriceStr === undefined) return;
     const livePrice = Number(livePriceStr);
@@ -93,16 +93,16 @@ export class TrailingSlEngine {
       } else {
         await this.db.updateTable('futures_trailing_sl')
           .set({ high_water_mark: String(newHighWaterMark), last_evaluated_at: new Date() })
-          .where('id', '=', row.id as any)
+          .where('id', '=', row.id)
           .execute();
       }
     }
   }
 
-  private async executeTrailingStep(row: FuturesTrailingSlTable, newHighWaterMark: number, newSlPrice: number) {
+  private async executeTrailingStep(row: Selectable<FuturesTrailingSlTable>, newHighWaterMark: number, newSlPrice: number): Promise<void> {
     await this.db.updateTable('futures_trailing_sl')
       .set({ status: 'updating' })
-      .where('id', '=', row.id as any)
+      .where('id', '=', row.id)
       .execute();
 
     try {
@@ -116,13 +116,13 @@ export class TrailingSlEngine {
           status: 'active',
           last_evaluated_at: new Date()
         })
-        .where('id', '=', row.id as any)
+        .where('id', '=', row.id)
         .execute();
     } catch (err) {
       console.error('Failed to step TSL for ' + row.venue_position_id, err);
       await this.db.updateTable('futures_trailing_sl')
         .set({ status: 'active', last_evaluated_at: new Date() })
-        .where('id', '=', row.id as any)
+        .where('id', '=', row.id)
         .execute();
     }
   }
