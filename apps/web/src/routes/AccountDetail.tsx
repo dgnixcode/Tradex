@@ -141,21 +141,35 @@ export function AccountDetail() {
 
         <table style={{ maxWidth: 620 }}>
           <tbody>
+            {/* TWO DIFFERENT QUESTIONS, kept apart:
+                  * here — how this account is CONFIGURED to trade: the one currency
+                    percentage orders are sized against, and which currencies it can
+                    pay with at all.
+                  * below — what it actually HOLDS, currency by currency.
+                A single "funding currency" row used to sit here and read as if it
+                were everything the account had, which is wrong the moment an account
+                holds both INR and USDT. */}
             <tr>
-              <td className="muted">Allocated capital</td>
+              <td className="muted">Allocated capital<br /><span style={{ fontSize: 11 }}>(sizing basis)</span></td>
               <td className="mono">
                 {a.allocatedCapitalMinor === null || a.allocatedCurrency === null
                   ? <span className="muted">not read from the exchange yet</span>
                   : formatMinor(a.allocatedCapitalMinor, quoteScaleOf(a.allocatedCurrency), a.allocatedCurrency)}
+                {a.fundingCurrencies.length > 1 && (
+                  <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                    percentage orders are sized against this one currency; you choose the
+                    currency on the ticket
+                  </span>
+                )}
               </td>
             </tr>
             <tr>
-              <td className="muted">Funding currency</td>
-              <td className="mono">{a.allocatedCurrency ?? <span className="muted">—</span>}</td>
-            </tr>
-            <tr>
               <td className="muted">Can fund with</td>
-              <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none</span>}</td>
+              <td>
+                {a.fundingCurrencies.length > 0
+                  ? a.fundingCurrencies.join(' / ')
+                  : <span className="muted">nothing yet</span>}
+              </td>
             </tr>
             <tr>
               <td className="muted">Reconciled against</td>
@@ -209,7 +223,7 @@ export function AccountDetail() {
         ) : (
           <table>
             <thead>
-              <tr><th>Currency</th><th>Free</th><th>Locked</th><th>Read at</th></tr>
+              <tr><th>Currency</th><th>Free</th><th>Locked</th><th>Can pay for a trade</th><th>Read at</th></tr>
             </thead>
             <tbody>
               {a.balances.map((b) => (
@@ -217,6 +231,19 @@ export function AccountDetail() {
                   <td>{b.currency}</td>
                   <td className="mono">{formatMinor(b.freeMinor, b.scale, b.currency)}</td>
                   <td className="mono">{formatMinor(b.lockedMinor, b.scale, b.currency)}</td>
+                  <td>
+                    {/* Which of the coins they hold can actually settle an order.
+                        A holding of BTC is what you SELL, not what you pay with —
+                        so the distinction belongs on the row, not in a table
+                        caption. */}
+                    {(a.fundingCurrencies as readonly string[]).includes(b.currency) ? (
+                      <span className="badge planned" style={{ fontSize: 10.5 }}>
+                        yes{b.currency === a.allocatedCurrency ? ' · sizing basis' : ''}
+                      </span>
+                    ) : (
+                      <span className="muted" style={{ fontSize: 11 }}>no</span>
+                    )}
+                  </td>
                   <td className="muted">{when(b.observedAt)}</td>
                 </tr>
               ))}

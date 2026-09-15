@@ -759,7 +759,11 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (deps.refreshPositions === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
-      sendJson(ctx.res, 200, await deps.refreshPositions({ tenantId: principal.tenantId }));
+      try {
+        sendJson(ctx.res, 200, await deps.refreshPositions({ tenantId: principal.tenantId }));
+      } catch (e) {
+        throw new HttpError(503, e instanceof Error ? e.message : 'the exchange could not be read');
+      }
       return;
     }
 
@@ -1055,8 +1059,17 @@ export function createHttpServer(deps: HttpDeps): Server {
         if (deps.accountSync === undefined) {
           throw new HttpError(503, 'exchange reads are not configured in this build');
         }
-        const synced = await deps.accountSync({ tenantId: principal.tenantId, accountId });
-        sendJson(ctx.res, 200, synced);
+        try {
+          const synced = await deps.accountSync({ tenantId: principal.tenantId, accountId });
+          sendJson(ctx.res, 200, synced);
+        } catch (e) {
+          // 503 with the REASON, not a generic 500. Every failure this port can
+          // raise is operational — the signer is unset or down, or the venue did
+          // not answer — and "internal error" tells neither the customer nor the
+          // engineer on call which of those it was. The messages are written for
+          // this screen and carry no secret.
+          throw new HttpError(503, e instanceof Error ? e.message : 'the exchange could not be read');
+        }
         return;
       }
 
