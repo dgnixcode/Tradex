@@ -76,6 +76,7 @@ export interface GateState {
    * gates must apply the SAME choice the resolver saw.
    */
   readonly preferredQuote?: string | undefined;
+  readonly isFutures?: boolean | undefined;
   readonly accountStatus: string;
   readonly credentialStatus: string | null;
   /** Account-frozen scope: non-null when this account is frozen, carrying the reason. */
@@ -188,7 +189,7 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
 
   // 4 — resolve the asset to a concrete market for this account's balances. This
   // is where INR-vs-USDT and "listed but not fundable" are decided (10 F3).
-  const resolved = resolveMarket(intent.asset, state.balances, state.candidateMarkets, state.preferredQuote);
+  const resolved = resolveMarket(intent.asset, state.balances, state.candidateMarkets, state.preferredQuote, state.isFutures);
   if ('code' in resolved) return fromRefusal(resolved);
 
   // 4b — the market-scope switch. An operator-set read_only or cancel_only market

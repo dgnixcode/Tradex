@@ -249,7 +249,7 @@ export class PlanningService {
       // picks the pair (`INR-BTC_INR` vs `B-BTC_USDT`) — so resolving the market by
       // a different rule sized the leg on one market and sent it to another:
       // BTCINR prices and precision, B-BTC_USDT on the wire.
-      const resolved = resolveMarket(req.asset, balances, candidates, quoteFor(req));
+      const resolved = resolveMarket(req.asset, balances, candidates, quoteFor(req), req.isFutures);
       if (!('code' in resolved)) marketsToRead.set(resolved.rules.venueSymbol, resolved.rules.market);
     }
     const books = new Map<string, OrderBook>();
@@ -353,7 +353,7 @@ export class PlanningService {
 
     // The book this member would trade on, if it resolves. A member that refuses
     // at gate 4 never reads it, so an empty placeholder is safe there.
-    const resolved = resolveMarket(req.asset, balances, ctx.candidates, quoteFor(req));
+    const resolved = resolveMarket(req.asset, balances, ctx.candidates, quoteFor(req), req.isFutures);
     const resolvedSymbol = 'code' in resolved ? null : resolved.rules.venueSymbol;
     const book = resolvedSymbol !== null ? ctx.books.get(resolvedSymbol) : undefined;
     const effectiveBook: OrderBook = book ?? {
@@ -435,6 +435,7 @@ export class PlanningService {
       // picked with it, so the gates must judge with it, or the leg would be
       // gated against one currency and sent in another.
       ...(quoteFor(req) !== undefined ? { preferredQuote: quoteFor(req) } : {}),
+      ...(req.isFutures ? { isFutures: req.isFutures } : {}),
       allocatedCapitalMinor: effectiveAllocatedMinor,
       freeQuoteMinor: effectiveFreeMinor,
       equityQuoteMinor: effectiveFreeMinor, // equity == free until holdings are valued (Phase 07)

@@ -68,6 +68,7 @@ export function resolveMarket(
    * and it is indistinguishable from a bug that ignores their setting.
    */
   preferredQuote?: string,
+  isFutures?: boolean,
 ): ResolvedMarket | Refusal {
   const forAsset = candidates.filter((m) => m.market.asset === asset);
   if (forAsset.length === 0) {
@@ -93,6 +94,26 @@ export function resolveMarket(
       detail: [...new Set(tradable.map((m) => m.market.quote))].sort().join(', '),
       remedyCurrencies: [...new Set(tradable.map((m) => m.market.quote))].sort(),
     });
+  }
+
+  if (isFutures) {
+    // For futures, affordability and funding are handled by margin calculations and
+    // cross-currency sizing later. We just pick the requested market (or default to INR).
+    const quote = preferredQuote ?? 'INR';
+    const chosen = inScope.find((m) => m.market.quote === quote);
+    if (!chosen) {
+      const listedIn = [...new Set(inScope.map((m) => m.market.quote))].sort();
+      return refuse('NO_MARKET_FOR_FUNDING_CURRENCY', {
+        detail: quote,
+        remedyCurrencies: listedIn,
+      });
+    }
+    return {
+      rules: chosen,
+      chosenQuote: quote,
+      alternativeQuotes: [],
+      currencyChoiceReason: `futures market in ${quote}`,
+    };
   }
 
   const funded = deriveFundingCurrencies(balances);
