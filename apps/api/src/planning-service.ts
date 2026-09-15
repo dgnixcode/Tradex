@@ -65,7 +65,7 @@ const RETRYABLE_FAILED: ReadonlySet<string> = new Set(['skipped', 'rejected', 'n
 /** What the customer asked for at the group level, before it meets any market. */
 /** The currency this trade will spend. See `quoteFor`. */
 const quoteFor = (req: PlanRequest): string | undefined =>
-  req.quoteCurrency ?? (req.isFutures === true ? req.marginCurrency : undefined);
+  req.quoteCurrency ?? (req.isFutures === true ? 'USDT' : undefined);
 
 export interface PlanRequest {
   readonly groupId: string;
@@ -407,14 +407,21 @@ export class PlanningService {
     let effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, quote);
     
     // Cross-currency sizing (Phase 15 backport)
-    if (req.isFutures && quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {
+    // For futures, the trade pair is always USDT. If the user chose to fund with INR,
+    // convert their INR allocated capital and free balance to USDT equivalent.
+    const fundingCurrency = req.isFutures ? (req.marginCurrency ?? member.allocatedCurrency) : member.allocatedCurrency;
+    if (req.isFutures && quote === 'USDT' && fundingCurrency === 'INR' && ctx.usdtInrMid !== null) {
       const inrFree = freeQuoteMinorOf(effectiveBalances, 'INR');
       // Convert INR minor (paise) to USDT minor (8 decimals).
       // rate is USDT/INR, so 1 USDT = 88 INR.
       // USDT = INR / rate.
       // USDT minor = (INR minor / 100) / rate * 10^8 = (INR minor * 10^6) / rate.
       const rate = nat(ctx.usdtInrMid);
-      const allocatedScaled = mul(nat(member.allocatedCapitalMinor), nat('1000000'), 0);
+      // Use the INR allocated capital from the member, regardless of member.allocatedCurrency
+      const inrAllocated = member.allocatedCurrency === 'INR'
+        ? member.allocatedCapitalMinor
+        : effectiveAllocatedMinor; // fallback if account is already USDT-denominated
+      const allocatedScaled = mul(nat(inrAllocated), nat('1000000'), 0);
       effectiveAllocatedMinor = toStr(div(allocatedScaled, rate, 0));
       
       const freeScaled = mul(nat(inrFree), nat('1000000'), 0);
@@ -429,7 +436,8 @@ export class PlanningService {
 
     if (req.isFutures) {
       console.log('DEBUG FUTURES SIZING:', {
-        quote, allocatedCurrency: member.allocatedCurrency,
+        quote, fundingCurrency, allocatedCurrency: member.allocatedCurrency,
+        marginCurrency: req.marginCurrency,
         originalAllocated: member.allocatedCapitalMinor,
         effectiveAllocatedMinor, effectiveFreeMinor,
         leverage: req.leverage, usdtInrMid: ctx.usdtInrMid
