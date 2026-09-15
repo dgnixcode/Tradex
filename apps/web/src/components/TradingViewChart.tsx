@@ -65,9 +65,7 @@ export const TradingViewChart = memo(function TradingViewChart({
       hide_top_toolbar: false,
       withdateranges: true,
       save_image: true,
-      show_popup_button: true,
-      popup_width: '1000',
-      popup_height: '650',
+      show_popup_button: false,
     });
 
     widgetDiv.appendChild(script);
