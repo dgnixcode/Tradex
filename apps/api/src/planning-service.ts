@@ -63,6 +63,10 @@ const GATE_CODE_SET: ReadonlySet<string> = new Set(GATE_CODES as readonly string
 const RETRYABLE_FAILED: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed', 'needs_human', 'unknown']);
 
 /** What the customer asked for at the group level, before it meets any market. */
+/** The currency this trade will spend. See `quoteFor`. */
+const quoteFor = (req: PlanRequest): string | undefined =>
+  req.quoteCurrency ?? (req.isFutures === true ? req.marginCurrency : undefined);
+
 export interface PlanRequest {
   readonly groupId: string;
   readonly createdBy: string;
@@ -79,6 +83,12 @@ export interface PlanRequest {
   readonly slippageToleranceBp?: number | undefined;
   // Phase-15 futures shape. All optional so a legacy caller (retry, spot) still compiles.
   /** True when this is a futures perp trade. Persisted as `group_trade.is_futures`. */
+  /**
+   * The currency to trade in, when the customer chose one. Absent means "pick for
+   * me" (INR first). A choice the account cannot fund is REFUSED rather than
+   * silently replaced — see `resolveMarket`.
+   */
+  readonly quoteCurrency?: 'INR' | 'USDT' | undefined;
   readonly isFutures?: boolean | undefined;
   /** 1..market's max leverage. Required when isFutures=true. */
   readonly leverage?: string | undefined;
@@ -232,7 +242,11 @@ export class PlanningService {
     const marketsToRead = new Map<string, MarketRef>();
     for (const m of members) {
       const balances = balancesByAccount.get(m.accountId) ?? [];
-      const resolved = resolveMarket(req.asset, balances, candidates);
+      // ONE CHOICE DRIVES BOTH. For futures the margin currency IS the quote — it
+      // picks the pair (`INR-BTC_INR` vs `B-BTC_USDT`) — so resolving the market by
+      // a different rule sized the leg on one market and sent it to another:
+      // BTCINR prices and precision, B-BTC_USDT on the wire.
+      const resolved = resolveMarket(req.asset, balances, candidates, quoteFor(req));
       if (!('code' in resolved)) marketsToRead.set(resolved.rules.venueSymbol, resolved.rules.market);
     }
     const books = new Map<string, OrderBook>();
@@ -324,7 +338,7 @@ export class PlanningService {
 
     // The book this member would trade on, if it resolves. A member that refuses
     // at gate 4 never reads it, so an empty placeholder is safe there.
-    const resolved = resolveMarket(req.asset, balances, ctx.candidates);
+    const resolved = resolveMarket(req.asset, balances, ctx.candidates, quoteFor(req));
     const resolvedSymbol = 'code' in resolved ? null : resolved.rules.venueSymbol;
     const book = resolvedSymbol !== null ? ctx.books.get(resolvedSymbol) : undefined;
     const effectiveBook: OrderBook = book ?? {
@@ -384,6 +398,10 @@ export class PlanningService {
       accountFrozenReason: state?.frozenReason ?? null,
       balances: effectiveBalances,
       candidateMarkets: ctx.candidates,
+      // The customer's currency choice, applied by the GATES too — the resolver
+      // picked with it, so the gates must judge with it, or the leg would be
+      // gated against one currency and sent in another.
+      ...(quoteFor(req) !== undefined ? { preferredQuote: quoteFor(req) } : {}),
       allocatedCapitalMinor: member.allocatedCapitalMinor,
       freeQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote),
       equityQuoteMinor: freeQuoteMinorOf(effectiveBalances, quote), // equity == free until holdings are valued (Phase 07)

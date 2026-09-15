@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { confirmAccount, deleteAccount, fetchAccount, resumeAccount, suspendAccount } from '../api.ts';
+import {
+  confirmAccount, deleteAccount, fetchAccount, resumeAccount, suspendAccount, syncAccount,
+} from '../api.ts';
 import { useAuth } from '../auth.tsx';
 
 // One connected exchange account. The list page answers "which accounts do I
@@ -56,6 +58,7 @@ export function AccountDetail() {
   const [opError, setOpError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
 
   const account = useQuery({
     queryKey: ['account', accountId],
@@ -83,6 +86,18 @@ export function AccountDetail() {
     mutationFn: () => resumeAccount(accountId),
     onSuccess: () => { setOpError(null); invalidate(); },
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not reactivate the account'),
+  });
+
+  // The balances below are the numbers every trade is sized from. They only
+  // refresh on connect without this, so a withdrawal made afterwards is invisible.
+  const sync = useMutation({
+    mutationFn: () => syncAccount(accountId),
+    onSuccess: (out) => {
+      setOpError(null);
+      setSyncNote(`Read ${out.balances} balance(s) — can fund with ${out.currencies.join(' / ') || 'nothing'}.`);
+      invalidate();
+    },
+    onError: (e) => setOpError(e instanceof Error ? e.message : 'could not read the exchange'),
   });
 
   const remove = useMutation({
@@ -173,10 +188,22 @@ export function AccountDetail() {
       </div>
 
       <div className="panel">
-        <h2>What the exchange says this account holds</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ margin: 0 }}>What the exchange says this account holds</h2>
+          <button
+            className="btn secondary btn-sm"
+            style={{ marginLeft: 'auto' }}
+            disabled={sync.isPending}
+            onClick={() => sync.mutate()}
+          >
+            {sync.isPending ? 'Reading the exchange…' : 'Sync balances'}
+          </button>
+        </div>
         <p className="sub muted" style={{ marginTop: -8 }}>
-          Read when the key was validated. The ledger is the exchange&apos;s; we only show it.
+          The exchange&apos;s own numbers, and what every trade is sized from. They only change here
+          when the account is read — so sync after a deposit or a withdrawal.
         </p>
+        {syncNote !== null && <div className="muted" style={{ marginBottom: 8, fontSize: 12.5 }}>{syncNote}</div>}
         {a.balances.length === 0 ? (
           <p className="muted">No balances were recorded.</p>
         ) : (

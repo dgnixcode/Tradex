@@ -15,6 +15,7 @@
 export const REFUSAL_CODES = [
   'ASSET_NOT_LISTED',
   'NO_MARKET_FOR_FUNDING_CURRENCY',
+  'CHOSEN_CURRENCY_NOT_FUNDED',
   'INSUFFICIENT_BALANCE_EITHER_CURRENCY',
   'MARKET_INACTIVE',
   'MARKET_EXIT_ONLY',
@@ -61,6 +62,11 @@ const TEMPLATES: Readonly<Record<RefusalCode, string>> = {
   ASSET_NOT_LISTED: 'No market lists {detail} on this venue.',
   NO_MARKET_FOR_FUNDING_CURRENCY:
     'This asset is listed, but not in a currency this account can fund with. It trades in {detail}.',
+  CHOSEN_CURRENCY_NOT_FUNDED:
+    // {detail} appears ONCE: the renderer substitutes each placeholder a single
+    // time, so a second reference would reach the customer as literal "{detail}".
+    'You asked to trade in {detail}, but this account holds no spendable balance in that currency. '
+    + 'Fund it on the exchange, or choose a currency the account already holds.',
   INSUFFICIENT_BALANCE_EITHER_CURRENCY:
     'No currency this account is funded in holds enough for the smallest legal order. '
     + 'The closest is {detail}, where {offending} is free against a minimum order value of {limit}.',
@@ -110,7 +116,8 @@ export const NUMERIC_REFUSALS: readonly RefusalCode[] = [
 
 /** Codes whose sentence names something non-numeric: a market, an asset, a mode. */
 export const DETAIL_REFUSALS: readonly RefusalCode[] = [
-  'ASSET_NOT_LISTED', 'NO_MARKET_FOR_FUNDING_CURRENCY', 'INSUFFICIENT_BALANCE_EITHER_CURRENCY',
+  'ASSET_NOT_LISTED', 'NO_MARKET_FOR_FUNDING_CURRENCY', 'CHOSEN_CURRENCY_NOT_FUNDED',
+  'INSUFFICIENT_BALANCE_EITHER_CURRENCY',
   'MARKET_INACTIVE', 'MARKET_EXIT_ONLY', 'ORDER_TYPE_NOT_ALLOWED', 'NO_BASIS_AMOUNT',
 ];
 

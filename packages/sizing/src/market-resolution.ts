@@ -59,6 +59,15 @@ export function resolveMarket(
   asset: string,
   balances: readonly Balance[],
   candidates: readonly MarketRules[],
+  /**
+   * The currency the CUSTOMER chose, when they made a choice.
+   *
+   * Absent means "pick for me" and the INR-first preference applies. Present means
+   * their choice is honoured or the trade is REFUSED — never silently substituted.
+   * Substituting is how a trade goes out in a currency the customer did not pick,
+   * and it is indistinguishable from a bug that ignores their setting.
+   */
+  preferredQuote?: string,
 ): ResolvedMarket | Refusal {
   const forAsset = candidates.filter((m) => m.market.asset === asset);
   if (forAsset.length === 0) {
@@ -87,6 +96,14 @@ export function resolveMarket(
   }
 
   const funded = deriveFundingCurrencies(balances);
+
+  // A chosen currency the account cannot fund is a REFUSAL, not a fallback. The
+  // customer asked for USDT and holds none; quietly trading INR instead would look
+  // like their choice was ignored — which, from where they sit, it was.
+  if (preferredQuote !== undefined && !(funded as readonly string[]).includes(preferredQuote)) {
+    return refuse('CHOSEN_CURRENCY_NOT_FUNDED', { detail: preferredQuote });
+  }
+
   const usable = inScope.filter((m) => (funded as readonly string[]).includes(m.market.quote));
   if (usable.length === 0) {
     const listedIn = [...new Set(inScope.map((m) => m.market.quote))].sort();
@@ -135,14 +152,23 @@ export function resolveMarket(
     });
   }
 
-  // Prefer INR, then USDT, then whatever is left in a stable order.
-  const ranked = [...affordable].sort((a, b) => rank(a.market.quote) - rank(b.market.quote));
+  // Prefer the customer's choice, then INR, then USDT, then whatever is left in a
+  // stable order.
+  const ranked = [...affordable].sort((a, b) => {
+    if (preferredQuote !== undefined) {
+      if (a.market.quote === preferredQuote) return -1;
+      if (b.market.quote === preferredQuote) return 1;
+    }
+    return rank(a.market.quote) - rank(b.market.quote);
+  });
   const chosen = ranked[0] as MarketRules;
   const alternatives = ranked.slice(1).map((m) => m.market.quote);
   const reason = alternatives.length === 0
     ? `only ${chosen.market.quote} is affordable for ${asset}`
-    : `chose ${chosen.market.quote} over ${alternatives.join('/')} `
-      + '(INR avoids order-time TDS, 11 F7)';
+    : preferredQuote !== undefined && chosen.market.quote === preferredQuote
+      ? `using ${chosen.market.quote} as you chose; ${alternatives.join('/')} was also affordable`
+      : `chose ${chosen.market.quote} over ${alternatives.join('/')} `
+        + '(INR avoids order-time TDS, 11 F7)';
   return {
     rules: chosen,
     chosenQuote: chosen.market.quote,

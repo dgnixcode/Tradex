@@ -164,6 +164,12 @@ export async function run(assert) {
   const halted = { ...btcinr, tradable: false };
   record(resolveMarket('BTC', balances('1000000', '100000000'), [halted]), 'an asset whose only market is halted');
 
+  // The customer CHOSE a currency the account cannot fund. It must refuse, not
+  // quietly trade the other one — a silent substitution is indistinguishable from
+  // a setting that was ignored, which is exactly how it reads from the ticket.
+  record(resolveMarket('BTC', balances('100000000', '0'), rules, 'USDT'),
+    'a customer who chose USDT on an account holding only INR');
+
   // Funded in both, but neither currency holds the minimum order value. BTC is
   // listed in both INR and USDT, so there is a real choice and both fail.
   const btcusdt = bySym.get('BTCUSDT');

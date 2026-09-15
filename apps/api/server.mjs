@@ -26,13 +26,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { createHttpServer, listAccounts, placeFuturesOrder, planAdjustment } from './dist/index.js';
-import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions } from '../../packages/db/dist/index.js';
+import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances } from '../../packages/db/dist/index.js';
 import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
 import { Signer } from '../signer/dist/index.js';
-import { futuresPairOf } from '../../packages/exchange/dist/index.js';
+import { deriveFundingCurrencies, futuresPairOf } from '../../packages/exchange/dist/index.js';
 import {
   mapOrderBook, probeCredential, send,
-  submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument,
+  submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
   attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned,
 } from '../../packages/exchange-coindcx/dist/index.js';
 
@@ -310,6 +310,9 @@ async function signFor(tenantId, accountId) {
     return { apiKey: out.apiKey, signature: out.signature };
   };
 }
+
+/** The tenant-scoped db every venue port writes through. */
+const tdbFor = (tenantId) => forTenant(db, tenantId);
 
 const enginePorts = {};
 if (sending) {
@@ -719,6 +722,35 @@ if (sending) {
   };
 
   /**
+   * Re-read one account's balances from the exchange and store them.
+   *
+   * The number every later trade is sized from. Without this it only refreshes at
+   * connect time, so a withdrawal the customer made an hour ago is invisible and
+   * a percentage order is sized against money that is no longer there.
+   */
+  const accountSync = async ({ tenantId, accountId }) => {
+    const sign = await signFor(tenantId, accountId);
+    if (sign === null) {
+      throw new Error('this account has no credential to read balances with');
+    }
+    const probe = await readBalancesSigned(sign, { baseUrl: VENUE_BASE });
+    if (!probe.ok) {
+      throw new Error(probe.failure?.detail ?? 'the exchange did not answer the balances read');
+    }
+    const balances = probe.balances ?? [];
+    const funding = deriveFundingCurrencies(balances);
+    await recordObservedBalances(tdbFor(tenantId), {
+      accountId,
+      fundingCurrencies: funding,
+      balances,
+    });
+    return {
+      currencies: funding,
+      balances: balances.length,
+    };
+  };
+
+  /**
    * Every account the tenant has, so a manual refresh reaches positions whose
    * trade is long finished — which is exactly the case the fan-out hook misses.
    */
@@ -739,6 +771,7 @@ if (sending) {
     afterFanOut,
     refreshPositions,
     futuresAdjust: { adjustPosition },
+    accountSync,
     // The sweep that keeps the resolve ladder alive after a confirm returns.
     resolverIntervalMs: 15_000,
   });

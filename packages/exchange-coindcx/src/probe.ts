@@ -19,7 +19,8 @@ import type { CredentialProbe } from '@tradex/exchange';
 import { mapBalances } from './balances.js';
 import { parseDecimalJson } from './decimal-json.js';
 import { TransportError, send } from './http.js';
-import { signRequest } from './signing.js';
+import { signBody, signRequest } from './signing.js';
+import type { BodySigner } from './signing.js';
 
 /** Where authenticated reads live. Overridable so the fake venue can stand in. */
 export const DEFAULT_BASE_URL = 'https://api.coindcx.com';
@@ -95,6 +96,59 @@ export async function probeCredential(
     }
   }
 
+  return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
+}
+
+
+/**
+ * Read balances with a SIGNER instead of a plaintext secret.
+ *
+ * Same endpoint, same mapping, same classification as `probeCredential` — the only
+ * difference is who holds the key. Onboarding signs with the plaintext the customer
+ * just typed; this path signs through the signer process, because by then the
+ * credential is sealed and the API is not allowed to see it.
+ *
+ * WHY IT EXISTS: a balance is not a fact we may cache indefinitely. The customer
+ * withdraws or deposits, and every later trade is sized from whatever we hold —
+ * so the account page needs a way to ask the venue again, on demand, without
+ * re-entering the key.
+ */
+export async function readBalancesSigned(
+  sign: BodySigner,
+  opts: { baseUrl?: string; deadlineMs?: number } = {},
+): Promise<CredentialProbe> {
+  const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
+  const signed = await signBody(sign, {});
+  const url = new URL(BALANCES_PATH, baseUrl);
+
+  let result;
+  try {
+    result = await send({
+      method: 'POST',
+      url,
+      body: signed.body,
+      headers: signed.headers,
+      deadlineMs: opts.deadlineMs ?? 15_000,
+    });
+  } catch (err) {
+    if (err instanceof TransportError) {
+      return { ok: false, neverSent: !err.mayHaveSent, failure: classify({ transport: err.kind }) };
+    }
+    throw err;
+  }
+
+  if (result.status === 200) {
+    // A 200 with an unparsable body is not a success: reporting one would tell the
+    // account page it has balances it cannot actually name.
+    try {
+      return { ok: true, balances: mapBalances(result.body) };
+    } catch (err) {
+      return {
+        ok: false,
+        failure: classify({ status: 502, message: `balances response could not be parsed: ${String(err)}` }),
+      };
+    }
+  }
   return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
 }
 

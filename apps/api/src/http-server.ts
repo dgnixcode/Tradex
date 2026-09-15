@@ -203,6 +203,17 @@ export interface HttpDeps {
    * instrument rather than assume a step.
    */
   readonly futuresAdjust?: FuturesAdjustPort | undefined;
+  /**
+   * Re-read an account's balances from the exchange and store them.
+   *
+   * A balance is not a fact we may cache indefinitely: the customer withdraws or
+   * deposits, and every later trade is sized from what we hold. Without this the
+   * number only refreshes when they reconnect the account.
+   */
+  readonly accountSync?: ((args: { tenantId: string; accountId: string }) => Promise<{
+    readonly currencies: readonly string[];
+    readonly balances: number;
+  }>) | undefined;
   readonly codeVersion: string;
   /** False on local plain-HTTP dev so the cookie is not marked Secure. */
   readonly secureCookies?: boolean | undefined;
@@ -1035,6 +1046,17 @@ export function createHttpServer(deps: HttpDeps): Server {
           );
         }
         sendJson(ctx.res, 200, { ok: true });
+        return;
+      }
+
+      // Re-read the venue's balances for this account and store them.
+      if (method === 'POST' && verb === 'sync') {
+        requireAction(principal, 'view.dashboards');
+        if (deps.accountSync === undefined) {
+          throw new HttpError(503, 'exchange reads are not configured in this build');
+        }
+        const synced = await deps.accountSync({ tenantId: principal.tenantId, accountId });
+        sendJson(ctx.res, 200, synced);
         return;
       }
 

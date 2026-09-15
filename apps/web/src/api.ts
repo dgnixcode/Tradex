@@ -251,6 +251,17 @@ export const fetchAccountList = (): Promise<readonly AccountListItem[]> =>
   request<readonly AccountListItem[]>('/accounts');
 
 /**
+ * Re-read this account's balances from the exchange.
+ *
+ * Every later trade is sized from these numbers, so a withdrawal or deposit the
+ * customer made since connecting is invisible without this.
+ */
+export const syncAccount = (accountId: string): Promise<{ currencies: string[]; balances: number }> =>
+  request<{ currencies: string[]; balances: number }>(`/accounts/${accountId}/sync`, {
+    method: 'POST', body: JSON.stringify({}),
+  });
+
+/**
  * One account, everything the detail page renders. `deletable` is false once the
  * account has traded, with `undeletableReason` carrying what to show instead —
  * the ledger is append-only, so such an account can never be removed.
