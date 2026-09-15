@@ -540,6 +540,23 @@ export interface FuturesExecutionLockTable {
   locked_by: string;
 }
 
+/**
+ * Backend-driven stepped trailing stop loss (phase-15 additions).
+ */
+export interface FuturesTrailingSlTable {
+  id: BigSerial;
+  tenant_id: string;
+  account_id: string;
+  venue_position_id: string;
+  pair: string;
+  distance_bp: Numeric;
+  step_bp: Numeric;
+  high_water_mark: Numeric;
+  current_sl_price: Numeric;
+  status: 'active' | 'updating' | 'failed' | 'closed';
+  last_evaluated_at: Timestamp;
+}
+
 export interface DB {
   session: SessionTable;
   tenant: TenantTable;
@@ -564,6 +581,7 @@ export interface DB {
   execution_job: ExecutionJobTable;
   futures_position: FuturesPositionTable;
   futures_execution_lock: FuturesExecutionLockTable;
+  futures_trailing_sl: FuturesTrailingSlTable;
 }
 
 /**
@@ -592,12 +610,14 @@ export const TENANT_SCOPED_TABLES = [
   'execution_job',
   'futures_position',
   'futures_execution_lock',
+  'futures_trailing_sl',
 ] as const satisfies readonly (keyof DB)[];
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
 
 const scoped: ReadonlySet<string> = new Set(TENANT_SCOPED_TABLES);
 export const isTenantScoped = (table: string): table is TenantScopedTable => scoped.has(table);
+
 
 /**
  * Tables deliberately global: reference data and the platform-wide brake.

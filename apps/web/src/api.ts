@@ -591,3 +591,12 @@ export const setFuturesProtection = (
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+export const setTrailingProtection = (
+  venuePositionId: string,
+  body: { readonly enable: boolean; readonly distanceBp?: string; readonly stepBp?: string; readonly currentSlPrice?: string },
+): Promise<{ readonly ok: boolean; readonly message?: string }> =>
+  request(`/futures/positions/${encodeURIComponent(venuePositionId)}/trailing-tpsl`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });

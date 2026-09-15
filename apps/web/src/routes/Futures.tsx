@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions,
-  refreshFuturesPositions, setFuturesProtection,
-} from '../api.ts';
+  refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
+} from '../api.js';
 import type { FuturesPositionRow } from '../api.ts';
 
 // The Positions page — plan/phase-15 T15.11.
@@ -330,11 +330,25 @@ export function Futures() {
   });
 
   const protMut = useMutation({
-    mutationFn: (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined }) => {
+    mutationFn: async (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined; readonly trailing?: boolean }) => {
       const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
       if (args.slp !== undefined && args.slp !== '') body.stopLossPrice = args.slp;
       if (args.tpp !== undefined && args.tpp !== '') body.takeProfitPrice = args.tpp;
-      return setFuturesProtection(args.id, body);
+      
+      const out = await setFuturesProtection(args.id, body);
+      
+      if (args.trailing && args.slp) {
+         // Enable trailing SL via separate API call
+         await setTrailingProtection(args.id, {
+           enable: true,
+           currentSlPrice: args.slp,
+           stepBp: '100', // Hardcode 1% step for now
+           distanceBp: '100' // Hardcode 1% distance for now to avoid complex math in UI
+         });
+      } else if (!args.trailing) {
+         await setTrailingProtection(args.id, { enable: false });
+      }
+      return out;
     },
     onSuccess: (out) => {
       const failures: string[] = [];
@@ -436,7 +450,7 @@ export function Futures() {
       {editingId !== null && (
         <ProtectionEditor
           onCancel={() => setEditingId(null)}
-          onSubmit={(slp, tpp) => protMut.mutate({ id: editingId, slp, tpp })}
+          onSubmit={(slp, tpp, trailing) => protMut.mutate({ id: editingId, slp, tpp, trailing })}
           pending={protMut.isPending}
           existing={editingRow}
         />
@@ -482,7 +496,7 @@ export function Futures() {
 
 interface ProtectionEditorProps {
   readonly onCancel: () => void;
-  readonly onSubmit: (stopLossPrice?: string, takeProfitPrice?: string) => void;
+  readonly onSubmit: (stopLossPrice?: string, takeProfitPrice?: string, trailing?: boolean) => void;
   readonly pending: boolean;
   readonly existing: FuturesPositionRow | undefined;
 }
@@ -499,14 +513,13 @@ type ProtectionMode = 'price' | 'percent';
  * - SL on Long / TP on Short → price moves DOWN from reference
  * - TP on Long / SL on Short → price moves UP from reference
  */
-function pctToTrigger(refPrice: number, pct: number, positionSide: 'long' | 'short', leg: 'sl' | 'tp'): number {
-  const down = (positionSide === 'long' && leg === 'sl') || (positionSide === 'short' && leg === 'tp');
+function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
   return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
 }
 
-/** Reverse: compute the percentage distance from entry to trigger price. */
-function triggerToPct(refPrice: number, triggerPrice: number, positionSide: 'long' | 'short', leg: 'sl' | 'tp'): number {
-  const down = (positionSide === 'long' && leg === 'sl') || (positionSide === 'short' && leg === 'tp');
+function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
   const pct = down
     ? ((refPrice - triggerPrice) / refPrice) * 100
     : ((triggerPrice - refPrice) / refPrice) * 100;
@@ -519,6 +532,7 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
   const [slTpMode, setSlTpMode] = useState<ProtectionMode>('percent');
   const [slPct, setSlPct] = useState('');
   const [tpPct, setTpPct] = useState('');
+  const [trailing, setTrailing] = useState(false);
 
   const valid = /^\d+(\.\d+)?$/;
   const pctValid = (p: string): boolean => p === '' || (valid.test(p) && Number(p) > 0 && Number(p) <= 100);
@@ -544,7 +558,7 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
   const canSubmit = slOk && tpOk && hasSomething;
 
   const handleSubmit = (): void => {
-    onSubmit(effectiveSl || undefined, effectiveTp || undefined);
+    onSubmit(effectiveSl || undefined, effectiveTp || undefined, trailing);
   };
 
   const pillStyle = (active: boolean) => ({
@@ -632,6 +646,10 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
               )}
             </>
           )}
+          <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+            <input type="checkbox" id="edit-tsl" checked={trailing} onChange={(e) => setTrailing(e.target.checked)} />
+            <label htmlFor="edit-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-dim)' }}>Make Trailing (1% step)</label>
+          </div>
         </div>
 
         {/* ── Take-profit ── */}
@@ -693,3 +711,4 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
     </div>
   );
 }
+

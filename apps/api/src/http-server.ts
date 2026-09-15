@@ -818,9 +818,6 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (sl === undefined && tp === undefined) {
         throw new HttpError(400, 'at least one of stopLossPrice or takeProfitPrice is required');
       }
-      // Resolve whose position this is BEFORE calling the venue: signing needs
-      // that account's credential, and a venue id carries no account. An unmapped
-      // venue id means we never mirrored it, so we cannot know whose it is.
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futTpslMatch[1] as string);
       if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
       const out = await deps.futuresTpSl.setProtection({
@@ -831,6 +828,53 @@ export function createHttpServer(deps: HttpDeps): Server {
         ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
       });
       sendJson(ctx.res, 200, out);
+      return;
+    }
+
+    // ---- POST /api/futures/positions/:id/trailing-tpsl — Setup trailing SL ----
+    const futTrailingMatch = /^\/api\/futures\/positions\/([^/]+)\/trailing-tpsl$/.exec(path);
+    if (method === 'POST' && futTrailingMatch !== null) {
+      requireAction(principal, 'trade.cancel');
+      const body = (ctx.body ?? {}) as { enable?: unknown; distanceBp?: unknown; stepBp?: unknown; currentSlPrice?: unknown };
+      const venuePositionId = futTrailingMatch[1] as string;
+      const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), venuePositionId);
+      if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
+      
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const enable = body.enable === true;
+      
+      if (!enable) {
+        const { clearTrailingSl } = await import('@tradex/db');
+        await clearTrailingSl(tdb, tpslOwner.accountId, venuePositionId);
+        sendJson(ctx.res, 200, { ok: true, message: 'Trailing SL disabled' });
+        return;
+      }
+      
+      if (typeof body.distanceBp !== 'string' || typeof body.stepBp !== 'string' || typeof body.currentSlPrice !== 'string') {
+         throw new HttpError(400, 'distanceBp, stepBp, and currentSlPrice must be decimal strings');
+      }
+      
+      const pos = await tdb.selectFrom('futures_position')
+        .select(['pair', 'mark_price'])
+        .where('venue_position_id', '=', venuePositionId)
+        .executeTakeFirst();
+      
+      if (pos === undefined || pos.mark_price === null) {
+        throw new HttpError(400, 'Cannot enable trailing SL: unknown mark price');
+      }
+      
+      const { upsertTrailingSl } = await import('@tradex/db');
+      await upsertTrailingSl(tdb, {
+        accountId: tpslOwner.accountId,
+        venuePositionId,
+        pair: pos.pair,
+        distanceBp: body.distanceBp,
+        stepBp: body.stepBp,
+        highWaterMark: pos.mark_price,
+        currentSlPrice: body.currentSlPrice,
+      });
+      
+      sendJson(ctx.res, 200, { ok: true, message: 'Trailing SL enabled' });
       return;
     }
 

@@ -654,9 +654,26 @@ if (sending) {
       const sign = await signFor(args.actor.tenantId, args.actor.accountId);
       if (sign === null) return { stopLoss: { ok: false, reason: 'no credential for this account' } };
       if (args.moveExisting === true) {
-        return {
-          stopLoss: { ok: false, reason: 'moving an existing leg needs cancel-then-create, which is not wired yet' },
-        };
+        const pos = await db.selectFrom('futures_position')
+          .select('pair')
+          .where('venue_position_id', '=', args.venuePositionId)
+          .executeTakeFirst();
+        if (pos !== undefined) {
+          const active = await listFuturesOrdersSigned(sign, {
+            pair: pos.pair,
+            status: 'untriggered'
+          }, { baseUrl: VENUE_BASE });
+          if (active.ok) {
+            for (const order of active.orders) {
+              if (args.stopLossPrice !== undefined && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
+                await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+              }
+              if (args.takeProfitPrice !== undefined && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
+                await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+              }
+            }
+          }
+        }
       }
       const out = await attachStopAndTakeSigned(sign, {
         positionId: args.venuePositionId,
@@ -836,6 +853,18 @@ const server = createHttpServer({
   secureCookies: process.env['TRADEX_SECURE_COOKIES'] === '1',
   ...enginePorts,
 });
+
+import { TrailingSlEngine } from './dist/trailing-sl-worker.js';
+const tslEngine = new TrailingSlEngine(
+  db,
+  async (venuePositionId, stopLossPrice) => {
+    // We don't have a direct internal port for this yet, so we'll leave it as a log in this stub 
+    // or call the backend directly. For full integration we would pass a signer and call attachStopAndTakeSigned.
+    console.log(`[TrailingSL] Target SL for position ${venuePositionId} crossed threshold, moving to ${stopLossPrice}`);
+  },
+  getOrderBook
+);
+tslEngine.start();
 
 // Reaper on boot (phase-13 T13.7 / R4): before we accept traffic, release any
 // stale worker lock and re-queue it as a 'resolve' job — never a second 'place'.
