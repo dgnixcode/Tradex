@@ -269,6 +269,19 @@ const signerFor = (tenantId) => new Signer({ tdb: forTenant(db, tenantId), kms }
 async function signFor(tenantId, accountId) {
   const credential = await findByAccount(forTenant(db, tenantId), accountId);
   if (credential === null) return null;
+
+  // READ OR SEND, the rule is the same: signing for the real exchange happens in
+  // the signer process, never here. Enforced at the point of use rather than at
+  // boot so that an operator can still run dry against the live venue while a
+  // signer is being set up — but the moment anything tries to decrypt a real
+  // customer credential in this process, it stops with something actionable
+  // instead of quietly breaking invariant X12.
+  if (REAL_VENUE && (SIGNER_URL === undefined || SIGNER_URL === '')) {
+    throw new Error(
+      'refusing to sign for the real exchange in this process: set TRADEX_SIGNER_URL '
+      + '(invariant X12: no plaintext credential outside the signer)',
+    );
+  }
   // A configured signer means the plaintext never enters THIS process — the whole
   // point of the split. Without one we sign in-process, which boot has already
   // refused for the real venue.
@@ -315,6 +328,86 @@ async function signFor(tenantId, accountId) {
 const tdbFor = (tenantId) => forTenant(db, tenantId);
 
 const enginePorts = {};
+
+// --- read-only venue ports --------------------------------------------------
+//
+// Wired REGARDLESS of send mode, and the distinction is the point: reading a
+// balance is not placing an order. Bundling these with the send ports meant an
+// operator could not check what an account actually held unless they were armed to
+// send real orders — the reporting surface was locked behind the weapon, and on a
+// production box it answered "exchange reads are not configured in this build".
+//
+// They still SIGN, because a balance read is a signed venue call — so against the
+// real exchange they need the signer exactly as sending does. What they do not
+// need is permission to trade.
+
+  /**
+   * Mirror the venue's positions for a set of accounts. Shared by the
+   * post-fan-out hook and the manual refresh, so both write the same way.
+   */
+const mirrorAccounts = async (tenantId, accountIds) => {
+    const tdb = forTenant(db, tenantId);
+    let positions = 0;
+    for (const accountId of accountIds) {
+      const sign = await signFor(tenantId, accountId);
+      if (sign === null) continue;
+      // BOTH margin currencies: the body must always carry both or INR-margined
+      // positions are invisible (research/04 G8).
+      const read = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+      if (!read.ok) {
+        console.error(`[mirror] positions read failed for account ${accountId}: ${read.failure.detail ?? ''}`);
+        continue;
+      }
+      // REPLACE, not upsert: a position the venue no longer reports must stop
+      // rendering as open. The read above covers both margin currencies, so it is
+      // a complete picture and absent means closed.
+      positions += await replaceFuturesPositions(tdb, accountId, read.positions);
+    }
+    return { accounts: accountIds.length, positions };
+  };
+
+  /**
+   * Every account the tenant has, so a manual refresh reaches positions whose
+   * trade is long finished — which is exactly the case the fan-out hook misses.
+   */
+const refreshPositions = async ({ tenantId }) => {
+    const accounts = (await listAccounts(forTenant(db, tenantId)))
+      .filter((a) => a.status === 'active')
+      .map((a) => a.id);
+    return await mirrorAccounts(tenantId, accounts);
+  };
+
+  /**
+   * Re-read one account's balances from the exchange and store them.
+   *
+   * The number every later trade is sized from. Without this it only refreshes at
+   * connect time, so a withdrawal the customer made an hour ago is invisible and
+   * a percentage order is sized against money that is no longer there.
+   */
+const accountSync = async ({ tenantId, accountId }) => {
+    const sign = await signFor(tenantId, accountId);
+    if (sign === null) {
+      throw new Error('this account has no credential to read balances with');
+    }
+    const probe = await readBalancesSigned(sign, { baseUrl: VENUE_BASE });
+    if (!probe.ok) {
+      throw new Error(probe.failure?.detail ?? 'the exchange did not answer the balances read');
+    }
+    const balances = probe.balances ?? [];
+    const funding = deriveFundingCurrencies(balances);
+    await recordObservedBalances(tdbFor(tenantId), {
+      accountId,
+      fundingCurrencies: funding,
+      balances,
+    });
+    return {
+      currencies: funding,
+      balances: balances.length,
+    };
+  };
+
+Object.assign(enginePorts, { accountSync, refreshPositions });
+
 if (sending) {
   /**
    * The send port. Futures only — the product does not trade spot, and a port that
@@ -587,30 +680,7 @@ if (sending) {
    * Best-effort by design — the confirm route swallows its errors, because the
    * trade is already placed and a mirroring failure is not the customer's problem.
    */
-  /**
-   * Mirror the venue's positions for a set of accounts. Shared by the
-   * post-fan-out hook and the manual refresh, so both write the same way.
-   */
-  const mirrorAccounts = async (tenantId, accountIds) => {
-    const tdb = forTenant(db, tenantId);
-    let positions = 0;
-    for (const accountId of accountIds) {
-      const sign = await signFor(tenantId, accountId);
-      if (sign === null) continue;
-      // BOTH margin currencies: the body must always carry both or INR-margined
-      // positions are invisible (research/04 G8).
-      const read = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
-      if (!read.ok) {
-        console.error(`[mirror] positions read failed for account ${accountId}: ${read.failure.detail ?? ''}`);
-        continue;
-      }
-      // REPLACE, not upsert: a position the venue no longer reports must stop
-      // rendering as open. The read above covers both margin currencies, so it is
-      // a complete picture and absent means closed.
-      positions += await replaceFuturesPositions(tdb, accountId, read.positions);
-    }
-    return { accounts: accountIds.length, positions };
-  };
+
 
   const afterFanOut = async ({ tenantId, groupTradeId }) => {
     const children = await getChildOrders(forTenant(db, tenantId), groupTradeId);
@@ -721,45 +791,9 @@ if (sending) {
     return { ok: true, quantity: plan.quantity, venueOrderId: outcome.submit.exchangeOrderId ?? null, full: false };
   };
 
-  /**
-   * Re-read one account's balances from the exchange and store them.
-   *
-   * The number every later trade is sized from. Without this it only refreshes at
-   * connect time, so a withdrawal the customer made an hour ago is invisible and
-   * a percentage order is sized against money that is no longer there.
-   */
-  const accountSync = async ({ tenantId, accountId }) => {
-    const sign = await signFor(tenantId, accountId);
-    if (sign === null) {
-      throw new Error('this account has no credential to read balances with');
-    }
-    const probe = await readBalancesSigned(sign, { baseUrl: VENUE_BASE });
-    if (!probe.ok) {
-      throw new Error(probe.failure?.detail ?? 'the exchange did not answer the balances read');
-    }
-    const balances = probe.balances ?? [];
-    const funding = deriveFundingCurrencies(balances);
-    await recordObservedBalances(tdbFor(tenantId), {
-      accountId,
-      fundingCurrencies: funding,
-      balances,
-    });
-    return {
-      currencies: funding,
-      balances: balances.length,
-    };
-  };
 
-  /**
-   * Every account the tenant has, so a manual refresh reaches positions whose
-   * trade is long finished — which is exactly the case the fan-out hook misses.
-   */
-  const refreshPositions = async ({ tenantId }) => {
-    const accounts = (await listAccounts(forTenant(db, tenantId)))
-      .filter((a) => a.status === 'active')
-      .map((a) => a.id);
-    return await mirrorAccounts(tenantId, accounts);
-  };
+
+
 
   Object.assign(enginePorts, {
     submit,
@@ -769,9 +803,7 @@ if (sending) {
     futuresExit,
     futuresTpSl,
     afterFanOut,
-    refreshPositions,
     futuresAdjust: { adjustPosition },
-    accountSync,
     // The sweep that keeps the resolve ladder alive after a confirm returns.
     resolverIntervalMs: 15_000,
   });
@@ -826,7 +858,8 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`     signer:  ${SIGNER_URL !== undefined && SIGNER_URL !== '' ? SIGNER_URL : 'in-process (sandbox only)'}`);
     console.log('');
   } else {
-    console.log('  dry run: no venue ports are wired, so a confirm records and sends nothing.');
+    console.log('  dry run: the SENDING ports are not wired, so a confirm records and sends nothing.');
+    console.log('  Reading balances and positions still works — a read signs, but it does not trade.');
     console.log('  set TRADEX_SEND_MODE=send to enable real sending.');
   }
 });
