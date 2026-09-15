@@ -83,29 +83,54 @@ function Choice<T extends string>({ label, value, options, onChange, hint }: {
   return (
     <div className="field">
       <label>{label}</label>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
         {options.map((o) => {
           const active = o.value === value;
-          const colour = o.tone === 'long' ? 'var(--ok)' : o.tone === 'short' ? 'var(--danger)' : undefined;
+          const isLong = o.tone === 'long';
+          const isShort = o.tone === 'short';
+
+          let btnStyle: React.CSSProperties = {
+            flex: 1,
+            padding: '7px 10px',
+            fontSize: 12.5,
+            borderRadius: 6,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          };
+
+          if (isLong) {
+            btnStyle = {
+              ...btnStyle,
+              background: active ? '#10b981' : 'rgba(16, 185, 129, 0.08)',
+              color: active ? '#ffffff' : '#10b981',
+              border: `1px solid ${active ? '#10b981' : 'rgba(16, 185, 129, 0.3)'}`,
+              fontWeight: active ? 700 : 500,
+            };
+          } else if (isShort) {
+            btnStyle = {
+              ...btnStyle,
+              background: active ? '#ef4444' : 'rgba(239, 68, 68, 0.08)',
+              color: active ? '#ffffff' : '#ef4444',
+              border: `1px solid ${active ? '#ef4444' : 'rgba(239, 68, 68, 0.3)'}`,
+              fontWeight: active ? 700 : 500,
+            };
+          } else {
+            btnStyle = {
+              ...btnStyle,
+              background: active ? '#ffffff' : '#111318',
+              color: active ? '#000000' : '#9ca3af',
+              border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+              fontWeight: active ? 700 : 500,
+            };
+          }
+
           return (
             <button
               key={o.value}
               type="button"
               aria-pressed={active}
               className="btn"
-              style={{
-                flex: 1,
-                ...(colour !== undefined
-                  ? active
-                    // Chosen: filled, so it reads as a state.
-                    ? { background: colour, color: '#fff', border: '1px solid transparent' }
-                    // Not chosen: outlined in its own colour, so the MEANING is
-                    // still visible without being the current selection.
-                    : { background: 'transparent', color: colour, border: `1px solid ${colour}` }
-                  : active
-                    ? {}
-                    : { background: 'transparent', color: 'var(--muted)', border: '1px solid var(--line)' }),
-              }}
+              style={btnStyle}
               onClick={() => onChange(o.value)}
             >
               {o.label}
@@ -525,33 +550,34 @@ export function TradeTicket() {
       {/* ── Live price ticker ── */}
       {asset !== '' && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
-          background: 'var(--panel-bg, #fafafa)',
-          border: '1px solid var(--line)',
-          marginBottom: 6,
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 12px', borderRadius: 8, fontSize: 12,
+          background: '#0e1014',
+          border: '1px solid #1f232b',
+          marginBottom: 8,
+          flexWrap: 'wrap',
         }}>
           <span style={{
             width: 7, height: 7, borderRadius: '50%',
-            background: liveTicker.connected ? '#22c55e' : 'var(--text-dim)',
+            background: liveTicker.connected ? '#22c55e' : '#6b7280',
             display: 'inline-block', flexShrink: 0,
             animation: liveTicker.connected ? 'pulse 2s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+          <span style={{ fontWeight: 600, color: '#f3f4f6' }}>
             {liveTicker.connected ? 'Live' : 'Connecting…'}
           </span>
           {liveTicker.bestBid !== null && (
-            <span style={{ color: 'var(--text-dim)' }}>
-              Bid <strong style={{ color: 'var(--text)' }}>{liveTicker.bestBid}</strong>
+            <span style={{ color: '#9ca3af' }}>
+              Bid <strong style={{ color: '#ffffff' }}>{liveTicker.bestBid}</strong>
             </span>
           )}
           {liveTicker.bestAsk !== null && (
-            <span style={{ color: 'var(--text-dim)' }}>
-              Ask <strong style={{ color: 'var(--text)' }}>{liveTicker.bestAsk}</strong>
+            <span style={{ color: '#9ca3af' }}>
+              Ask <strong style={{ color: '#ffffff' }}>{liveTicker.bestAsk}</strong>
             </span>
           )}
           {liveTicker.updatedAtMs !== null && (
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--faint)' }}>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280' }}>
               {new Date(liveTicker.updatedAtMs).toLocaleTimeString()}
             </span>
           )}
@@ -583,12 +609,12 @@ export function TradeTicket() {
         </div>
       )}
 
-      <div className="row">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Choice
           label="Trade pair quote"
           value={quoteCurrency}
           onChange={setQuoteCurrency}
-          hint="Picks which market to trade on."
+          hint="Picks market to trade on."
           options={[
             { value: 'INR' as MarginCurrency, label: 'INR' },
             { value: 'USDT' as MarginCurrency, label: 'USDT' },
@@ -598,12 +624,15 @@ export function TradeTicket() {
           label="Funding wallet"
           value={marginCurrency}
           onChange={setMarginCurrency}
-          hint="Picks which wallet to size and fund from."
+          hint="Picks wallet to fund from."
           options={[
             { value: 'INR' as MarginCurrency, label: 'INR' },
             { value: 'USDT' as MarginCurrency, label: 'USDT' },
           ]}
         />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
         <div className="field">
           <label htmlFor="mt">Margin mode</label>
           <select
@@ -618,17 +647,13 @@ export function TradeTicket() {
         </div>
         <div className="field">
           <label htmlFor="lev">Leverage</label>
-          {/* A stepper AND a free-text field. The buttons make the common case one
-              click and put the bounds in reach; the input keeps the exact value
-              typeable, because a trader who wants 37× should not have to click 36
-              times. Both write the same state, so neither can drift from the other. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button
               type="button"
               className="btn secondary"
               aria-label="Decrease leverage"
               disabled={leverageAtMin}
-              style={{ padding: '4px 12px', fontSize: 16, lineHeight: 1 }}
+              style={{ padding: '4px 10px', fontSize: 15, lineHeight: 1 }}
               onClick={() => bumpLeverage(-1)}
             >
               −
@@ -638,7 +663,7 @@ export function TradeTicket() {
               inputMode="decimal"
               value={leverage}
               placeholder="5"
-              style={{ flex: 1, textAlign: 'center' }}
+              style={{ flex: 1, minWidth: 0, textAlign: 'center' }}
               onChange={(e) => setLeverage(e.target.value)}
             />
             <button
@@ -646,13 +671,13 @@ export function TradeTicket() {
               className="btn secondary"
               aria-label="Increase leverage"
               disabled={leverageAtMax}
-              style={{ padding: '4px 12px', fontSize: 16, lineHeight: 1 }}
+              style={{ padding: '4px 10px', fontSize: 15, lineHeight: 1 }}
               onClick={() => bumpLeverage(1)}
             >
               +
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
             {[1, 5, 10, 20].map((v) => {
               const active = Number(leverage) === v;
               return (
@@ -660,22 +685,15 @@ export function TradeTicket() {
                   key={v}
                   type="button"
                   aria-pressed={active}
-                  // DELIBERATELY NOT `btn ghost`: that class is transparent with
-                  // `--text-dim`, which on this panel rendered as near-invisible
-                  // text. Every colour here is stated outright, so the control
-                  // reads on any theme rather than depending on what it inherits.
                   className="btn btn-sm"
                   style={{
                     flex: 1,
-                    padding: '4px 0',
-                    fontSize: 11.5,
-                    fontWeight: active ? 600 : 500,
-                    // Selected: filled and bordered in the accent, so it reads as a
-                    // state. Unselected: a visible outline on the panel's own
-                    // background, so the SET of choices is legible before choosing.
-                    background: active ? 'var(--accent-soft)' : 'transparent',
-                    color: active ? 'var(--text)' : 'var(--text-dim)',
-                    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                    padding: '3px 0',
+                    fontSize: 11,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? '#ffffff' : '#111318',
+                    color: active ? '#000000' : '#9ca3af',
+                    border: `1px solid ${active ? '#ffffff' : '#222631'}`,
                     borderRadius: 'var(--radius-pill)',
                   }}
                   onClick={() => setLeverage(String(v))}
@@ -684,9 +702,6 @@ export function TradeTicket() {
                 </button>
               );
             })}
-          </div>
-          <div className="hint">
-            1× to {MAX_LEVERAGE}× here; the market&rsquo;s own per-tier max is enforced server-side.
           </div>
         </div>
       </div>
@@ -702,9 +717,10 @@ export function TradeTicket() {
               style={{
                 padding: "2px 10px",
                 fontSize: 11,
-                background: sizingMode === "percent" ? "var(--accent-soft)" : "transparent",
-                color: sizingMode === "percent" ? "var(--text)" : "var(--text-dim)",
-                border: `1px solid ${sizingMode === "percent" ? "var(--accent)" : "var(--line)"}`,
+                fontWeight: sizingMode === "percent" ? 700 : 500,
+                background: sizingMode === "percent" ? "#ffffff" : "#111318",
+                color: sizingMode === "percent" ? "#000000" : "#9ca3af",
+                border: `1px solid ${sizingMode === "percent" ? "#ffffff" : "#222631"}`,
               }}
               onClick={() => switchSizingMode("percent")}
             >
@@ -717,9 +733,10 @@ export function TradeTicket() {
               style={{
                 padding: "2px 10px",
                 fontSize: 11,
-                background: sizingMode === "quantity" ? "var(--accent-soft)" : "transparent",
-                color: sizingMode === "quantity" ? "var(--text)" : "var(--text-dim)",
-                border: `1px solid ${sizingMode === "quantity" ? "var(--accent)" : "var(--line)"}`,
+                fontWeight: sizingMode === "quantity" ? 700 : 500,
+                background: sizingMode === "quantity" ? "#ffffff" : "#111318",
+                color: sizingMode === "quantity" ? "#000000" : "#9ca3af",
+                border: `1px solid ${sizingMode === "quantity" ? "#ffffff" : "#222631"}`,
               }}
               onClick={() => switchSizingMode("quantity")}
             >
@@ -736,7 +753,7 @@ export function TradeTicket() {
               placeholder="e.g. 20"
               onChange={(e) => handlePercentChange(e.target.value)}
             />
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
               {[10, 25, 50, 75, 100].map((v) => {
                 const active = Number(percent) === v;
                 return (
@@ -747,12 +764,12 @@ export function TradeTicket() {
                     className="btn btn-sm"
                     style={{
                       flex: 1,
-                      padding: '4px 0',
-                      fontSize: 11.5,
-                      fontWeight: active ? 600 : 500,
-                      background: active ? 'var(--accent-soft)' : 'transparent',
-                      color: active ? 'var(--text)' : 'var(--text-dim)',
-                      border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                      padding: '3px 0',
+                      fontSize: 11,
+                      fontWeight: active ? 700 : 500,
+                      background: active ? '#ffffff' : '#111318',
+                      color: active ? '#000000' : '#9ca3af',
+                      border: `1px solid ${active ? '#ffffff' : '#222631'}`,
                       borderRadius: 'var(--radius-pill)',
                     }}
                     onClick={() => setPercent(String(v))}
@@ -801,9 +818,10 @@ export function TradeTicket() {
                 aria-pressed={slTpMode === 'percent'}
                 style={{
                   padding: '2px 12px', fontSize: 11,
-                  background: slTpMode === 'percent' ? 'var(--accent-soft)' : 'transparent',
-                  color: slTpMode === 'percent' ? 'var(--text)' : 'var(--text-dim)',
-                  border: `1px solid ${slTpMode === 'percent' ? 'var(--accent)' : 'var(--line)'}`,
+                  fontWeight: slTpMode === 'percent' ? 700 : 500,
+                  background: slTpMode === 'percent' ? '#ffffff' : '#111318',
+                  color: slTpMode === 'percent' ? '#000000' : '#9ca3af',
+                  border: `1px solid ${slTpMode === 'percent' ? '#ffffff' : '#222631'}`,
                 }}
                 onClick={() => setSlTpMode('percent')}
               >
@@ -815,9 +833,10 @@ export function TradeTicket() {
                 aria-pressed={slTpMode === 'price'}
                 style={{
                   padding: '2px 12px', fontSize: 11,
-                  background: slTpMode === 'price' ? 'var(--accent-soft)' : 'transparent',
-                  color: slTpMode === 'price' ? 'var(--text)' : 'var(--text-dim)',
-                  border: `1px solid ${slTpMode === 'price' ? 'var(--accent)' : 'var(--line)'}`,
+                  fontWeight: slTpMode === 'price' ? 700 : 500,
+                  background: slTpMode === 'price' ? '#ffffff' : '#111318',
+                  color: slTpMode === 'price' ? '#000000' : '#9ca3af',
+                  border: `1px solid ${slTpMode === 'price' ? '#ffffff' : '#222631'}`,
                 }}
                 onClick={() => setSlTpMode('price')}
               >
@@ -857,7 +876,7 @@ export function TradeTicket() {
                       if (v === '' || Number(v) <= 100) setSlPercent(v);
                     }}
                   />
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                     {SL_PERCENT_CHIPS.map((v) => {
                       const active = slPercent !== '' && Number(slPercent) === v;
                       return (
@@ -868,10 +887,10 @@ export function TradeTicket() {
                           className="btn btn-sm"
                           disabled={!hasRef}
                           style={{
-                            flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
-                            background: active ? 'var(--accent-soft)' : 'transparent',
-                            color: active ? 'var(--text)' : 'var(--text-dim)',
-                            border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                            flex: 1, padding: '3px 0', fontSize: 11, fontWeight: active ? 700 : 500,
+                            background: active ? '#ffffff' : '#111318',
+                            color: active ? '#000000' : '#9ca3af',
+                            border: `1px solid ${active ? '#ffffff' : '#222631'}`,
                             borderRadius: 'var(--radius-pill)',
                           }}
                           onClick={() => setSlPercent(String(v))}
@@ -941,7 +960,7 @@ export function TradeTicket() {
                       if (v === '' || Number(v) <= 100) setTpPercent(v);
                     }}
                   />
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                     {TP_PERCENT_CHIPS.map((v) => {
                       const active = tpPercent !== '' && Number(tpPercent) === v;
                       return (
@@ -952,10 +971,10 @@ export function TradeTicket() {
                           className="btn btn-sm"
                           disabled={!hasRef}
                           style={{
-                            flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
-                            background: active ? 'var(--accent-soft)' : 'transparent',
-                            color: active ? 'var(--text)' : 'var(--text-dim)',
-                            border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                            flex: 1, padding: '3px 0', fontSize: 11, fontWeight: active ? 700 : 500,
+                            background: active ? '#ffffff' : '#111318',
+                            color: active ? '#000000' : '#9ca3af',
+                            border: `1px solid ${active ? '#ffffff' : '#222631'}`,
                             borderRadius: 'var(--radius-pill)',
                           }}
                           onClick={() => setTpPercent(String(v))}
@@ -993,7 +1012,25 @@ export function TradeTicket() {
         <div className="error">{(preview.error as Error).message}</div>
       )}
 
-      <button className="btn" disabled={!canPreview || preview.isPending} onClick={submitPreview}>
+      <button
+        className="btn"
+        disabled={!canPreview || preview.isPending}
+        onClick={submitPreview}
+        style={{
+          width: '100%',
+          padding: '12px',
+          fontSize: 14,
+          fontWeight: 700,
+          background: '#ffffff',
+          color: '#000000',
+          border: '1px solid #ffffff',
+          borderRadius: 8,
+          cursor: !canPreview || preview.isPending ? 'not-allowed' : 'pointer',
+          opacity: !canPreview || preview.isPending ? 0.5 : 1,
+          marginTop: 8,
+          boxShadow: '0 2px 10px rgba(255, 255, 255, 0.1)',
+        }}
+      >
         {preview.isPending ? 'Previewing…' : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
       </button>
           </div>

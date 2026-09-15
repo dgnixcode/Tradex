@@ -140,8 +140,8 @@ export function WatchlistPanel({
           type="button"
           onClick={() => setShowAddMenu((v) => !v)}
           style={{
-            background: showAddMenu ? '#2563eb' : '#1b1e25',
-            color: showAddMenu ? '#fff' : '#d1d5db',
+            background: showAddMenu ? '#ffffff' : '#1b1e25',
+            color: showAddMenu ? '#000000' : '#d1d5db',
             border: '1px solid #282d37',
             borderRadius: 6,
             padding: '4px 10px',
@@ -244,8 +244,8 @@ export function WatchlistPanel({
                 justifyContent: 'space-between',
                 padding: '9px 14px',
                 cursor: 'pointer',
-                borderLeft: isSelected ? '3px solid var(--accent, #2962ff)' : '3px solid transparent',
-                background: isSelected ? 'rgba(41, 98, 255, 0.12)' : 'transparent',
+                borderLeft: isSelected ? '3px solid #ffffff' : '3px solid transparent',
+                background: isSelected ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
                 transition: 'background 0.12s ease',
               }}
               className="watchlist-row"
@@ -342,9 +342,9 @@ export function WatchlistPanel({
             type="button"
             onClick={onOpenTrade}
             style={{
-              background: 'var(--accent, #2962ff)',
-              color: '#fff',
-              border: 'none',
+              background: '#ffffff',
+              color: '#000000',
+              border: '1px solid #ffffff',
               borderRadius: 6,
               padding: '6px 12px',
               fontSize: 12,
