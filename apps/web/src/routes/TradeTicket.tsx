@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -148,17 +148,26 @@ export function TradeTicket() {
   const groups = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
   const assets = useQuery({ queryKey: ['assets'], queryFn: fetchAssets });
 
-  const [groupId, setGroupId] = useState('');
+  const draft = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('tradex_ticket_draft');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const [groupId, setGroupId] = useState<string>(() => draft.groupId || '');
   const [asset, setAsset] = useState<string>(() => {
     try {
-      return localStorage.getItem('tradex_selected_asset') || 'BTC';
+      return draft.asset || localStorage.getItem('tradex_selected_asset') || 'BTC';
     } catch {
       return 'BTC';
     }
   });
-  const [side, setSide] = useState<Side>('buy');
-  const [orderType, setOrderType] = useState<OrderType>('market');
-  const [limitPrice, setLimitPrice] = useState('');
+  const [side, setSide] = useState<Side>(() => draft.side || 'buy');
+  const [orderType, setOrderType] = useState<OrderType>(() => draft.orderType || 'market');
+  const [limitPrice, setLimitPrice] = useState<string>(() => draft.limitPrice || '');
   const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'watchlist'>(() => {
     try {
       return (localStorage.getItem('tradex_active_tab') as 'trade' | 'watchlist') || 'trade';
@@ -168,34 +177,81 @@ export function TradeTicket() {
   });
 
   // Futures shape — every field required except the two conditionals + reduceOnly.
-  const [leverage, setLeverage] = useState('5');
+  const [leverage, setLeverage] = useState<string>(() => draft.leverage || '5');
   const [marginCurrency, setMarginCurrency] = useState<MarginCurrency>(() => {
     try {
-      return (localStorage.getItem('tradex_selected_margin') as MarginCurrency) || 'USDT';
+      return draft.marginCurrency || (localStorage.getItem('tradex_selected_margin') as MarginCurrency) || 'USDT';
     } catch {
       return 'USDT';
     }
   });
   // Futures trade exclusively on USDT pairs.
   const quoteCurrency: MarginCurrency = 'USDT';
-  const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>('isolated');
-  const [percent, setPercent] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>('percent');
-  const [stopLossPrice, setStopLossPrice] = useState('');
-  const [takeProfitPrice, setTakeProfitPrice] = useState('');
-  const [trailingStopLoss, setTrailingStopLoss] = useState(false);
-  const [trailingDistancePercent, setTrailingDistancePercent] = useState('5');
-  const [trailingStepPercent, setTrailingStepPercent] = useState('1');
+  const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>(() => draft.positionMarginType || 'isolated');
+  const [percent, setPercent] = useState<string>(() => draft.percent || '');
+  const [quantity, setQuantity] = useState<string>(() => draft.quantity || '');
+  const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>(() => draft.sizingMode || 'percent');
+  const [stopLossPrice, setStopLossPrice] = useState<string>(() => draft.stopLossPrice || '');
+  const [takeProfitPrice, setTakeProfitPrice] = useState<string>(() => draft.takeProfitPrice || '');
+  const [trailingStopLoss, setTrailingStopLoss] = useState<boolean>(() => draft.trailingStopLoss ?? false);
+  const [trailingDistancePercent, setTrailingDistancePercent] = useState<string>(() => draft.trailingDistancePercent || '5');
+  const [trailingStepPercent, setTrailingStepPercent] = useState<string>(() => draft.trailingStepPercent || '1');
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   // SL/TP percentage mode state — one toggle controls both fields.
-  const [slTpMode, setSlTpMode] = useState<SlTpMode>('percent');
-  const [slPercent, setSlPercent] = useState('');
-  const [tpPercent, setTpPercent] = useState('');
+  const [slTpMode, setSlTpMode] = useState<SlTpMode>(() => draft.slTpMode || 'percent');
+  const [slPercent, setSlPercent] = useState<string>(() => draft.slPercent || '');
+  const [tpPercent, setTpPercent] = useState<string>(() => draft.tpPercent || '');
   // Stores the latest market price for use as SL/TP reference on market orders.
   const [marketRefPrice, setMarketRefPrice] = useState('');
   const [usdtInrRate, setUsdtInrRate] = useState<number | null>(null);
+
+  // Persist all ticket inputs to localStorage so going to preview and returning pre-fills everything
+  useEffect(() => {
+    try {
+      localStorage.setItem('tradex_ticket_draft', JSON.stringify({
+        groupId,
+        asset,
+        side,
+        orderType,
+        limitPrice,
+        marginCurrency,
+        positionMarginType,
+        leverage,
+        sizingMode,
+        percent,
+        quantity,
+        slTpMode,
+        stopLossPrice,
+        slPercent,
+        takeProfitPrice,
+        tpPercent,
+        trailingStopLoss,
+        trailingDistancePercent,
+        trailingStepPercent,
+      }));
+    } catch {}
+  }, [
+    groupId,
+    asset,
+    side,
+    orderType,
+    limitPrice,
+    marginCurrency,
+    positionMarginType,
+    leverage,
+    sizingMode,
+    percent,
+    quantity,
+    slTpMode,
+    stopLossPrice,
+    slPercent,
+    takeProfitPrice,
+    tpPercent,
+    trailingStopLoss,
+    trailingDistancePercent,
+    trailingStepPercent,
+  ]);
 
   useEffect(() => {
     if (asset) {
@@ -257,9 +313,16 @@ export function TradeTicket() {
       .finally(() => setFetchingPrice(false));
   };
 
+  const isFirstMount = useRef(true);
+
   // Auto-fill the limit price when switching to limit order type or changing asset/currency/side.
   // Uses best ask for buy (you buy at the ask), best bid for sell (you sell at the bid).
   useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      // If limit price is already pre-filled from draft, do not overwrite on initial load
+      if (limitPrice !== '') return;
+    }
     if (orderType !== 'limit' || asset === '') return;
     fetchAndSetPrice();
     // eslint-disable-next-line react-hooks/exhaustive-deps

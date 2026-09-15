@@ -40,6 +40,9 @@ export function Confirmation() {
     // reports each leg as the worker settles it. A dry run (no engine wired)
     // stays here with the recorded-plan confirmation below.
     onSuccess: (data, result) => {
+      try {
+        localStorage.removeItem('tradex_ticket_draft');
+      } catch {}
       if (data.dryRun === false) navigate(`/app/trades/${result.groupTradeId}/progress`);
     },
   });
