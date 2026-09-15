@@ -164,11 +164,38 @@ export function AccountDetail() {
               </td>
             </tr>
             <tr>
-              <td className="muted">Can fund with</td>
+              <td className="muted">Available to trade</td>
               <td>
-                {a.fundingCurrencies.length > 0
-                  ? a.fundingCurrencies.join(' / ')
-                  : <span className="muted">nothing yet</span>}
+                {/* THE MOST-ASKED-FOR LINE ON THIS PAGE, so it shows every funding
+                    currency and its real balance — not just the one the sizing basis
+                    happens to name. An account holding both INR and USDT that showed
+                    only USDT here read as if the INR did not exist. */}
+                {a.fundingCurrencies.length === 0 ? (
+                  <span className="muted">nothing yet — sync after funding the account</span>
+                ) : (
+                  <table style={{ margin: 0 }}>
+                    <tbody>
+                      {a.fundingCurrencies.map((c) => {
+                        const row = a.balances.find((b) => b.currency === c);
+                        return (
+                          <tr key={c}>
+                            <td style={{ paddingLeft: 0, width: 60 }}>{c}</td>
+                            <td className="mono" style={{ paddingLeft: 0 }}>
+                              {row === undefined
+                                ? <span className="muted">no balance on record — sync</span>
+                                : formatMinor(row.freeMinor, row.scale, c)}
+                            </td>
+                            <td style={{ paddingLeft: 8 }}>
+                              {c === a.allocatedCurrency
+                                ? <span className="muted" style={{ fontSize: 11 }}>sizing basis</span>
+                                : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </td>
             </tr>
             <tr>
