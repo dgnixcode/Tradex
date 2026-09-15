@@ -37,7 +37,7 @@ export function App() {
   else if (pathname.startsWith('/app/settings')) title = 'Settings';
 
   return (
-    <div className="panel-light">
+    <div className="panel-dark">
       <div className="app-layout">
         <AppSidebar
           role={role}

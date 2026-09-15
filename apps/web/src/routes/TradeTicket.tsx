@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
 import type { AssetOption, GroupSummary, PlanRequest } from '../api.ts';
+import { TradingViewChart } from '../components/TradingViewChart.tsx';
+import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
 
 // The futures trade ticket — plan/phase-15 T15.10.
 //
@@ -122,7 +124,7 @@ export function TradeTicket() {
   const assets = useQuery({ queryKey: ['assets'], queryFn: fetchAssets });
 
   const [groupId, setGroupId] = useState('');
-  const [asset, setAsset] = useState('');
+  const [asset, setAsset] = useState('BTC');
   const [side, setSide] = useState<Side>('buy');
   const [orderType, setOrderType] = useState<OrderType>('market');
   const [limitPrice, setLimitPrice] = useState('');
@@ -371,12 +373,25 @@ export function TradeTicket() {
   };
 
   return (
-    <div className="panel">
-      <h2>New futures trade</h2>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
-        A perpetual-futures order sized across every enabled account in the group. Leverage, margin currency,
-        and any attached SL/TP travel with every leg.
-      </p>
+    <div className="trading-terminal-layout">
+      {/* Left / Main Column: Chart + Order Ticket */}
+      <div className="trading-main-col">
+        {/* TradingView Advanced Live Chart */}
+        <div className="trading-chart-card" style={{ marginBottom: 18 }}>
+          <TradingViewChart
+            asset={asset || 'BTC'}
+            quoteCurrency={quoteCurrency}
+            theme="dark"
+            height={480}
+          />
+        </div>
+
+        <div className="panel trading-ticket-panel">
+          <h2>New futures trade</h2>
+          <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+            A perpetual-futures order sized across every enabled account in the group. Leverage, margin currency,
+            and any attached SL/TP travel with every leg.
+          </p>
 
       <div className="field">
         <label htmlFor="group">Group</label>
@@ -909,6 +924,20 @@ export function TradeTicket() {
       <button className="btn" disabled={!canPreview || preview.isPending} onClick={submitPreview}>
         {preview.isPending ? 'Previewing…' : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
       </button>
+        </div>
+      </div>
+
+      {/* Right-Side Column: Watchlist Panel */}
+      <div className="trading-watchlist-col">
+        <WatchlistPanel
+          selectedAsset={asset || 'BTC'}
+          onSelectAsset={(newAsset) => {
+            setAsset(newAsset);
+          }}
+          allAssets={assets.data}
+          quoteCurrency={quoteCurrency}
+        />
+      </div>
     </div>
   );
 }

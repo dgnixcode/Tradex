@@ -1270,3 +1270,242 @@ tr.skipped td { color: var(--muted); }
   border-radius: var(--radius);
   margin-top: 10px;
 }
+
+/* =========================================================================
+   Trading Terminal Dark Theme & Layout
+   ========================================================================= */
+.panel-dark {
+  --bg: #0a0d14;
+  --bg-2: #0f131d;
+  --panel: #131722;
+  --panel-2: #181d2a;
+  --surface-3: #1f2637;
+  --line: #202634;
+  --line-strong: #2c3547;
+  --text: #f0f3f8;
+  --text-dim: #c5cdd9;
+  --muted: #828e9e;
+  --faint: #546070;
+  --accent: #2962ff;
+  --accent-2: #3875f6;
+  --accent-soft: rgba(41, 98, 255, 0.15);
+  --ink: #f0f3f8;
+  --ok: #0ecb81;
+  --danger: #f6465d;
+  --warn: #f0b90b;
+
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.panel-dark .app-layout {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  min-height: 100vh;
+}
+
+/* Thin Sidebar */
+.panel-dark .app-sidebar {
+  width: 72px;
+  padding: 16px 6px;
+  background: #0c0f17;
+  border-right: 1px solid var(--line);
+  align-items: center;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.thin-sb-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 58px;
+  height: 52px;
+  border-radius: 9px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.thin-sb-link:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.thin-sb-link.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(41, 98, 255, 0.2);
+}
+
+.thin-sb-link.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.thin-sb-ico {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.thin-sb-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.thin-logout-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 56px;
+  height: 46px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thin-logout-btn:hover {
+  background: rgba(246, 70, 93, 0.14);
+  color: #f6465d;
+  border-color: rgba(246, 70, 93, 0.35);
+}
+
+/* Dark Topbar */
+.panel-dark .app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: rgba(10, 13, 20, 0.88);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+
+.panel-dark .app-topbar h1 {
+  color: var(--text);
+  font-size: 18px;
+}
+
+/* Panels, Cards & Inputs */
+.panel-dark .panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+}
+
+.panel-dark input,
+.panel-dark select,
+.panel-dark textarea {
+  background: #0b0e14;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.panel-dark input:focus,
+.panel-dark select:focus,
+.panel-dark textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.panel-dark .btn {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.panel-dark .btn:hover {
+  background: #1e53e5;
+  box-shadow: 0 4px 14px rgba(41, 98, 255, 0.3);
+}
+
+.panel-dark .btn.secondary {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.panel-dark .btn.secondary:hover {
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.panel-dark table th {
+  background: #0f131d;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-dark table td {
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+
+.panel-dark .hint,
+.panel-dark .sub.muted {
+  color: var(--muted);
+}
+
+/* Trading Terminal Layout Grid */
+.trading-terminal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 20px;
+  width: 100%;
+  max-width: 1720px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.trading-main-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trading-watchlist-col {
+  position: sticky;
+  top: 72px;
+  height: calc(100vh - 90px);
+  min-height: 520px;
+}
+
+.watchlist-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+@media (max-width: 1120px) {
+  .trading-terminal-layout {
+    grid-template-columns: 1fr;
+  }
+  .trading-watchlist-col {
+    position: static;
+    height: 480px;
+  }
+}
+
