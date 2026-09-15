@@ -2,8 +2,8 @@ BEGIN;
 
 CREATE TABLE futures_trailing_sl (
   id bigserial PRIMARY KEY,
-  tenant_id text NOT NULL REFERENCES tenant(id),
-  account_id text NOT NULL,
+  tenant_id uuid NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
+  account_id uuid NOT NULL,
   venue_position_id text NOT NULL,
   pair text NOT NULL,
   
