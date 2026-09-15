@@ -401,7 +401,8 @@ export class PlanningService {
     // override when one is set, else the tenant's. The gate is told which one so
     // its refusal names it. The account-frozen scope comes straight off the row.
     const accountOverride = state?.maxOrderNotionalMinor ?? null;
-    const effectiveOrderCap = accountOverride ?? ctx.caps.perOrderNotionalMinor;
+    let effectiveOrderCap = accountOverride ?? ctx.caps.perOrderNotionalMinor;
+    let effectiveDailyCap = ctx.caps.dailyNotionalMinor;
 
     let effectiveAllocatedMinor = member.allocatedCapitalMinor;
     let effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, quote);
@@ -428,10 +429,22 @@ export class PlanningService {
       effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
     }
 
+    // Convert tenant caps from INR paise (scale 2) to USDT minor (scale 8) when trading on a USDT market
+    if (quote === 'USDT' && ctx.usdtInrMid !== null) {
+      const rate = nat(ctx.usdtInrMid);
+      const capScaled = mul(nat(effectiveOrderCap), nat('1000000'), 0);
+      effectiveOrderCap = toStr(div(capScaled, rate, 0));
+
+      const dailyScaled = mul(nat(effectiveDailyCap), nat('1000000'), 0);
+      effectiveDailyCap = toStr(div(dailyScaled, rate, 0));
+    }
+
     if (req.isFutures && req.leverage) {
       const lev = nat(req.leverage);
       effectiveAllocatedMinor = toStr(mul(nat(effectiveAllocatedMinor), lev, 0));
       effectiveFreeMinor = toStr(mul(nat(effectiveFreeMinor), lev, 0));
+      // In futures, per-order cap limits the margin committed, so notional cap scales with leverage
+      effectiveOrderCap = toStr(mul(nat(effectiveOrderCap), lev, 0));
     }
 
     if (req.isFutures) {
@@ -440,6 +453,7 @@ export class PlanningService {
         marginCurrency: req.marginCurrency,
         originalAllocated: member.allocatedCapitalMinor,
         effectiveAllocatedMinor, effectiveFreeMinor,
+        effectiveOrderCap, effectiveDailyCap,
         leverage: req.leverage, usdtInrMid: ctx.usdtInrMid
       });
     }
@@ -467,7 +481,7 @@ export class PlanningService {
       ...(req.slippageToleranceBp !== undefined ? { slippageToleranceBp: req.slippageToleranceBp } : {}),
       perOrderCapMinor: effectiveOrderCap,
       perOrderCapIsAccount: accountOverride !== null,
-      dailyCapMinor: ctx.caps.dailyNotionalMinor,
+      dailyCapMinor: effectiveDailyCap,
       dailySpentMinor: dailySpent,
       hasInFlightForMarket: inFlight,
     };
