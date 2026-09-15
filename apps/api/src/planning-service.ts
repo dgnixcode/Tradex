@@ -421,6 +421,15 @@ export class PlanningService {
       effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
     }
 
+    if (req.isFutures) {
+      console.log('DEBUG FUTURES SIZING:', {
+        quote, allocatedCurrency: member.allocatedCurrency,
+        originalAllocated: member.allocatedCapitalMinor,
+        effectiveAllocatedMinor, effectiveFreeMinor,
+        leverage: req.leverage, usdtInrMid: ctx.usdtInrMid
+      });
+    }
+
     const gateState: GateState = {
       platformKillSwitch: ctx.platform.killSwitch,
       platformMode: ctx.platform.mode,
