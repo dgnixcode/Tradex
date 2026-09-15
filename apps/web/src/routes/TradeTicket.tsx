@@ -494,11 +494,30 @@ export function TradeTicket() {
             </option>
           ))}
         </select>
-        {selectedGroup !== undefined && (
-          <div className="hint">
-            Combined allocated capital: {formatCapital(selectedGroup)}
-          </div>
-        )}
+        {selectedGroup !== undefined && (() => {
+          const inr = selectedGroup.allocatedByCurrency.INR;
+          const usdt = selectedGroup.allocatedByCurrency.USDT;
+          const hasInr = inr !== '0';
+          const hasUsdt = usdt !== '0';
+          const inrFormatted = hasInr ? `₹${Number(minorToMajor(inr, 2)).toLocaleString('en-IN')}` : '₹0';
+          const usdtFormatted = hasUsdt ? `${Number(minorToMajor(usdt, 8)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT` : '0 USDT';
+          return (
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+              marginTop: 8, padding: '8px 10px', borderRadius: 8,
+              background: '#0e1014', border: '1px solid #1f232b',
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>INR Capital</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: hasInr ? '#f3f4f6' : '#4b5563' }}>{inrFormatted}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>USDT Capital</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: hasUsdt ? '#f3f4f6' : '#4b5563' }}>{usdtFormatted}</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="field">
@@ -773,11 +792,41 @@ export function TradeTicket() {
                 );
               })}
             </div>
-            <div className="hint">
-              {percentValid && leverageValid
-                ? `${percent}% × ${leverage}× = ${(Number(percent) * Number(leverage)).toFixed(0)}% of allocated as notional exposure.`
-                : "Percent of the group's allocated capital is used as margin; notional = margin × leverage."}
-            </div>
+            {/* ── Trading amount summary for percent mode ── */}
+            {percentValid && leverageValid && selectedGroup ? (() => {
+              const scale = marginCurrency === 'INR' ? 2 : 8;
+              const allocatedMajor = Number(selectedGroup.allocatedByCurrency[marginCurrency]) / Math.pow(10, scale);
+              const marginAmt = allocatedMajor * (Number(percent) / 100);
+              const notionalAmt = marginAmt * Number(leverage);
+              const currSymbol = marginCurrency === 'INR' ? '₹' : '';
+              const currSuffix = marginCurrency === 'USDT' ? ' USDT' : '';
+              const fmtMargin = marginCurrency === 'INR'
+                ? `${currSymbol}${marginAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                : `${marginAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
+              const fmtNotional = marginCurrency === 'INR'
+                ? `${currSymbol}${notionalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                : `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
+              return (
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                  marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                  background: '#0e1014', border: '1px solid #1f232b',
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin ({percent}%)</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="hint">
+                Percent of the group&rsquo;s allocated capital is used as margin; notional = margin × leverage.
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -788,11 +837,41 @@ export function TradeTicket() {
               placeholder={`e.g. 0.5 ${asset || "BTC"}`}
               onChange={(e) => handleQuantityChange(e.target.value)}
             />
-            <div className="hint">
-              {quantityValid && leverageValid && sizingRefPrice !== ""
-                ? `${quantity} ${asset} @ ${sizingRefPrice} = notional ${(Number(quantity) * Number(sizingRefPrice)).toFixed(2)} ${quoteCurrency}`
-                : `Direct quantity in ${asset || "the selected asset"}. Wait for market price or switch to limit order to see notional.`}
-            </div>
+            {/* ── Trading amount summary for quantity mode ── */}
+            {quantityValid && leverageValid && sizingRefPrice !== "" ? (() => {
+              const notionalAmt = Number(quantity) * Number(sizingRefPrice);
+              const marginAmt = notionalAmt / Number(leverage);
+              const currSymbol = quoteCurrency === 'INR' ? '₹' : '';
+              const currSuffix = quoteCurrency === 'USDT' ? ' USDT' : '';
+              const fmtNotional = quoteCurrency === 'INR'
+                ? `${currSymbol}${notionalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                : `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
+              const fmtMargin = quoteCurrency === 'INR'
+                ? `${currSymbol}${marginAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
+                : `${marginAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
+              return (
+                <div style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                  marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                  background: '#0e1014', border: '1px solid #1f232b',
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
+                    <span style={{ fontSize: 10, color: '#6b7280' }}>{quantity} {asset} @ {sizingRefPrice}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                    <span style={{ fontSize: 10, color: '#6b7280' }}>at {leverage}× leverage</span>
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="hint">
+                Direct quantity in {asset || "the selected asset"}. Wait for market price or switch to limit order to see notional.
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1047,14 +1126,6 @@ export function TradeTicket() {
   );
 }
 
-function formatCapital(group: GroupSummary): string {
-  const parts: string[] = [];
-  const inr = group.allocatedByCurrency.INR;
-  const usdt = group.allocatedByCurrency.USDT;
-  if (inr !== '0') parts.push(`₹${minorToMajor(inr, 2)}`);
-  if (usdt !== '0') parts.push(`${minorToMajor(usdt, 8)} USDT`);
-  return parts.length === 0 ? 'none allocated' : parts.join(' + ');
-}
 
 function minorToMajor(minor: string, scale: number): string {
   if (scale === 0) return minor;
