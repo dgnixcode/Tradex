@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { Brand } from './Brand.tsx';
 
 // The authenticated panel's left sidebar. Grouped nav with room for the many
 // menus that will land later — today only "Trade" is live; the rest are shown as
@@ -61,7 +62,7 @@ export function AppSidebar({ role, open, onClose, onLogout }: Props) {
     <>
       {open && <div className="app-sidebar-scrim" onClick={onClose} />}
       <aside className={`app-sidebar${open ? ' open' : ''}`}>
-        <Link to="/app" className="brand" onClick={onClose}>Tradex</Link>
+        <Brand to="/app" onClick={onClose} />
 
         {GROUPS.map((group) => (
           <div key={group.title} className="sb-group">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.tsx';
 import { ApiError } from '../api.ts';
+import { Brand } from '../components/Brand.tsx';
 
 // The signup page. Public, and the second door beside login. It creates a whole
 // workspace — a tenant and its owner user — then the server issues a session so
@@ -50,7 +51,7 @@ export function Signup() {
   return (
     <div className="auth-split auth-light">
       <aside className="auth-aside">
-        <Link to="/" className="brand">Tradex</Link>
+        <Brand to="/" />
         <div>
           <p className="auth-aside-quote">
             Your desk, <span className="grad">set up in seconds.</span>
@@ -67,7 +68,7 @@ export function Signup() {
 
       <main className="auth-main">
         <div className="auth-card">
-          <Link to="/" className="brand">Tradex</Link>
+          <Brand to="/" />
           <h2>Create your workspace</h2>
           <p className="sub">You&rsquo;ll be the owner. No card, no exchange key required to start.</p>
 

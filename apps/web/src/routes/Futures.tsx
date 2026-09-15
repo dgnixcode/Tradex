@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions,
@@ -8,19 +8,14 @@ import type { FuturesPositionRow } from '../api.ts';
 
 // The Positions page — plan/phase-15 T15.11.
 //
-// Every open perpetual futures position across the tenant's accounts, at mark.
-// Mark price, liquidation and unrealised PnL are legitimate here — the §6a
-// carve-out lives in this subdirectory outside the 07-no-mark-to-market scan
-// (spot books never landed on this page; the spot Positions surface was
-// removed once the product settled on futures-only).
+// Two-tier layout:
+//   1. Summary header — total unrealised PnL, position count, last updated.
+//   2. Grouped position cards — aggregated by pair+side+currency (matches how
+//      group trades work). Each card expands to show per-account rows.
 //
-// Two write actions per row:
-//   * Set / edit an SL and/or TP on an open position. The venue does NOT allow
-//     "move" — moving a live SL/TP is cancel-then-create (research/04 F12),
-//     which the route documents and the customer notices as a brief
-//     unprotected window.
-//   * Close (hard exit): the server cancels every conditional attached to the
-//     position first, then calls positions/exit, then reconciles to zero.
+// PnL styling: green +₹ for profit, red −₹ for loss, everywhere.
+
+/* ─── helpers ─── */
 
 function quoteScaleOf(quote: 'INR' | 'USDT'): number {
   return quote === 'INR' ? 2 : 8;
@@ -38,8 +33,17 @@ function fmtMinor(minor: string, quote: 'INR' | 'USDT'): string {
   return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
 }
 
-function fmtSignedMinor(minor: string, quote: 'INR' | 'USDT'): string {
-  return minor.startsWith('-') ? fmtMinor(minor, quote) : `+${fmtMinor(minor, quote)}`;
+function pnlClass(minor: string | null): string {
+  if (minor === null) return '';
+  if (minor.startsWith('-')) return 'pnl-loss';
+  if (minor === '0' || minor === '') return '';
+  return 'pnl-profit';
+}
+
+function pnlText(minor: string | null, quote: 'INR' | 'USDT'): string {
+  if (minor === null) return '—';
+  if (minor.startsWith('-')) return fmtMinor(minor, quote);
+  return `+${fmtMinor(minor, quote)}`;
 }
 
 function bufferColor(bp: number | null): string | undefined {
@@ -49,25 +53,74 @@ function bufferColor(bp: number | null): string | undefined {
   return 'var(--ok)';
 }
 
-function Row({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
+/** Add two minor-unit strings. Works for both positive and negative values. */
+function addMinors(a: string, b: string): string {
+  return String(BigInt(a) + BigInt(b));
+}
+
+/* ─── grouped position type ─── */
+
+interface PositionGroup {
+  key: string;
+  /** e.g. "BTC" */
+  asset: string;
+  pair: string;
+  side: 'long' | 'short' | 'flat';
+  marginCurrency: 'INR' | 'USDT';
+  /** Sum of all account quantities. */
+  totalQty: number;
+  /** Aggregated unrealised PnL in minor units. */
+  totalPnlMinor: string | null;
+  /** Per-account positions in this group. */
+  positions: FuturesPositionRow[];
+}
+
+function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
+  const map = new Map<string, PositionGroup>();
+  for (const p of rows) {
+    const key = `${p.pair}|${p.side}|${p.marginCurrency}`;
+    let g = map.get(key);
+    if (g === undefined) {
+      // Extract the asset name from the pair (e.g., "B-BTC_USDT" → "BTC")
+      const asset = p.pair.replace(/^[A-Z]-/, '').replace(/_.*$/, '');
+      g = {
+        key,
+        asset,
+        pair: p.pair,
+        side: p.side,
+        marginCurrency: p.marginCurrency,
+        totalQty: 0,
+        totalPnlMinor: null,
+        positions: [],
+      };
+      map.set(key, g);
+    }
+    g.positions.push(p);
+    g.totalQty += Number(p.quantity);
+    if (p.unrealisedPnlMinor !== null) {
+      g.totalPnlMinor = g.totalPnlMinor === null
+        ? p.unrealisedPnlMinor
+        : addMinors(g.totalPnlMinor, p.unrealisedPnlMinor);
+    }
+  }
+  return Array.from(map.values());
+}
+
+/* ─── per-account row inside a group card ─── */
+
+function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
   readonly p: FuturesPositionRow;
   readonly onExit: (venuePositionId: string, marginCurrency: 'INR' | 'USDT') => void;
   readonly onEdit: (venuePositionId: string) => void;
-  /** Partial close (reduce) or add (increase) by basis points of the position. */
   readonly onAdjust: (venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number) => void;
   readonly exiting: string | null;
   readonly editingId: string | null;
   readonly adjusting: string | null;
 }) {
-  const pnl = p.unrealisedPnlMinor;
   return (
     <tr>
       <td>
-        {p.accountName}
-        <span className="muted" style={{ display: 'block', fontSize: 11 }}>{p.pair}</span>
-      </td>
-      <td>
-        <span className={`badge ${p.side === 'long' ? 'planned' : 'skipped'}`}>{p.side}</span>
+        <strong>{p.accountName}</strong>
       </td>
       <td className="mono">{p.quantity}</td>
       <td>{p.leverage === null ? <span className="muted">—</span> : `${p.leverage}×`}</td>
@@ -76,27 +129,27 @@ function Row({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
       <td className="mono" style={{ color: bufferColor(p.liqBufferBp) }}>
         {p.liquidationPrice ?? <span className="muted">—</span>}
         {p.liqBufferBp !== null && (
-          <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+          <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
             {(p.liqBufferBp / 100).toFixed(2)}% buffer
           </span>
         )}
       </td>
-      <td className="mono" style={{ color: pnl !== null && !pnl.startsWith('-') ? 'var(--ok)' : pnl?.startsWith('-') ? 'var(--danger)' : undefined }}>
-        {pnl === null ? <span className="muted">—</span> : fmtSignedMinor(pnl, p.marginCurrency)}
+      <td className={`mono ${pnlClass(p.unrealisedPnlMinor)}`} style={{ fontWeight: 600 }}>
+        {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
       </td>
       <td>
         {p.stopLossTrigger === null && p.takeProfitTrigger === null
-          ? <span className="muted">none</span>
+          ? <span className="muted" style={{ fontSize: 11.5 }}>none</span>
           : (
               <>
-                {p.stopLossTrigger !== null && <span className="badge skipped" style={{ fontSize: 10.5 }}>SL {p.stopLossTrigger}</span>}
-                {p.takeProfitTrigger !== null && <span className="badge planned" style={{ fontSize: 10.5, marginLeft: 4 }}>TP {p.takeProfitTrigger}</span>}
+                {p.stopLossTrigger !== null && <span className="badge skipped" style={{ fontSize: 10 }}>SL {p.stopLossTrigger}</span>}
+                {p.takeProfitTrigger !== null && <span className="badge planned" style={{ fontSize: 10, marginLeft: 3 }}>TP {p.takeProfitTrigger}</span>}
               </>
             )}
         {p.side !== 'flat' && (
           <button
             className="btn btn-sm secondary"
-            style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px' }}
+            style={{ marginLeft: 6, fontSize: 10.5, padding: '1px 7px' }}
             onClick={() => onEdit(p.venuePositionId)}
             disabled={editingId === p.venuePositionId}
           >
@@ -105,16 +158,13 @@ function Row({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
         )}
       </td>
       <td style={{ whiteSpace: 'nowrap' }}>
-        {/* Partial close, and add. `Close` stays the full exit — it goes through
-            positions/exit, which is atomic and cancels the conditionals first;
-            these slice the position with an ordinary order instead. */}
         {p.side !== 'flat' && (
           <>
             {[2500, 5000, 7500, 10000].map((bp) => (
               <button
                 key={`r${bp}`}
                 className="btn btn-sm secondary"
-                style={{ marginRight: 4, fontSize: 11, padding: '2px 7px' }}
+                style={{ marginRight: 3, fontSize: 10.5, padding: '1px 6px' }}
                 disabled={adjusting !== null || exiting !== null}
                 title={bp === 10000 ? 'Close the whole position' : `Close ${bp / 100}% of the position`}
                 onClick={() => (bp === 10000
@@ -124,32 +174,109 @@ function Row({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
                 −{bp / 100}%
               </button>
             ))}
-            {[2500, 5000].map((bp) => (
-              <button
-                key={`a${bp}`}
-                className="btn btn-sm ghost"
-                style={{ marginRight: 4, fontSize: 11, padding: '2px 7px' }}
-                disabled={adjusting !== null || exiting !== null}
-                title={`Add ${bp / 100}% more to this position`}
-                onClick={() => onAdjust(p.venuePositionId, 'increase', bp)}
-              >
-                +{bp / 100}%
-              </button>
-            ))}
           </>
         )}
         <button
           className="btn btn-sm"
-          style={{ background: 'var(--danger)', color: '#fff', border: 'none' }}
+          style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontSize: 10.5, padding: '2px 8px' }}
           disabled={exiting !== null || adjusting !== null || p.side === 'flat'}
           onClick={() => onExit(p.venuePositionId, p.marginCurrency)}
         >
-          {exiting === p.venuePositionId ? 'Exiting…' : adjusting !== null ? 'Working…' : 'Close all'}
+          {exiting === p.venuePositionId ? 'Exiting…' : 'Close'}
         </button>
       </td>
     </tr>
   );
 }
+
+/* ─── group card ─── */
+
+function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
+  readonly group: PositionGroup;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+  readonly onExit: (venuePositionId: string, marginCurrency: 'INR' | 'USDT') => void;
+  readonly onEdit: (venuePositionId: string) => void;
+  readonly onAdjust: (venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number) => void;
+  readonly exiting: string | null;
+  readonly editingId: string | null;
+  readonly adjusting: string | null;
+}) {
+  const sideColor = group.side === 'long' ? 'var(--ok)' : group.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+
+  return (
+    <div className="position-card">
+      <div className="position-card-header" onClick={onToggle}>
+        {/* Asset + Side */}
+        <span className="asset-name">{group.asset}</span>
+        <span
+          className="badge"
+          style={{
+            color: sideColor,
+            borderColor: sideColor,
+            background: group.side === 'long' ? 'rgba(75,181,99,0.1)' : group.side === 'short' ? 'rgba(240,85,90,0.1)' : 'transparent',
+            fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+          }}
+        >
+          {group.side}
+        </span>
+        <span className="card-meta">{group.marginCurrency}</span>
+
+        {/* Aggregated stats */}
+        <span className="card-meta" style={{ marginLeft: 8 }}>
+          Qty <strong style={{ color: 'var(--text)' }}>{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>
+        </span>
+        <span className="card-meta">
+          {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
+        </span>
+
+        {/* PnL */}
+        <span className={`card-pnl ${pnlClass(group.totalPnlMinor)}`}>
+          {pnlText(group.totalPnlMinor, group.marginCurrency)}
+        </span>
+
+        {/* Expand chevron */}
+        <span className={`expand-icon ${expanded ? 'open' : ''}`}>▼</span>
+      </div>
+
+      {expanded && (
+        <div className="position-card-body">
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th style={{ textAlign: 'right' }}>Qty</th>
+                <th>Lev</th>
+                <th style={{ textAlign: 'right' }}>Entry</th>
+                <th style={{ textAlign: 'right' }}>Mark</th>
+                <th style={{ textAlign: 'right' }}>Liquidation</th>
+                <th style={{ textAlign: 'right' }}>PnL</th>
+                <th>Protection</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.positions.map((p) => (
+                <AccountRow
+                  key={`${p.accountId}-${p.pair}-${p.marginCurrency}`}
+                  p={p}
+                  exiting={exiting}
+                  editingId={editingId}
+                  adjusting={adjusting}
+                  onExit={onExit}
+                  onEdit={onEdit}
+                  onAdjust={onAdjust}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── main component ─── */
 
 export function Futures() {
   const qc = useQueryClient();
@@ -157,12 +284,9 @@ export function Futures() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions });
 
-  // The mirror refreshes after a fan-out and after an exit. Neither covers a
-  // position changed anywhere else — closed from the exchange's own app, or left
-  // over from a trade whose leg failed after the venue had already opened it. This
-  // is the way to ask the venue again.
   const refreshMut = useMutation({
     mutationFn: () => refreshFuturesPositions(),
     onSuccess: (out) => {
@@ -229,9 +353,37 @@ export function Futures() {
   const hasAny = rows.length > 0;
   const editingRow = editingId === null ? undefined : rows.find((r) => r.venuePositionId === editingId);
 
+  // Build grouped positions
+  const groups = useMemo(() => buildGroups(rows), [rows]);
+
+  // Compute total PnL across all positions (for the summary header)
+  const totalPnl = useMemo(() => {
+    // Group by currency for separate totals
+    const byCurrency: Record<string, string> = {};
+    for (const p of rows) {
+      if (p.unrealisedPnlMinor !== null) {
+        const cur = p.marginCurrency;
+        byCurrency[cur] = byCurrency[cur] === undefined
+          ? p.unrealisedPnlMinor
+          : addMinors(byCurrency[cur]!, p.unrealisedPnlMinor);
+      }
+    }
+    return byCurrency;
+  }, [rows]);
+
+  const toggleGroup = (key: string): void => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <div className="panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Positions</h2>
         <button
           className="btn secondary btn-sm"
@@ -245,17 +397,42 @@ export function Futures() {
           {positions.data === undefined ? '' : `updated ${new Date(positions.data.at).toLocaleTimeString('en-IN')}`}
         </span>
       </div>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 18 }}>
-        Open perpetual futures positions across your accounts, at mark. Close hard-exits the position at market — every attached stop-loss
-        or take-profit is cancelled first so a stale trigger can never open an opposite position after exit.
-      </p>
 
+      {/* ── Summary ── */}
+      {hasAny && (
+        <div className="positions-summary">
+          <div>
+            <div className="stat-label">Unrealised PnL</div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              {Object.entries(totalPnl).map(([cur, minor]) => (
+                <span key={cur} className={`pnl-big ${pnlClass(minor)}`}>
+                  {pnlText(minor, cur as 'INR' | 'USDT')}
+                </span>
+              ))}
+              {Object.keys(totalPnl).length === 0 && (
+                <span className="pnl-big muted">—</span>
+              )}
+            </div>
+          </div>
+          <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
+            <div className="stat-label">Positions</div>
+            <div className="stat-value">{rows.length}</div>
+          </div>
+          <div>
+            <div className="stat-label">Groups</div>
+            <div className="stat-value">{groups.length}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Messages ── */}
       {message !== null && (
         <div style={{ marginBottom: 12, fontSize: 13, color: message.kind === 'ok' ? 'var(--ok)' : 'var(--danger)' }}>
           {message.text}
         </div>
       )}
 
+      {/* ── Protection editor ── */}
       {editingId !== null && (
         <ProtectionEditor
           onCancel={() => setEditingId(null)}
@@ -265,6 +442,7 @@ export function Futures() {
         />
       )}
 
+      {/* ── Loading / Error / Empty ── */}
       {positions.isLoading && <p className="muted">Loading positions…</p>}
       {positions.isError && <div className="error">{(positions.error as Error).message}</div>}
 
@@ -276,32 +454,27 @@ export function Futures() {
         </div>
       )}
 
+      {/* ── Grouped position cards ── */}
       {hasAny && (
-        <table>
-          <thead>
-            <tr>
-              <th>Account · Pair</th><th>Side</th>
-              <th style={{ textAlign: 'right' }}>Qty</th><th>Leverage</th>
-              <th style={{ textAlign: 'right' }}>Avg entry</th><th style={{ textAlign: 'right' }}>Mark</th>
-              <th style={{ textAlign: 'right' }}>Liquidation</th><th style={{ textAlign: 'right' }}>Unrealised</th>
-              <th>Protection</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => (
-              <Row
-                key={`${p.accountId}-${p.pair}-${p.marginCurrency}`}
-                p={p}
-                exiting={exiting}
-                editingId={editingId}
-                onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
-                onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
-                adjusting={adjusting}
-                onEdit={(id) => { setEditingId(id); setMessage(null); }}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div>
+          <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', marginBottom: 10, marginTop: 0 }}>
+            Grouped Positions
+          </h3>
+          {groups.map((g) => (
+            <GroupCard
+              key={g.key}
+              group={g}
+              expanded={expandedGroups.has(g.key)}
+              onToggle={() => toggleGroup(g.key)}
+              exiting={exiting}
+              editingId={editingId}
+              adjusting={adjusting}
+              onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
+              onEdit={(id) => { setEditingId(id); setMessage(null); }}
+              onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

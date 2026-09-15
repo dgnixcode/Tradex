@@ -22,9 +22,6 @@ export function AppTopbar({ title, role, onMenu }: Props) {
         </svg>
       </button>
       <h1>{title}</h1>
-      <span className="rung-badge" title="Rung 0: the plan is previewed and dry-run only; no order is sent.">
-        dry-run · no orders sent
-      </span>
       <DeskStatus />
       <span className="spacer" />
       <span className="who">Signed in · {role}</span>

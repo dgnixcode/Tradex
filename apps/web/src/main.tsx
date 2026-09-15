@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom';
 import { AuthProvider, RequireAuth } from './auth.tsx';
+import { BrandingProvider } from './branding.tsx';
 import { App } from './App.tsx';
 import { Landing } from './routes/Landing.tsx';
 import { Login } from './routes/Login.tsx';
@@ -37,9 +38,11 @@ const queryClient = new QueryClient({
 // RouterProvider context. Everything hangs off it.
 function Root() {
   return (
-    <AuthProvider>
-      <Outlet />
-    </AuthProvider>
+    <BrandingProvider>
+      <AuthProvider>
+        <Outlet />
+      </AuthProvider>
+    </BrandingProvider>
   );
 }
 

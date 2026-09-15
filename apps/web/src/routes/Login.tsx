@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.tsx';
 import { ApiError } from '../api.ts';
+import { Brand } from '../components/Brand.tsx';
 
 // The login page. Public, and the only way into the panel. A two-panel split: a
 // branded aside that states what the platform does, and the form card. On
@@ -51,7 +52,7 @@ export function Login() {
   return (
     <div className="auth-split auth-light">
       <aside className="auth-aside">
-        <Link to="/" className="brand">Tradex</Link>
+        <Brand to="/" />
         <div>
           <p className="auth-aside-quote">
             One order across <span className="grad">every account</span> — checked before it moves a rupee.
@@ -68,7 +69,7 @@ export function Login() {
 
       <main className="auth-main">
         <div className="auth-card">
-          <Link to="/" className="brand">Tradex</Link>
+          <Brand to="/" />
           <h2>Welcome back</h2>
           <p className="sub">Log in to your trading desk.</p>
 

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
+import { useBranding } from '../branding.tsx';
 
 // The public landing page — an editorial LIGHT theme after the NFT-marketplace
 // reference (cream base, italic-serif + bold headline, black primary button,
@@ -25,6 +26,8 @@ function Pixels({ pattern, className }: { pattern: readonly boolean[]; className
 const MOTIF = [true, true, false, false, true, true, true, false, false];
 
 export function Landing() {
+  const { branding } = useBranding();
+
   return (
     <div className="landing landing-light">
       <MarketingHeader />
@@ -78,7 +81,7 @@ export function Landing() {
         <div className="section-head">
           <span className="kicker">How it works</span>
           <h2>From one intent to N checked orders</h2>
-          <p>You describe the trade once. Tradex sizes and validates it per account, then shows you every leg before anything is committed.</p>
+          <p>You describe the trade once. {branding.name} sizes and validates it per account, then shows you every leg before anything is committed.</p>
         </div>
         <div className="steps">
           <div className="step">
@@ -101,7 +104,7 @@ export function Landing() {
         <div className="section-head">
           <span className="kicker">Built for many accounts</span>
           <h2>Everything scales per account</h2>
-          <p>The hard part of trading many accounts isn&rsquo;t the order — it&rsquo;s that every account is different. Tradex treats that as the default.</p>
+          <p>The hard part of trading many accounts isn&rsquo;t the order — it&rsquo;s that every account is different. {branding.name} treats that as the default.</p>
         </div>
         <div className="features">
           <div className="feature">
@@ -143,7 +146,7 @@ export function Landing() {
           <div className="section-head" style={{ marginBottom: 32 }}>
             <span className="kicker">Safety first</span>
             <h2>Real money deserves a rehearsal</h2>
-            <p>Tradex currently runs in dry-run mode: the full pipeline executes and records exactly what <em>would</em> be sent, without sending it. The send path is built last, on purpose.</p>
+            <p>{branding.name} currently runs in dry-run mode: the full pipeline executes and records exactly what <em>would</em> be sent, without sending it. The send path is built last, on purpose.</p>
           </div>
           <div className="stats">
             <div className="stat"><div className="num">12</div><div className="lbl">gates per account</div></div>

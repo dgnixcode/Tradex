@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { Brand } from './Brand.tsx';
+import { useBranding } from '../branding.tsx';
 
 // Reusable marketing footer. Columns of links plus the brand blurb and the
 // rung-0 note — the same honesty the app header carries, so a visitor learns
@@ -39,11 +40,13 @@ const COLUMNS: readonly FooterCol[] = [
 ];
 
 export function MarketingFooter() {
+  const { branding } = useBranding();
+
   return (
     <footer className="mk-footer">
       <div className="mk-footer-inner">
         <div className="mk-footer-brand">
-          <Link to="/" className="brand">Tradex</Link>
+          <Brand to="/" />
           <p>
             One order across every connected exchange account — sized per account,
             checked before it goes out, reconciled after.
@@ -59,7 +62,7 @@ export function MarketingFooter() {
         ))}
       </div>
       <div className="mk-footer-bottom">
-        <span>© {COPYRIGHT_YEAR} Tradex · Multi-account trading, unified</span>
+        <span>© {COPYRIGHT_YEAR} {branding.name} · Multi-account trading, unified</span>
         <span className="rung-badge">preview &amp; dry-run</span>
       </div>
     </footer>

@@ -1,78 +1,45 @@
 /**
- * useLiveTicker — streams real-time best bid/ask from CoinDCX's public WebSocket.
+ * useLiveTicker — polls our backend for fresh best-bid/ask every 3 seconds.
  *
- * Connects to `wss://stream.coindcx.com` via socket.io-client (CoinDCX mandates
- * Socket.IO — see research/05-coindcx-websockets.md F1).
+ * WHY POLLING INSTEAD OF A DIRECT WEBSOCKET?
+ * CoinDCX's Socket.IO server rejects cross-origin WebSocket connections from
+ * any non-CoinDCX origin (tested on localhost, AWS IP, and custom domains).
+ * The architecture doc (research/21) also mandates "browsers must not touch
+ * the exchange". So we poll our own /api/market-price endpoint, which reads
+ * from CoinDCX's public order book on the backend (no CORS, no Origin check).
  *
- * Subscribes to the `{pair}@orderbook@10` channel which emits:
- *   - `depth-snapshot` every 2-3s with a full 10-level book
- *
- * The hook extracts the best bid and best ask from each snapshot and returns them.
- *
- * PUBLIC CHANNEL — no API key, no authentication, no approval required.
- *
- * NOTE: On localhost the browser may block the cross-origin WebSocket (CORS).
- * This works on the production domain where the Origin header is accepted.
- * For local dev, the "↻ Live price" REST button still works as a fallback.
- *
- * Key wire-format facts from research/05:
- *   - Transport MUST be `['websocket']` — long-polling is broken on both hosts.
- *   - Every event arrives as `{ event, data: "<stringified JSON>" }` — double parse.
- *   - Book sides are JSON objects keyed by price string, NOT sorted. Must sort.
+ * 3-second polling is well within the 5000/60s rate limit on the public
+ * orderbook endpoint, and eliminates the 5-10s price lag vs CoinDCX's own UI.
  */
 import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { fetchMarketPrice } from '../api.ts';
 
 export interface LiveTicker {
-  /** Best bid (highest buy order) — what you'd sell at. Decimal string or null. */
+  /** Best bid (highest buy order) — what you'd sell at. */
   readonly bestBid: string | null;
-  /** Best ask (lowest sell order) — what you'd buy at. Decimal string or null. */
+  /** Best ask (lowest sell order) — what you'd buy at. */
   readonly bestAsk: string | null;
-  /** Millisecond timestamp of the last received snapshot. */
+  /** Millisecond timestamp of the last successful fetch. */
   readonly updatedAtMs: number | null;
-  /** Whether the socket is currently connected. */
+  /** Whether the ticker is actively receiving data. */
   readonly connected: boolean;
 }
 
-const SOCKET_URL = 'https://stream.coindcx.com';
+const POLL_INTERVAL_MS = 3_000;
 
 /**
- * Build the CoinDCX pair identifier.
- * Spot INR: `I-BTC_INR`, Futures USDT: `B-BTC_USDT`.
- */
-function toPair(asset: string, marginCurrency: 'INR' | 'USDT'): string {
-  const ecode = marginCurrency === 'INR' ? 'I' : 'B';
-  return `${ecode}-${asset}_${marginCurrency}`;
-}
-
-/**
- * Extract the highest-priced key from a price→quantity object.
- * CoinDCX sends book sides as `{ "81050.5": "0.03", "81049": "1.2" }`.
- * Key order is NOT guaranteed (V8 hoists integer-like keys — see research/05 C3).
- */
-function bestPrice(side: Record<string, string>, direction: 'max' | 'min'): string | null {
-  const prices = Object.keys(side);
-  if (prices.length === 0) return null;
-  let best = prices[0]!;
-  for (let i = 1; i < prices.length; i++) {
-    const p = prices[i]!;
-    const cmp = Number(p) - Number(best);
-    if (direction === 'max' ? cmp > 0 : cmp < 0) best = p;
-  }
-  return best;
-}
-
-/**
- * Hook: subscribe to live best-bid/ask for a trading pair.
+ * Hook: auto-poll live best-bid/ask for a trading pair.
  *
- * @param asset         e.g. 'BTC', 'ETH'. Empty string = no subscription.
+ * @param asset          e.g. 'BTC', 'ETH'. Empty string = no polling.
  * @param marginCurrency 'INR' or 'USDT'.
  */
 export function useLiveTicker(asset: string, marginCurrency: 'INR' | 'USDT'): LiveTicker {
   const [ticker, setTicker] = useState<LiveTicker>({
     bestBid: null, bestAsk: null, updatedAtMs: null, connected: false,
   });
-  const socketRef = useRef<Socket | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Track consecutive failures — mark disconnected after 2 in a row.
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     if (asset === '') {
@@ -80,54 +47,39 @@ export function useLiveTicker(asset: string, marginCurrency: 'INR' | 'USDT'): Li
       return;
     }
 
-    const pair = toPair(asset, marginCurrency);
-    const channel = `${pair}@orderbook@10`;
+    let cancelled = false;
 
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket'],  // long-polling is broken on CoinDCX (VERIFIED)
-      upgrade: false,
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionDelayMax: 10000,
-    });
+    const poll = (): void => {
+      fetchMarketPrice(asset, marginCurrency)
+        .then((price) => {
+          if (cancelled) return;
+          failCountRef.current = 0;
+          setTicker({
+            bestBid: price.bestBid,
+            bestAsk: price.bestAsk,
+            updatedAtMs: Date.now(),
+            connected: true,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          failCountRef.current += 1;
+          if (failCountRef.current >= 2) {
+            setTicker((prev) => ({ ...prev, connected: false }));
+          }
+        });
+    };
 
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      setTicker((prev) => ({ ...prev, connected: true }));
-      // Subscribe to the orderbook channel (public, no auth needed).
-      socket.emit('join', { channelName: channel });
-    });
-
-    socket.on('disconnect', () => {
-      setTicker((prev) => ({ ...prev, connected: false }));
-    });
-
-    // CoinDCX emits depth-snapshot every 2-3s with a full 10-level book.
-    // Envelope: { event: "depth-snapshot", data: "<stringified JSON>" }
-    socket.on('depth-snapshot', (envelope: { data?: string } | string) => {
-      try {
-        const raw = typeof envelope === 'string' ? envelope : (envelope.data ?? envelope);
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-
-        // parsed.asks and parsed.bids are { "price": "qty", ... }
-        const asks: Record<string, string> = parsed.asks ?? {};
-        const bids: Record<string, string> = parsed.bids ?? {};
-
-        const bid = bestPrice(bids, 'max');
-        const ask = bestPrice(asks, 'min');
-        const ts: number = parsed.ts ?? Date.now();
-
-        setTicker({ bestBid: bid, bestAsk: ask, updatedAtMs: ts, connected: true });
-      } catch {
-        // Malformed frame — skip silently.
-      }
-    });
+    // Fetch immediately, then every 3 seconds.
+    poll();
+    intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
     return () => {
-      socket.emit('leave', { channelName: channel });
-      socket.disconnect();
-      socketRef.current = null;
+      cancelled = true;
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
   }, [asset, marginCurrency]);
 

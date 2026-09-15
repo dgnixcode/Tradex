@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth.tsx';
+import { Brand } from './Brand.tsx';
 
 // Reusable marketing header, shared by the landing page and any future public
 // page. It is distinct from the authenticated panel's header (App.tsx): this one
@@ -37,7 +38,7 @@ export function MarketingHeader() {
 
   return (
     <header className={`mk-header${scrolled ? ' scrolled' : ''}`}>
-      <Link to="/" className="brand">Tradex</Link>
+      <Brand to="/" />
 
       <nav className="mk-nav" aria-label="Primary">
         {NAV.map((l) => (
