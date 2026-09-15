@@ -331,35 +331,28 @@ export function TradeTicket() {
     && slValid && tpValid;
 
   const submitPreview = (): void => {
-    window.alert('submitPreview called! sizingMode=' + sizingMode + ', percent=' + percent);
-    console.log('[submitPreview] called', { sizingMode, percent, quantity, sizingRefPrice, marginCurrency, quoteCurrency, groupId, asset, side, leverage });
-    // Backend expects percentBp, so convert from quantity if needed
-    let finalPercentBp: number;
+    let sizingModeOut: string;
+    let percentBpOut: number | undefined;
+    let sizingValueOut: string | undefined;
+
     if (sizingMode === 'quantity') {
-      // Convert quantity → percent before submitting
-      if (!selectedGroup || !leverageValid || sizingRefPrice === '') { console.log('[submitPreview] bail: quantity guard'); return; }
-      const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
-      if (allocatedMinor === '0') { console.log('[submitPreview] bail: allocatedMinor is 0'); return; }
-      const scale = marginCurrency === 'INR' ? 2 : 8;
-      const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
-      const notional = Number(quantity) * Number(sizingRefPrice);
-      let margin = notional / Number(leverage);
-      if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
-        margin = margin * usdtInrRate;
-      }
-      const pct = (margin / allocatedMajor) * 100;
-      finalPercentBp = Math.round(pct * 100);
+      // Send quantity directly — the backend sizes it as base_quantity.
+      sizingModeOut = 'base_quantity';
+      sizingValueOut = quantity;
     } else {
-      finalPercentBp = Math.round(Number(percent) * 100);
+      sizingModeOut = 'pct_allocated';
+      percentBpOut = Math.round(Number(percent) * 100);
     }
+
     const req: PlanRequest = {
       groupId,
       createdBy: '',
       asset,
       side,
       orderType,
-      sizingMode: 'pct_allocated',
-      percentBp: finalPercentBp,
+      sizingMode: sizingModeOut as PlanRequest['sizingMode'],
+      ...(percentBpOut !== undefined ? { percentBp: percentBpOut } : {}),
+      ...(sizingValueOut !== undefined ? { sizingValue: sizingValueOut } : {}),
       ...(orderType === 'limit' ? { limitPrice } : {}),
       isFutures: true,
       leverage,
@@ -374,7 +367,6 @@ export function TradeTicket() {
         trailingStepBp: Math.round(Number(trailingStepPercent) * 100),
       } : {}),
     };
-    console.log('[submitPreview] calling preview.mutate with:', req);
     preview.mutate(req);
   };
 
