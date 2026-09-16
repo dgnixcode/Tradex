@@ -395,7 +395,7 @@ const accountSync = async ({ tenantId, accountId }) => {
     }
     const balances = probe.balances ?? [];
     const funding = deriveFundingCurrencies(balances);
-    const tdb = tdbFor(tenantId);
+    const tdb = forTenant(db, tenantId);
     await recordObservedBalances(tdb, {
       accountId,
       fundingCurrencies: funding,
