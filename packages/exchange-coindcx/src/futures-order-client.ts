@@ -554,8 +554,8 @@ export type FuturesListOrdersOutcome =
   | { readonly ok: false; readonly failure: ClassifiedFailure };
 
 export interface FuturesListOrdersRequest {
-  readonly pair: string;
-  readonly side: 'buy' | 'sell';
+  readonly pair?: string | undefined;
+  readonly side?: 'buy' | 'sell' | undefined;
   /** CSV. Defaults to every status — see `FUTURES_ORDER_STATUSES`. */
   readonly status?: string | undefined;
   readonly marginCurrency?: FuturesMarginCurrency | undefined;
@@ -593,28 +593,43 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
 }
 
 /**
- * List orders for one (pair, side). The L4a read-back.
+ * List orders for one (pair, side) — or across both sides if side is omitted.
+ * The L4a read-back.
  *
  * The venue's envelope here is UNVERIFIED: every other futures read returns a bare
  * array, but a paginated endpoint commonly wraps its rows. Both shapes are
  * accepted rather than guessing one and turning the other into an outage — and the
  * caller treats an unparsable body as a FAILED read, never as "no orders", because
  * "no orders" is the answer that concludes NOT_PLACED.
+ *
+ * NOTE: Real CoinDCX does not filter orders by pair on its server side. We strictly
+ * filter returned orders by req.pair if specified so other instruments never leak.
  */
 export async function listFuturesOrdersSigned(
   sign: BodySigner,
   req: FuturesListOrdersRequest,
   opts: FuturesCallOptions = {},
 ): Promise<FuturesListOrdersOutcome> {
+  if (req.side === undefined) {
+    const buyResult = await listFuturesOrdersSigned(sign, { ...req, side: 'buy' }, opts);
+    if (!buyResult.ok) return buyResult;
+    const sellResult = await listFuturesOrdersSigned(sign, { ...req, side: 'sell' }, opts);
+    if (!sellResult.ok) return sellResult;
+    return { ok: true, orders: [...buyResult.orders, ...sellResult.orders] };
+  }
+
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
-  const signed = await signBody(sign, {
-    pair: req.pair,
-    side: req.side,
+  const payload: Record<string, unknown> = {
     status: req.status ?? FUTURES_ORDER_STATUSES.join(','),
-    margin_currency_short_name: req.marginCurrency !== undefined ? [req.marginCurrency] : ['INR', 'USDT'],
     page: req.page ?? 1,
     size: req.size ?? 100,
-  });
+  };
+  if (req.pair !== undefined) payload['pair'] = req.pair;
+  if (req.side !== undefined) payload['side'] = req.side;
+  if (req.marginCurrency !== undefined) payload['margin_currency_short_name'] = [req.marginCurrency];
+  else payload['margin_currency_short_name'] = ['INR', 'USDT'];
+
+  const signed = await signBody(sign, payload);
   let result: HttpResult;
   try {
     result = await send({
@@ -648,7 +663,9 @@ export async function listFuturesOrdersSigned(
   for (const row of rows) {
     if (row === null || typeof row !== 'object' || Array.isArray(row)) continue;
     const listed = toListedOrder(row as Record<string, unknown>);
-    if (listed !== null) orders.push(listed);
+    if (listed !== null && (req.pair === undefined || listed.pair === req.pair)) {
+      orders.push(listed);
+    }
   }
   return { ok: true, orders };
 }
@@ -808,6 +825,13 @@ export async function exitFuturesPositionSigned(
   }
   let parsed: Record<string, unknown> | null = null;
   try { parsed = JSON.parse(result.body) as Record<string, unknown>; } catch { /* fall through */ }
+  if (parsed !== null && (
+    parsed['status'] === 400 || parsed['status'] === 422 ||
+    parsed['code'] === 400 || parsed['code'] === 422 ||
+    parsed['success'] === false
+  )) {
+    return { ok: false, failure: classify({ status: 400, message: messageFrom(result.body) }) };
+  }
   const data = parsed?.['data'];
   const groupId = data !== null && typeof data === 'object' && !Array.isArray(data)
     ? (data as Record<string, unknown>)['group_id']

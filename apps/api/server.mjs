@@ -324,8 +324,6 @@ async function signFor(tenantId, accountId) {
   };
 }
 
-/** The tenant-scoped db every venue port writes through. */
-const tdbFor = (tenantId) => forTenant(db, tenantId);
 
 const enginePorts = {};
 
@@ -658,15 +656,20 @@ if (sending) {
       }
       const position = positions.positions.find((p) => p.venuePositionId === venuePositionId);
       if (position === undefined) return [];
+      const untriggered = [];
       for (const side of ['buy', 'sell']) {
         const listed = await listFuturesOrdersSigned(sign,
-          { pair: position.pair, side, status: 'untriggered' }, { baseUrl: VENUE_BASE });
+          { pair: position.pair, side, status: 'untriggered', marginCurrency: position.marginCurrency }, { baseUrl: VENUE_BASE });
         if (!listed.ok) {
           throw new Error(`could not list untriggered conditionals on ${position.pair}: ${listed.failure.detail ?? 'unreadable'}`);
         }
-        if (listed.orders.length > 0) return listed.orders.map((o) => ({ venueOrderId: o.venueOrderId }));
+        for (const o of listed.orders) {
+          if (o.pair === position.pair) {
+            untriggered.push({ venueOrderId: o.venueOrderId });
+          }
+        }
       }
-      return [];
+      return untriggered;
     },
   };
 
@@ -682,21 +685,26 @@ if (sending) {
       if (sign === null) return { stopLoss: { ok: false, reason: 'no credential for this account' } };
       if (args.moveExisting === true) {
         const pos = await db.selectFrom('futures_position')
-          .select('pair')
+          .select(['pair', 'margin_currency as marginCurrency'])
           .where('venue_position_id', '=', args.venuePositionId)
           .executeTakeFirst();
         if (pos !== undefined) {
-          const active = await listFuturesOrdersSigned(sign, {
-            pair: pos.pair,
-            status: 'untriggered'
-          }, { baseUrl: VENUE_BASE });
-          if (active.ok) {
-            for (const order of active.orders) {
-              if (args.stopLossPrice !== undefined && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
-                await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
-              }
-              if (args.takeProfitPrice !== undefined && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
-                await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+          for (const side of ['buy', 'sell']) {
+            const active = await listFuturesOrdersSigned(sign, {
+              pair: pos.pair,
+              side,
+              status: 'untriggered',
+              marginCurrency: pos.marginCurrency,
+            }, { baseUrl: VENUE_BASE });
+            if (active.ok) {
+              for (const order of active.orders) {
+                if (order.pair !== pos.pair) continue;
+                if (args.stopLossPrice !== undefined && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
+                  await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                }
+                if (args.takeProfitPrice !== undefined && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
+                  await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                }
               }
             }
           }

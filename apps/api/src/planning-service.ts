@@ -720,10 +720,6 @@ export class PlanningService {
   }
 }
 
-/** Read a specific quote's free balance in quote-scale minor units, or '0'. */
-function freeQuoteMinorOf(balances: readonly Balance[], quote: string): string {
-  return freeBalanceMinor(balances, quote);
-}
 
 /** The held quantity of an asset, as a plain decimal at the balance's scale. */
 function positionQuantityOf(balances: readonly Balance[], asset: string): string {

@@ -82,7 +82,7 @@ export async function run(assert) {
     const wrote = await upsertFuturesPositions(tdb, ACCOUNT, [snapshot()], NOW);
     assert(wrote === 1, `expected one row written, got ${wrote}`);
 
-    let view = await buildFuturesPositions(db, T1, NOW);
+    let view = await buildFuturesPositions(db, T1, NOW, new Map());
     assert(view.views.length === 1, `expected one position view, got ${view.views.length}`);
     assert(view.views[0].side === 'long', `a positive active_pos read as ${view.views[0].side}`);
     assert(view.views[0].quantity === '0.001', `quantity came out as ${view.views[0].quantity}`);
@@ -99,7 +99,7 @@ export async function run(assert) {
     });
     await upsertFuturesPositions(tdb, ACCOUNT, [short], NOW);
 
-    view = await buildFuturesPositions(db, T1, NOW);
+    view = await buildFuturesPositions(db, T1, NOW, new Map());
     const eth = view.views.find((v) => v.pair === 'B-ETH_USDT');
     assert(eth !== undefined, 'the short position is not in the view — it was not stored');
     assert(eth.side === 'short', `a negative active_pos read as ${eth.side}`);
@@ -121,7 +121,7 @@ export async function run(assert) {
       'SELECT count(*)::int n FROM futures_position WHERE account_id = $1 AND pair = $2', [ACCOUNT, 'B-BTC_USDT']);
     assert(countRows[0].n === 1, `a re-read created ${countRows[0].n} rows for one position`);
 
-    view = await buildFuturesPositions(db, T1, NOW + 1_000);
+    view = await buildFuturesPositions(db, T1, NOW + 1_000, new Map());
     const btc = view.views.find((v) => v.pair === 'B-BTC_USDT');
     assert(btc.markPrice === '8600000', 'the re-read did not update the mark price');
     assert(btc.quantity === '0.002', 'the re-read did not update the quantity');

@@ -820,14 +820,19 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futTpslMatch[1] as string);
       if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
-      const out = await deps.futuresTpSl.setProtection({
-        actor: { tenantId: principal.tenantId, accountId: tpslOwner.accountId },
-        venuePositionId: futTpslMatch[1] as string,
-        ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
-        ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
-        ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
-      });
-      sendJson(ctx.res, 200, out);
+      try {
+        const out = await deps.futuresTpSl.setProtection({
+          actor: { tenantId: principal.tenantId, accountId: tpslOwner.accountId },
+          venuePositionId: futTpslMatch[1] as string,
+          ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
+          ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
+          ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
+        });
+        sendJson(ctx.res, 200, out);
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(500, e instanceof Error ? e.message : 'failed to set protection');
+      }
       return;
     }
 
@@ -916,8 +921,9 @@ export function createHttpServer(deps: HttpDeps): Server {
         });
         sendJson(ctx.res, 200, out);
       } catch (e) {
+        if (e instanceof HttpError) throw e;
         if (e instanceof HardExitError) throw new HttpError(409, e.message);
-        throw e;
+        throw new HttpError(500, e instanceof Error ? e.message : 'position exit failed');
       }
       return;
     }

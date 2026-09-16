@@ -27,6 +27,14 @@ export default tseslint.config(
       'no-restricted-globals': ['error', { name: 'parseFloat', message: 'Use the Money/Qty decimal layer.' }],
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       eqeqeq: ['error', 'always'],
       'no-console': 'off',
     },

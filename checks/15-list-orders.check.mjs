@@ -167,7 +167,18 @@ export async function run(assert) {
     assert(orderInBody.pair === PAIR && orderInBody.leverage === 5,
       'the create body lost a field it does need');
 
-    console.log('     L4a read-back: initial-window invisible, narrow by pair+side, cancel alias, signer path');
+    // ------------------------------------------------ 9. optional side + strict pair filter
+    // Omitting side must query both sides without throwing SigningError.
+    const noSideRead = await listFuturesOrdersSigned(signer, { pair: PAIR }, { baseUrl });
+    assert(noSideRead.ok === true, `read without side should succeed, got ${JSON.stringify(noSideRead)}`);
+    assert(find(noSideRead.orders, venueOrderId) !== undefined, 'the order was not found when side was omitted');
+
+    // And querying for a different pair returns nothing even if orders exist for PAIR.
+    const otherPairRead = await listFuturesOrdersSigned(signer, { pair: 'B-SOL_USDT' }, { baseUrl });
+    assert(otherPairRead.ok === true && otherPairRead.orders.length === 0,
+      'read for other pair must not leak orders from PAIR');
+
+    console.log('     L4a read-back: initial-window invisible, narrow by pair+side, cancel alias, signer path, optional side');
   } finally {
     await venue.stop();
   }
