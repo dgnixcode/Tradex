@@ -37,18 +37,6 @@ const FAQS: readonly FaqItem[] = [
   },
 ];
 
-const TRACK_RECORD = [
-  { month: 'January', returnRate: '+4.1%', status: 'Target Met' },
-  { month: 'February', returnRate: '+3.8%', status: 'Target Met' },
-  { month: 'March', returnRate: '+4.6%', status: 'Target Met' },
-  { month: 'April', returnRate: '+3.5%', status: 'Target Met' },
-  { month: 'May', returnRate: '+4.8%', status: 'Target Met' },
-  { month: 'June', returnRate: '+4.2%', status: 'Target Met' },
-  { month: 'July', returnRate: '+3.9%', status: 'Target Met' },
-  { month: 'August', returnRate: '+4.4%', status: 'Target Met' },
-  { month: 'September', returnRate: '+4.1%', status: 'Active Month' },
-];
-
 export function Landing() {
   const { branding } = useBranding();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -350,44 +338,99 @@ export function Landing() {
         </div>
       </section>
 
-      {/* -------------------------------------------------- PERFORMANCE TRACK RECORD */}
+      {/* -------------------------------------------------- RISK MANAGEMENT & CAPITAL PROTECTION FRAMEWORK */}
       <section className="mk-section mk-block">
         <div className="section-head">
-          <span className="kicker">Proven Track Record</span>
-          <h2>Consistent Month-on-Month Performance</h2>
+          <span className="kicker">Capital Protection Framework</span>
+          <h2>How We Protect 100% of Your Capital Across Market Cycles</h2>
           <p>
-            Disciplined quantitative risk management produces steady compounding results without reckless gambles.
+            Disciplined quantitative risk management designed to preserve initial principal during market drawdowns while steadily extracting 3%–5% monthly alpha.
           </p>
         </div>
 
-        <div className="wm-track-grid">
-          {TRACK_RECORD.map((item) => (
-            <div key={item.month} className="wm-track-card">
-              <span className="wm-track-month">{item.month} 2026</span>
-              <div className="wm-track-return">{item.returnRate}</div>
-              <span className={`pill ${item.status === 'Active Month' ? 'warn' : 'ok'}`} style={{ fontSize: '11px', marginTop: '6px' }}>
-                {item.status}
-              </span>
-            </div>
-          ))}
+        <div className="wm-pillars-grid">
+          <div className="wm-pillar-card">
+            <span className="wm-pillar-icon">🛡️</span>
+            <h3>Delta-Neutral Market Shield</h3>
+            <p>
+              Eliminates directional crypto downside. Long and short exposures are balanced so sharp Bitcoin or Ethereum sell-offs do not deplete client capital.
+            </p>
+            <ul className="wm-pillar-points">
+              <li>Zero directional exposure to market crashes</li>
+              <li>Yield harvested from spreads &amp; funding rates</li>
+              <li>Low market correlation &amp; beta</li>
+            </ul>
+          </div>
+
+          <div className="wm-pillar-card">
+            <span className="wm-pillar-icon">⚡</span>
+            <h3>Automated Hard Bracket Stops</h3>
+            <p>
+              Every single order is immediately bracketed by automated stop-loss thresholds with an ironclad &lt;2.5% max drawdown limit.
+            </p>
+            <ul className="wm-pillar-points">
+              <li>Sub-millisecond automated stop execution</li>
+              <li>Zero emotional or discretionary bias</li>
+              <li>De-risks directly to cash upon volatility spikes</li>
+            </ul>
+          </div>
+
+          <div className="wm-pillar-card">
+            <span className="wm-pillar-icon">🔐</span>
+            <h3>Isolated Personal Wallet Custody</h3>
+            <p>
+              Your funds are never pooled into third-party smart contracts or custodial schemes. Everything stays in your verified CoinDCX wallet.
+            </p>
+            <ul className="wm-pillar-points">
+              <li>Withdrawal permissions permanently disabled</li>
+              <li>24/7 instant liquidity to your bank account</li>
+              <li>Zero counterparty commingling risk</li>
+            </ul>
+          </div>
         </div>
 
-        <div className="wm-track-summary">
-          <div className="wm-summary-stat">
-            <span className="num">100%</span>
-            <span className="lbl">Positive Months</span>
+        {/* Market Regime Resilience Card */}
+        <div style={{ marginTop: '32px', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 16px rgba(0,0,0,0.04)' }}>
+          <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 24px' }}>
+            <span className="kicker" style={{ fontSize: '11.5px' }}>Cycle-Tested Engineering</span>
+            <h3 style={{ fontSize: '20px', fontWeight: 800, margin: '8px 0 6px', color: 'var(--ink)' }}>
+              Market Regime Performance Matrix
+            </h3>
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', margin: 0 }}>
+              Our algorithms dynamically adapt execution logic based on macroeconomic crypto volatility.
+            </p>
           </div>
-          <div className="wm-summary-stat">
-            <span className="num">&lt; 2.4%</span>
-            <span className="lbl">Max Drawdown</span>
-          </div>
-          <div className="wm-summary-stat">
-            <span className="num">3.92</span>
-            <span className="lbl">Sharpe Ratio</span>
-          </div>
-          <div className="wm-summary-stat">
-            <span className="num">0</span>
-            <span className="lbl">Capital Loss Events</span>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }} className="wm-regime-grid">
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '18px' }}>📈</span>
+                <strong style={{ fontSize: '14px', color: '#15803d' }}>Bull Market Regimes</strong>
+              </div>
+              <p style={{ fontSize: '13px', color: '#166534', margin: 0, lineHeight: 1.5 }}>
+                Systematic trend capture with automated trailing take-profits. Locks in targeted 3%–5% monthly gains while ratcheting stop-losses upward.
+              </p>
+            </div>
+
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '18px' }}>📉</span>
+                <strong style={{ fontSize: '14px', color: '#1d4ed8' }}>Bear Market Regimes</strong>
+              </div>
+              <p style={{ fontSize: '13px', color: '#1e40af', margin: 0, lineHeight: 1.5 }}>
+                Capital preservation mode. Neutralizes exposure through synthetic short hedges and harvests steady basis yield with 100% principal protection.
+              </p>
+            </div>
+
+            <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '18px' }}>⚡</span>
+                <strong style={{ fontSize: '14px', color: '#7e22ce' }}>High Volatility &amp; Chop</strong>
+              </div>
+              <p style={{ fontSize: '13px', color: '#6b21a8', margin: 0, lineHeight: 1.5 }}>
+                Mean-reversion micro-scalping within strict bracket corridors. Captures intraday spreads while hard risk fences prevent runaway losses.
+              </p>
+            </div>
           </div>
         </div>
       </section>

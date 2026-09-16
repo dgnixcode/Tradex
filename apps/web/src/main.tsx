@@ -31,6 +31,7 @@ import { AccountDetail } from './routes/AccountDetail.tsx';
 import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
+import { Inquiries } from './routes/Inquiries.tsx';
 import './styles.css';
 
 // A single query client. Previews are never cached — a plan is priced against a
@@ -90,6 +91,7 @@ const router = createBrowserRouter([
           { path: 'trading', element: <DeskControls /> },
           { path: 'security', element: <Security /> },
           { path: 'audit', element: <Audit /> },
+          { path: 'inquiries', element: <Inquiries /> },
         ],
       },
     ],

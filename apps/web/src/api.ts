@@ -667,3 +667,51 @@ export const setTrailingProtection = (
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+export type InquiryStatus = 'new' | 'contacted' | 'onboarded' | 'archived';
+
+export interface InquiryItem {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly phone: string;
+  readonly capital: string;
+  readonly exchange: string;
+  readonly method: string;
+  readonly notes: string | null;
+  readonly status: InquiryStatus;
+  readonly createdAt: string;
+  readonly contactedAt: string | null;
+  readonly contactedBy: string | null;
+}
+
+export interface SubmitInquiryPayload {
+  readonly name: string;
+  readonly email: string;
+  readonly phone: string;
+  readonly capital: string;
+  readonly exchange: string;
+  readonly method: string;
+  readonly notes?: string | undefined;
+}
+
+export const submitConsultationInquiry = (payload: SubmitInquiryPayload): Promise<{ ok: boolean; id: string }> =>
+  request('/inquiries', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const fetchInquiries = (status?: InquiryStatus): Promise<{ inquiries: readonly InquiryItem[] }> => {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return request<{ inquiries: readonly InquiryItem[] }>(`/inquiries${query}`);
+};
+
+export const updateInquiryStatus = (
+  id: string,
+  status: InquiryStatus,
+): Promise<{ ok: boolean }> =>
+  request<{ ok: boolean }>(`/inquiries/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+

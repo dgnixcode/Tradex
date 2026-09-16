@@ -36,8 +36,9 @@ import {
   getGroupMembers, getEnabledMembers, getGroupTrade, getGroupHeader, GroupRepoError, listAuditEvents,
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
   deleteAccount, setAccountStatus, requeueStale,
+  createInquiry, listInquiries, updateInquiryStatus,
 } from '@tradex/db';
-import type { DB } from '@tradex/db';
+import type { DB, InquiryStatus } from '@tradex/db';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
@@ -641,6 +642,39 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- POST /api/inquiries — public consultation lead submission ----
+    if (method === 'POST' && path === '/api/inquiries') {
+      const body = (ctx.body ?? {}) as {
+        name?: string;
+        email?: string;
+        phone?: string;
+        capital?: string;
+        exchange?: string;
+        method?: string;
+        notes?: string;
+      };
+      if (typeof body.name !== 'string' || !body.name.trim()) {
+        throw new HttpError(400, 'name is required');
+      }
+      if (typeof body.email !== 'string' || !body.email.trim()) {
+        throw new HttpError(400, 'email is required');
+      }
+      if (typeof body.phone !== 'string' || !body.phone.trim()) {
+        throw new HttpError(400, 'phone is required');
+      }
+      const result = await createInquiry(deps.db, {
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        capital: typeof body.capital === 'string' && body.capital.trim() ? body.capital : '₹10,00,000 – ₹25,00,000',
+        exchange: typeof body.exchange === 'string' && body.exchange.trim() ? body.exchange : 'CoinDCX',
+        method: typeof body.method === 'string' && body.method.trim() ? body.method : 'WhatsApp',
+        ...(typeof body.notes === 'string' ? { notes: body.notes } : {}),
+      });
+      sendJson(ctx.res, 201, { ok: true, id: result.id });
+      return;
+    }
+
     // ---- POST /api/logout ----
     if (method === 'POST' && path === '/api/logout') {
       sendJson(ctx.res, 200, { ok: true }, { 'set-cookie': buildClearCookie({ secure }) });
@@ -730,6 +764,38 @@ export function createHttpServer(deps: HttpDeps): Server {
       const opts = limitParam === null ? {} : { limit: Number(limitParam) };
       const rows = await listAuditEvents(forTenant(deps.db, principal.tenantId), opts);
       sendJson(ctx.res, 200, rows);
+      return;
+    }
+
+    // ---- GET /api/inquiries — authenticated operator lead retrieval ----
+    if (method === 'GET' && path === '/api/inquiries') {
+      const statusParam = url.searchParams.get('status');
+      const status = (statusParam === 'new' || statusParam === 'contacted' || statusParam === 'onboarded' || statusParam === 'archived')
+        ? (statusParam as InquiryStatus)
+        : undefined;
+      const inquiries = await listInquiries(deps.db, {
+        ...(status !== undefined ? { status } : {}),
+      });
+      sendJson(ctx.res, 200, { inquiries });
+      return;
+    }
+
+    // ---- PATCH /api/inquiries/:id — update status / notes ----
+    if (method === 'PATCH' && path.startsWith('/api/inquiries/')) {
+      const id = path.slice('/api/inquiries/'.length);
+      if (!id) throw new HttpError(400, 'inquiry id is required');
+      const body = (ctx.body ?? {}) as { status?: string };
+      if (typeof body.status !== 'string') {
+        throw new HttpError(400, 'status is required');
+      }
+      const ok = await updateInquiryStatus(
+        deps.db,
+        id,
+        body.status as InquiryStatus,
+        { contactedBy: principal.userId, now: deps.now !== undefined ? new Date(deps.now()) : new Date() },
+      );
+      if (!ok) throw new HttpError(404, 'inquiry not found');
+      sendJson(ctx.res, 200, { ok: true });
       return;
     }
 

@@ -15,6 +15,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Positions', icon: '📊', to: '/app/positions', match: (p) => p.startsWith('/app/positions') },
   { label: 'Accounts', icon: '🔗', to: '/app/accounts', match: (p) => p.startsWith('/app/accounts') },
   { label: 'Groups', icon: '🗂', to: '/app/groups', match: (p) => p.startsWith('/app/groups') },
+  { label: 'Inquiries', icon: '📥', to: '/app/inquiries', match: (p) => p.startsWith('/app/inquiries') },
   { label: 'Controls', icon: '🛑', to: '/app/trading', match: (p) => p.startsWith('/app/trading') },
   { label: 'Reports', icon: '📈', to: '/app/report', match: (p) => p.startsWith('/app/report') },
   { label: 'Audit', icon: '🧾', to: '/app/audit', match: (p) => p.startsWith('/app/audit') },

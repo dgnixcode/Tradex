@@ -137,7 +137,7 @@ export function FaqPage() {
               Have a Specific Question for Our Desk?
             </h2>
             <p style={{ color: 'var(--text-dim)', marginBottom: '24px', fontSize: '15px' }}>
-              Our senior portfolio advisors are available for one-on-one confidential discussions.
+              Our senior portfolio advisors are available for one-on-one portfolio discussions.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>
               Contact Our Advisory Team →

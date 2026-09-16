@@ -126,6 +126,23 @@ export interface PasswordResetTokenTable {
   used_at: Timestamp | null;
 }
 
+export type InquiryStatus = 'new' | 'contacted' | 'onboarded' | 'archived';
+
+export interface ConsultationInquiryTable {
+  id: Generated<string>;
+  name: string;
+  email: string;
+  phone: string;
+  capital: string;
+  exchange: string;
+  method: string;
+  notes: string | null;
+  status: Generated<InquiryStatus>;
+  created_at: Generated<Timestamp>;
+  contacted_at: Timestamp | null;
+  contacted_by: string | null;
+}
+
 // ------------------------------------------------- domains 2 and 3 (migration 004)
 
 export type SupportedQuote = 'INR' | 'USDT';
@@ -597,6 +614,7 @@ export interface DB {
   futures_execution_lock: FuturesExecutionLockTable;
   futures_trailing_sl: FuturesTrailingSlTable;
   password_reset_token: PasswordResetTokenTable;
+  consultation_inquiry: ConsultationInquiryTable;
 }
 
 /**
@@ -643,7 +661,7 @@ export const isTenantScoped = (table: string): table is TenantScopedTable => sco
  * `tenant_id`, which `checks/00-tenant-isolation.check.mjs` cross-references.
  */
 export const GLOBAL_TABLES = [
-  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token',
+  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry',
 ] as const;
 
 /** Tables a trigger makes append-only. Probed by 03-fx-snapshot.check.mjs. */

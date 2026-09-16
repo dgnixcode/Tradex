@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { useBranding } from '../branding.tsx';
+import { submitConsultationInquiry } from '../api.ts';
 
 export function Contact() {
   const { branding } = useBranding();
+  const [searchParams] = useSearchParams();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -13,11 +16,44 @@ export function Contact() {
   const [exchange, setExchange] = useState('CoinDCX');
   const [method, setMethod] = useState('WhatsApp');
   const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const rawCapital = searchParams.get('capital');
+    if (rawCapital) {
+      const capNum = Number(rawCapital);
+      if (!Number.isNaN(capNum)) {
+        if (capNum >= 5000000) setCapital('₹50,00,000+');
+        else if (capNum >= 2500000) setCapital('₹25,00,000 – ₹50,00,000');
+        else if (capNum >= 1000000) setCapital('₹10,00,000 – ₹25,00,000');
+        else if (capNum >= 500000) setCapital('₹5,00,000 – ₹10,00,000');
+        else setCapital('₹1,00,000 – ₹5,00,000');
+      }
+    }
+  }, [searchParams]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setSubmitting(true);
+    setError(null);
+    try {
+      await submitConsultationInquiry({
+        name,
+        email,
+        phone,
+        capital,
+        exchange,
+        method,
+        notes: notes.trim() || undefined,
+      });
+      setSubmitted(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to submit inquiry. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -26,9 +62,9 @@ export function Contact() {
 
       <section className="mk-section mk-block" style={{ paddingTop: '60px', paddingBottom: '30px' }}>
         <div className="section-head" style={{ maxWidth: '780px', margin: '0 auto', textAlign: 'center' }}>
-          <span className="kicker">Confidential Client Advisory</span>
+          <span className="kicker">Private Client Advisory</span>
           <h1 style={{ fontSize: '42px', fontWeight: 800, margin: '14px 0 20px', letterSpacing: '-0.03em' }}>
-            Schedule Your Private <span className="wm-grad">Wealth Consultation</span>
+            Schedule Your <span className="wm-grad">Wealth Consultation</span>
           </h1>
           <p style={{ fontSize: '17px', lineHeight: 1.6, color: 'var(--text-dim)' }}>
             Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure CoinDCX onboarding.
@@ -189,8 +225,19 @@ export function Contact() {
                   />
                 </div>
 
-                <button type="submit" className="btn btn-lg wm-btn-primary" style={{ width: '100%', marginTop: '10px' }}>
-                  Request Confidential Consultation →
+                {error && (
+                  <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#b91c1c', fontSize: '13.5px', marginBottom: '14px' }}>
+                    ⚠️ {error}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn btn-lg wm-btn-primary"
+                  style={{ width: '100%', marginTop: '6px', opacity: submitting ? 0.7 : 1, cursor: submitting ? 'not-allowed' : 'pointer' }}
+                >
+                  {submitting ? 'Submitting Request...' : 'Request Wealth Consultation →'}
                 </button>
               </form>
             )}
