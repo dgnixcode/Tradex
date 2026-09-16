@@ -32,6 +32,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { add, cmp, div, mul } from '@tradex/money';
+import { freeBalanceMinor } from '@tradex/exchange';
 import type { Balance, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
@@ -414,29 +415,37 @@ export class PlanningService {
     let effectiveDailyCap = ctx.caps.dailyNotionalMinor;
 
     let effectiveAllocatedMinor = member.allocatedCapitalMinor;
-    let effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, quote);
+    let effectiveFreeMinor = freeBalanceMinor(effectiveBalances, quote);
     
     // Cross-currency sizing (Phase 15 backport)
     // When trading on a USDT market (e.g. all futures perps):
-    // 1. If the account's allocated capital is in INR paise (scale 2), convert to USDT minor (scale 8).
-    //    1 USDT = rate INR (e.g. 88 INR).
-    //    USDT minor = (INR paise * 10^6) / rate.
-    if (quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {
+    // For futures, the user chooses which wallet funds margin: INR or USDT.
+    const fundingCurrency = req.isFutures ? (req.marginCurrency ?? member.allocatedCurrency) : member.allocatedCurrency;
+
+    if (req.isFutures && quote === 'USDT') {
+      if (fundingCurrency === 'INR' && ctx.usdtInrMid !== null) {
+        // Free INR balance projected to tradable scale 2 (paise)
+        const inrFree = freeBalanceMinor(effectiveBalances, 'INR');
+        const rate = nat(ctx.usdtInrMid);
+        // Convert INR paise to USDT minor (scale 8): (INR paise * 10^6) / rate
+        const freeScaled = mul(nat(inrFree), nat('1000000'), 0);
+        const usdtEquiv = toStr(div(freeScaled, rate, 0));
+        effectiveFreeMinor = usdtEquiv;
+        // The sizing basis for percentage-of-capital order is this funded collateral
+        effectiveAllocatedMinor = usdtEquiv;
+      } else if (fundingCurrency === 'USDT') {
+        const usdtFree = freeBalanceMinor(effectiveBalances, 'USDT');
+        effectiveFreeMinor = usdtFree;
+        if (usdtFree !== '0') {
+          effectiveAllocatedMinor = usdtFree;
+        } else if (member.allocatedCurrency === 'USDT') {
+          effectiveAllocatedMinor = member.allocatedCapitalMinor;
+        }
+      }
+    } else if (quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {
       const rate = nat(ctx.usdtInrMid);
       const allocatedScaled = mul(nat(member.allocatedCapitalMinor), nat('1000000'), 0);
       effectiveAllocatedMinor = toStr(div(allocatedScaled, rate, 0));
-    }
-
-    // 2. Determine spendable free balance (collateral).
-    // For futures, the user chooses which wallet funds margin: INR or USDT.
-    const fundingCurrency = req.isFutures ? (req.marginCurrency ?? member.allocatedCurrency) : member.allocatedCurrency;
-    if (req.isFutures && quote === 'USDT' && fundingCurrency === 'INR' && ctx.usdtInrMid !== null) {
-      const inrFree = freeQuoteMinorOf(effectiveBalances, 'INR');
-      const rate = nat(ctx.usdtInrMid);
-      const freeScaled = mul(nat(inrFree), nat('1000000'), 0);
-      effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
-    } else if (req.isFutures && quote === 'USDT' && fundingCurrency === 'USDT') {
-      effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, 'USDT');
     }
 
     // Convert tenant caps from INR paise (scale 2) to USDT minor (scale 8) when trading on a USDT market
@@ -722,10 +731,9 @@ export class PlanningService {
   }
 }
 
-/** Read a specific quote's free balance in minor units, or '0'. */
+/** Read a specific quote's free balance in quote-scale minor units, or '0'. */
 function freeQuoteMinorOf(balances: readonly Balance[], quote: string): string {
-  const b = balances.find((x) => x.currency === quote);
-  return b?.freeMinor ?? '0';
+  return freeBalanceMinor(balances, quote);
 }
 
 /** The held quantity of an asset, as a plain decimal at the balance's scale. */

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchAccountList } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 
@@ -33,6 +33,7 @@ function capitalLabel(minor: string | null, currency: string | null): string {
 }
 
 export function Accounts() {
+  const queryClient = useQueryClient();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccountList });
   const { state } = useAuth();
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
@@ -44,7 +45,10 @@ export function Accounts() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
           <button
             className="btn secondary btn-sm"
-            onClick={() => accounts.refetch()}
+            onClick={() => {
+              void accounts.refetch();
+              void queryClient.invalidateQueries({ queryKey: ['groups'] });
+            }}
             disabled={accounts.isFetching}
             title="Refresh accounts list"
           >

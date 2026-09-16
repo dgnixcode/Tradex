@@ -145,7 +145,12 @@ function Choice<T extends string>({ label, value, options, onChange, hint }: {
 
 export function TradeTicket() {
   const navigate = useNavigate();
-  const groups = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
+  const groups = useQuery({
+    queryKey: ['groups'],
+    queryFn: fetchGroups,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
   const assets = useQuery({ queryKey: ['assets'], queryFn: fetchAssets });
 
   const draft = useMemo(() => {
@@ -541,6 +546,23 @@ export function TradeTicket() {
           <label htmlFor="group" style={{ margin: 0 }}>Group</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Funding wallet:</span>
+            <button
+              type="button"
+              className="btn ghost btn-sm"
+              style={{
+                padding: '1px 5px',
+                height: 20,
+                minHeight: 'unset',
+                fontSize: 11,
+                cursor: 'pointer',
+                opacity: groups.isFetching ? 0.5 : 0.8,
+              }}
+              onClick={() => void groups.refetch()}
+              disabled={groups.isFetching}
+              title="Refresh group balances from database"
+            >
+              {groups.isFetching ? '⏳' : '🔄'}
+            </button>
             <div style={{
               display: 'flex',
               background: '#0e1014',

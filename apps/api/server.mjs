@@ -26,10 +26,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { createHttpServer, listAccounts, placeFuturesOrder, planAdjustment } from './dist/index.js';
-import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances } from '../../packages/db/dist/index.js';
+import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances, recordVenueBasis } from '../../packages/db/dist/index.js';
 import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
 import { Signer } from '../signer/dist/index.js';
-import { deriveFundingCurrencies, futuresPairOf } from '../../packages/exchange/dist/index.js';
+import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor } from '../../packages/exchange/dist/index.js';
 import {
   mapOrderBook, probeCredential, send,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
@@ -395,11 +395,21 @@ const accountSync = async ({ tenantId, accountId }) => {
     }
     const balances = probe.balances ?? [];
     const funding = deriveFundingCurrencies(balances);
-    await recordObservedBalances(tdbFor(tenantId), {
+    const tdb = tdbFor(tenantId);
+    await recordObservedBalances(tdb, {
       accountId,
       fundingCurrencies: funding,
       balances,
     });
+    if (funding.length > 0) {
+      const primaryCurrency = funding[0];
+      const realFree = freeBalanceMinor(balances, primaryCurrency);
+      await recordVenueBasis(tdb, {
+        accountId,
+        currency: primaryCurrency,
+        capitalMinor: realFree,
+      });
+    }
     return {
       currencies: funding,
       balances: balances.length,

@@ -68,6 +68,7 @@ export function AccountDetail() {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['account', accountId] });
     void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    void queryClient.invalidateQueries({ queryKey: ['groups'] });
   };
 
   const finish = useMutation({

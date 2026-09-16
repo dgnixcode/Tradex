@@ -244,9 +244,27 @@ export interface GroupSummary {
 }
 
 /**
+ * Restate a minor-unit string from one scale to another, discarding anything below
+ * the target scale or zero-padding if widening.
+ */
+function projectToScale(minor: string, from: number, to: number): string {
+  if (!minor || minor === '0' || from === to) return minor || '0';
+  const negative = minor.startsWith('-');
+  const rawDigits = (negative ? minor.slice(1) : minor).replace(/^0+(?=\d)/, '');
+  if (rawDigits === '0' || rawDigits === '') return '0';
+  if (to > from) return `${negative ? '-' : ''}${rawDigits}${'0'.repeat(to - from)}`;
+  const kept = rawDigits.length - (from - to);
+  if (kept <= 0) return '0';
+  const result = `${negative ? '-' : ''}${rawDigits.slice(0, kept).replace(/^0+(?=\d)/, '')}`;
+  return result === '' || result === '-' ? '0' : result;
+}
+
+/**
  * The group picker read (T04.7). One row per non-archived group with its member
  * counts and per-currency capital. The capital is summed over ENABLED members
- * only, because a disabled member does not trade.
+ * only, querying live `account_balance` records projected to tradable quote scale
+ * (INR scale 2, USDT scale 8), falling back to `exchange_account.allocated_capital_minor`
+ * when no balance row exists.
  */
 export async function listGroups(tdb: TenantDb): Promise<readonly GroupSummary[]> {
   const groups = await tdb.selectFrom('account_group')
@@ -255,31 +273,78 @@ export async function listGroups(tdb: TenantDb): Promise<readonly GroupSummary[]
     .orderBy('name' as never)
     .execute();
 
-  const summaries: GroupSummary[] = [];
-  for (const g of groups as ReadonlyArray<{ id: string; name: string; description: string | null }>) {
-    const rows = await tdb.selectFrom('group_member')
-      .innerJoin('exchange_account', 'exchange_account.id', 'group_member.account_id')
-      .select([
-        'group_member.enabled as enabled',
-        'exchange_account.allocated_currency as currency',
-        'exchange_account.allocated_capital_minor as capital',
-      ])
-      .where('group_member.group_id' as never, '=', g.id as never)
-      .execute() as ReadonlyArray<{ enabled: boolean; currency: SupportedQuote; capital: string }>;
+  const memberRows = await tdb.selectFrom('group_member')
+    .innerJoin('exchange_account', 'exchange_account.id', 'group_member.account_id')
+    .select([
+      'group_member.group_id as groupId',
+      'group_member.account_id as accountId',
+      'group_member.enabled as enabled',
+      'exchange_account.allocated_currency as currency',
+      'exchange_account.allocated_capital_minor as capital',
+    ])
+    .execute() as ReadonlyArray<{
+      groupId: string; accountId: string; enabled: boolean; currency: SupportedQuote; capital: string | null;
+    }>;
 
-    const allocated: Record<SupportedQuote, bigint> = { INR: 0n, USDT: 0n };
-    let enabledCount = 0;
-    for (const r of rows) {
-      if (r.enabled) {
-        enabledCount += 1;
-        allocated[r.currency] += BigInt(r.capital);
+  const enabledAccountIds = [...new Set(memberRows.filter((r) => r.enabled).map((r) => r.accountId))];
+
+  const balanceMap = new Map<string, { INR?: { freeMinor: string; scale: number }; USDT?: { freeMinor: string; scale: number } }>();
+  if (enabledAccountIds.length > 0) {
+    const balanceRows = await tdb.selectFrom('account_balance')
+      .select(['account_id', 'currency', 'free_minor', 'scale'])
+      .where('account_id' as never, 'in', enabledAccountIds as never)
+      .where('currency' as never, 'in', ['INR', 'USDT'] as never)
+      .execute() as ReadonlyArray<{ account_id: string; currency: string; free_minor: string; scale: number }>;
+
+    for (const b of balanceRows) {
+      let acc = balanceMap.get(b.account_id);
+      if (!acc) {
+        acc = {};
+        balanceMap.set(b.account_id, acc);
+      }
+      if (b.currency === 'INR' || b.currency === 'USDT') {
+        acc[b.currency] = { freeMinor: b.free_minor, scale: b.scale };
       }
     }
+  }
+
+  const summaries: GroupSummary[] = [];
+  for (const g of groups as ReadonlyArray<{ id: string; name: string; description: string | null }>) {
+    const groupMembers = memberRows.filter((m) => m.groupId === g.id);
+    const allocated: Record<SupportedQuote, bigint> = { INR: 0n, USDT: 0n };
+    let enabledCount = 0;
+
+    for (const m of groupMembers) {
+      if (!m.enabled) continue;
+      enabledCount += 1;
+
+      const accBalances = balanceMap.get(m.accountId);
+      let countedInr = false;
+      let countedUsdt = false;
+
+      if (accBalances?.INR) {
+        const projected = projectToScale(accBalances.INR.freeMinor, accBalances.INR.scale, 2);
+        allocated.INR += BigInt(projected);
+        countedInr = true;
+      }
+      if (accBalances?.USDT) {
+        const projected = projectToScale(accBalances.USDT.freeMinor, accBalances.USDT.scale, 8);
+        allocated.USDT += BigInt(projected);
+        countedUsdt = true;
+      }
+
+      // Fallback: if no account_balance records exist at all for this account,
+      // fallback to exchange_account.allocated_capital_minor for its allocated_currency
+      if (!countedInr && !countedUsdt && m.currency && m.capital) {
+        allocated[m.currency] += BigInt(m.capital);
+      }
+    }
+
     summaries.push({
       id: g.id,
       name: g.name,
       description: g.description,
-      memberCount: rows.length,
+      memberCount: groupMembers.length,
       enabledCount,
       allocatedByCurrency: { INR: String(allocated.INR), USDT: String(allocated.USDT) },
     });
