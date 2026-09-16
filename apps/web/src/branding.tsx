@@ -13,7 +13,7 @@ interface BrandingContextValue {
 }
 
 const STORAGE_KEY = 'tradex_platform_branding';
-export const DEFAULT_BRAND_NAME = 'Tradex';
+export const DEFAULT_BRAND_NAME = 'Aza WealthKare';
 
 export function determineLogoType(logo: string | null): 'image' | 'icon' | 'default' {
   if (!logo || logo.trim() === '') return 'default';

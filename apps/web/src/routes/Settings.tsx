@@ -25,7 +25,7 @@ export function Settings() {
 
   const { branding, updateBranding, resetBranding } = useBranding();
 
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => branding.name || DEFAULT_BRAND_NAME);
   const [logo, setLogo] = useState<string | null>(null);
   const [logoTab, setLogoTab] = useState<'upload' | 'url' | 'icon'>('upload');
   const [urlInput, setUrlInput] = useState('');
@@ -35,13 +35,17 @@ export function Settings() {
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nameInitializedRef = useRef(false);
 
-  // Initialize from branding and workspace data
+  // Initialize once from workspace data if branding was not customized
   useEffect(() => {
-    if (name === '') {
-      setName(branding.name || workspace.data?.name || DEFAULT_BRAND_NAME);
+    if (!nameInitializedRef.current && workspace.data?.name) {
+      if (!branding.name || branding.name === DEFAULT_BRAND_NAME) {
+        setName(workspace.data.name);
+      }
+      nameInitializedRef.current = true;
     }
-  }, [workspace.data, branding.name, name]);
+  }, [workspace.data?.name, branding.name]);
 
   useEffect(() => {
     setLogo(branding.logo);
@@ -134,7 +138,7 @@ export function Settings() {
     setUrlInput('');
     setIconInput('');
     if (fileInputRef.current) fileInputRef.current.value = '';
-    setStatus({ kind: 'ok', message: 'Branding reset to default Tradex values.' });
+    setStatus({ kind: 'ok', message: `Branding reset to default ${DEFAULT_BRAND_NAME} values.` });
   };
 
   const submit = async (e: React.FormEvent): Promise<void> => {
