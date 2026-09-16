@@ -58,7 +58,7 @@ const BrandingContext = createContext<BrandingContextValue | null>(null);
 export function BrandingProvider({ children }: { readonly children: ReactNode }) {
   const [branding, setBranding] = useState<PlatformBranding>(loadInitialBranding);
 
-  // Sync to localStorage whenever state changes
+  // Sync to localStorage and document.title whenever state changes
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -67,6 +67,17 @@ export function BrandingProvider({ children }: { readonly children: ReactNode })
       );
     } catch {
       // ignore storage quota or private browsing errors
+    }
+    if (typeof document !== 'undefined' && branding.name) {
+      if (document.title.includes('·')) {
+        const prefix = document.title.split('·')[0]?.trim();
+        document.title = prefix ? `${prefix} · ${branding.name}` : branding.name;
+      } else if (document.title.includes('-')) {
+        const suffix = document.title.split('-')[1]?.trim();
+        document.title = suffix ? `${branding.name} - ${suffix}` : branding.name;
+      } else {
+        document.title = `${branding.name} - Institutional Crypto Wealth Management`;
+      }
     }
   }, [branding]);
 

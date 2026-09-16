@@ -1,9 +1,9 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Outlet, RouterProvider, createBrowserRouter } from 'react-router-dom';
+import { Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom';
 import { AuthProvider, RequireAuth } from './auth.tsx';
-import { BrandingProvider } from './branding.tsx';
+import { BrandingProvider, useBranding } from './branding.tsx';
 import { App } from './App.tsx';
 import { Landing } from './routes/Landing.tsx';
 import { Login } from './routes/Login.tsx';
@@ -41,6 +41,75 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } },
 });
 
+function PageTitleSync() {
+  const { branding } = useBranding();
+  const location = useLocation();
+
+  useEffect(() => {
+    const brand = branding.name || 'Aza WealthKare';
+    const path = location.pathname;
+
+    let pageTitle = '';
+    if (path === '/') {
+      document.title = `${brand} - Institutional Crypto Wealth Management`;
+      const og = document.querySelector('meta[property="og:title"]');
+      if (og) og.setAttribute('content', document.title);
+      return;
+    } else if (path === '/about') {
+      pageTitle = 'About Us';
+    } else if (path === '/model') {
+      pageTitle = 'Investment Model';
+    } else if (path === '/guarantee') {
+      pageTitle = '100% Capital Protection Guarantee';
+    } else if (path === '/contact') {
+      pageTitle = 'Schedule Wealth Consultation';
+    } else if (path === '/faq') {
+      pageTitle = 'Knowledge Base & FAQ';
+    } else if (path === '/login') {
+      pageTitle = 'Operator Portal Login';
+    } else if (path === '/signup') {
+      pageTitle = 'Create Account';
+    } else if (path === '/forgot-password') {
+      pageTitle = 'Forgot Password';
+    } else if (path === '/reset-password') {
+      pageTitle = 'Reset Password';
+    } else if (path === '/app' || path.startsWith('/app/trades')) {
+      pageTitle = 'Trade Execution Desk';
+    } else if (path === '/app/inquiries') {
+      pageTitle = 'Client Inquiries';
+    } else if (path === '/app/positions') {
+      pageTitle = 'Futures Positions';
+    } else if (path === '/app/accounts') {
+      pageTitle = 'Exchange Accounts';
+    } else if (path.startsWith('/app/accounts/')) {
+      pageTitle = 'Account Details';
+    } else if (path === '/app/groups' || path.startsWith('/app/groups/')) {
+      pageTitle = 'Account Groups';
+    } else if (path === '/app/activity') {
+      pageTitle = 'Order Blotter';
+    } else if (path === '/app/trading') {
+      pageTitle = 'Trading Desk Controls';
+    } else if (path === '/app/report') {
+      pageTitle = 'Performance Reports';
+    } else if (path === '/app/security') {
+      pageTitle = 'Security & 2FA';
+    } else if (path === '/app/audit') {
+      pageTitle = 'System Audit Log';
+    } else if (path === '/app/settings') {
+      pageTitle = 'Branding & Settings';
+    } else {
+      pageTitle = brand;
+    }
+
+    document.title = `${pageTitle} · ${brand}`;
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', document.title);
+  }, [location.pathname, branding.name]);
+
+  return null;
+}
+
 // AuthProvider is a layout route so it lives INSIDE the router — its children
 // (the pages) use both useAuth and router hooks, which only works within the
 // RouterProvider context. Everything hangs off it.
@@ -48,6 +117,7 @@ function Root() {
   return (
     <BrandingProvider>
       <AuthProvider>
+        <PageTitleSync />
         <Outlet />
       </AuthProvider>
     </BrandingProvider>
