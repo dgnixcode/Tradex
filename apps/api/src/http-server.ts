@@ -44,6 +44,8 @@ import type { NamedAccount } from './positions.js';
 import { analyticsReport, blotterPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
 import { SettingsService, SettingsServiceError } from './settings-service.js';
 import { buildFuturesPositions, venuePositionOwner } from './futures/positions.js';
+import { getFuturesRtPrices } from './futures/rt-prices.js';
+import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
@@ -749,6 +751,22 @@ export function createHttpServer(deps: HttpDeps): Server {
     if (method === 'GET' && path === '/api/futures/positions') {
       requireAction(principal, 'view.dashboards');
       sendJson(ctx.res, 200, await buildFuturesPositions(deps.db, principal.tenantId, deps.now?.() ?? Date.now()));
+      return;
+    }
+
+    // ---- GET /api/futures/prices — bulk real-time market prices for all pairs ----
+    if (method === 'GET' && path === '/api/futures/prices') {
+      requireAction(principal, 'view.dashboards');
+      try {
+        const prices = await getFuturesRtPrices();
+        const out: Record<string, FuturesRtPrice> = {};
+        for (const [k, v] of prices.entries()) {
+          out[k] = v;
+        }
+        sendJson(ctx.res, 200, { prices: out, observedAtMs: Date.now() });
+      } catch (e) {
+        throw new HttpError(500, `could not fetch futures prices: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
       return;
     }
 

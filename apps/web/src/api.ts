@@ -538,6 +538,20 @@ export const refreshFuturesPositions = (): Promise<{ accounts: number; positions
 export const fetchFuturesPositions = (): Promise<FuturesPositionsResponse> =>
   request<FuturesPositionsResponse>('/futures/positions');
 
+export interface FuturesRtPriceItem {
+  readonly markPrice: string;
+  readonly lastPrice: string;
+  readonly priceChangePercent: number;
+}
+
+export interface FuturesPricesResponse {
+  readonly prices: Record<string, FuturesRtPriceItem>;
+  readonly observedAtMs: number;
+}
+
+export const fetchFuturesPrices = (): Promise<FuturesPricesResponse> =>
+  request<FuturesPricesResponse>('/futures/prices');
+
 /**
  * Fetch the current market price (best bid/ask) for a futures pair.
  * Used to auto-fill the limit price field on the trade ticket.

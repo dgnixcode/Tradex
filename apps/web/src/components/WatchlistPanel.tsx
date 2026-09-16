@@ -1,8 +1,24 @@
 import { useEffect, useState, useMemo } from 'react';
-import type { AssetOption } from '../api.ts';
+import { useQuery } from '@tanstack/react-query';
+import { fetchFuturesPrices, type AssetOption } from '../api.ts';
 
 const STORAGE_KEY = 'tradex_watchlist_v1';
 const DEFAULT_COINS = ['BTC', 'ETH', 'SOL', 'DASH', 'ZEC', 'DOGE', 'XRP', 'AVAX', 'BNB'];
+
+function formatPrice(numStr: string | number): string {
+  const n = typeof numStr === 'number' ? numStr : Number(numStr);
+  if (isNaN(n) || n === 0) return '—';
+  if (n >= 1000) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (n >= 1) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+  if (n >= 0.0001) {
+    return n.toFixed(4);
+  }
+  return n.toFixed(6);
+}
 
 // Sample 24h mock stats / baseline prices for instant UI polish before live ticker loads
 const MOCK_BASELINE_STATS: Record<string, { price: string; change: number }> = {
@@ -50,6 +66,14 @@ export function WatchlistPanel({
   const [search, setSearch] = useState('');
   const [showAddMenu, setShowAddMenu] = useState(false);
 
+  // Poll bulk real-time futures prices every 3 seconds (cached on backend, zero IP risk)
+  const { data: pricesData } = useQuery({
+    queryKey: ['futures-prices'],
+    queryFn: fetchFuturesPrices,
+    refetchInterval: 3000,
+    staleTime: 1500,
+  });
+
   // Sync with localStorage
   useEffect(() => {
     try {
@@ -82,15 +106,22 @@ export function WatchlistPanel({
 
   // Available suggestions not in watchlist
   const suggestions = useMemo(() => {
-    const assetNames = allAssets.length > 0
-      ? allAssets.map((a) => a.asset)
-      : Object.keys(MOCK_BASELINE_STATS);
+    let assetNames: string[] = [];
+    if (allAssets.length > 0) {
+      assetNames = allAssets.map((a) => a.asset);
+    } else if (pricesData?.prices && Object.keys(pricesData.prices).length > 0) {
+      assetNames = Object.keys(pricesData.prices)
+        .filter((k) => k.startsWith('B-') && k.endsWith('_USDT'))
+        .map((k) => k.replace(/^B-/, '').replace(/_USDT$/, ''));
+    } else {
+      assetNames = Object.keys(MOCK_BASELINE_STATS);
+    }
 
     const available = assetNames.filter((a) => !watchlist.includes(a));
-    if (!search.trim()) return available.slice(0, 8);
+    if (!search.trim()) return available.slice(0, 10);
     const query = search.toUpperCase().trim();
-    return available.filter((a) => a.includes(query)).slice(0, 10);
-  }, [allAssets, watchlist, search]);
+    return available.filter((a) => a.includes(query)).slice(0, 15);
+  }, [allAssets, pricesData, watchlist, search]);
 
   return (
     <div
@@ -133,6 +164,23 @@ export function WatchlistPanel({
             }}
           >
             {watchlist.length}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: '#0ecb81',
+              background: 'rgba(14, 203, 129, 0.12)',
+              border: '1px solid rgba(14, 203, 129, 0.25)',
+              borderRadius: 4,
+              padding: '1px 5px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              marginLeft: 2,
+            }}
+          >
+            <span style={{ fontSize: 7 }}>●</span> Live (3s)
           </span>
         </div>
 
@@ -231,8 +279,19 @@ export function WatchlistPanel({
       >
         {filteredList.map((coin) => {
           const isSelected = selectedAsset.toUpperCase() === coin;
-          const stat = MOCK_BASELINE_STATS[coin] ?? { price: '—', change: 0 };
-          const isPos = stat.change >= 0;
+          const pairKey = `B-${coin}_USDT`;
+          const live = pricesData?.prices?.[pairKey];
+          const rawPrice = live ? (live.lastPrice || live.markPrice) : undefined;
+          const rawChange = live ? live.priceChangePercent : undefined;
+
+          const baseline = MOCK_BASELINE_STATS[coin];
+          const displayPrice = rawPrice !== undefined
+            ? formatPrice(rawPrice)
+            : (baseline ? baseline.price : '—');
+          const displayChange = rawChange !== undefined
+            ? rawChange
+            : (baseline ? baseline.change : 0);
+          const isPos = displayChange >= 0;
 
           return (
             <div
@@ -278,7 +337,7 @@ export function WatchlistPanel({
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text, #f0f3f8)' }}>
-                    {stat.price !== '—' ? `$${stat.price}` : '—'}
+                    {displayPrice !== '—' ? `$${displayPrice}` : '—'}
                   </div>
                   <div
                     style={{
@@ -287,7 +346,7 @@ export function WatchlistPanel({
                       color: isPos ? '#0ecb81' : '#f6465d',
                     }}
                   >
-                    {isPos ? `+${stat.change.toFixed(2)}%` : `${stat.change.toFixed(2)}%`}
+                    {isPos ? `+${displayChange.toFixed(2)}%` : `${displayChange.toFixed(2)}%`}
                   </div>
                 </div>
 
