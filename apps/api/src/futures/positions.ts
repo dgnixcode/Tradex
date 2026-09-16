@@ -16,6 +16,7 @@ import { buildFuturesViews } from '@tradex/futures-positions';
 import { listAccounts } from '../accounts-query.js';
 import type { FuturesPositionRow, FuturesPositionView, Quote } from '@tradex/futures-positions';
 import type { Kysely } from 'kysely';
+import { getFuturesRtPrices, type FuturesRtPrice } from './rt-prices.js';
 
 export type { FuturesPositionView } from '@tradex/futures-positions';
 
@@ -102,31 +103,39 @@ export async function buildFuturesPositions(
   db: Kysely<DB>,
   tenantId: string,
   nowMs: number,
+  rtPrices?: Map<string, FuturesRtPrice>,
 ): Promise<FuturesPositionsResponse> {
   const tdb = forTenant(db, tenantId);
   const accounts = await listAccounts(tdb);
   const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
   const raw = await readFuturesPositions(tdb, accounts.map((a) => a.id));
+  const prices = rtPrices ?? await getFuturesRtPrices().catch(() => new Map<string, FuturesRtPrice>());
+
   const shaped: FuturesPositionRow[] = raw
     .filter((r) => r.marginCurrency === 'INR' || r.marginCurrency === 'USDT')
-    .map((r) => ({
-      accountId: r.accountId,
-      accountName: nameOf.get(r.accountId) ?? r.accountId.slice(0, 8),
-      pair: r.pair,
-      marginCurrency: r.marginCurrency as Quote,
-      venuePositionId: r.venuePositionId,
-      activePos: r.activePos,
-      avgEntryPrice: r.avgEntryPrice,
-      markPrice: r.markPrice,
-      markObservedAtMs: r.markObservedAt === null ? null : r.markObservedAt.getTime(),
-      liquidationPrice: r.liquidationPrice,
-      leverage: r.leverage,
-      lockedMarginMinor: r.lockedMarginMinor,
-      stopLossTrigger: r.stopLossTrigger,
-      takeProfitTrigger: r.takeProfitTrigger,
-      fundingRateBp: r.fundingRateBp,
-      settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
-    }));
+    .map((r) => {
+      const live = prices.get(r.pair);
+      const markPrice = live?.markPrice ?? r.markPrice;
+      const markObservedAtMs = live ? nowMs : (r.markObservedAt === null ? null : r.markObservedAt.getTime());
+      return {
+        accountId: r.accountId,
+        accountName: nameOf.get(r.accountId) ?? r.accountId.slice(0, 8),
+        pair: r.pair,
+        marginCurrency: r.marginCurrency as Quote,
+        venuePositionId: r.venuePositionId,
+        activePos: r.activePos,
+        avgEntryPrice: r.avgEntryPrice,
+        markPrice,
+        markObservedAtMs,
+        liquidationPrice: r.liquidationPrice,
+        leverage: r.leverage,
+        lockedMarginMinor: r.lockedMarginMinor,
+        stopLossTrigger: r.stopLossTrigger,
+        takeProfitTrigger: r.takeProfitTrigger,
+        fundingRateBp: r.fundingRateBp,
+        settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
+      };
+    });
   return {
     views: buildFuturesViews(shaped, nowMs),
     at: new Date(nowMs).toISOString(),

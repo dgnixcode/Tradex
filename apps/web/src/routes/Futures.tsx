@@ -86,6 +86,8 @@ interface PositionGroup {
   marginCurrency: 'INR' | 'USDT';
   /** Sum of all account quantities. */
   totalQty: number;
+  /** Aggregated margin in minor units. */
+  totalMarginMinor: string | null;
   /** Aggregated unrealised PnL in minor units. */
   totalPnlMinor: string | null;
   /** Per-account positions in this group. */
@@ -107,6 +109,7 @@ function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
         side: p.side,
         marginCurrency: p.marginCurrency,
         totalQty: 0,
+        totalMarginMinor: null,
         totalPnlMinor: null,
         positions: [],
       };
@@ -114,6 +117,11 @@ function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
     }
     g.positions.push(p);
     g.totalQty += Number(p.quantity);
+    if (p.lockedMarginMinor !== null && p.lockedMarginMinor !== '' && p.lockedMarginMinor !== '0') {
+      g.totalMarginMinor = g.totalMarginMinor === null
+        ? p.lockedMarginMinor
+        : addMinors(g.totalMarginMinor, p.lockedMarginMinor);
+    }
     if (p.unrealisedPnlMinor !== null) {
       g.totalPnlMinor = g.totalPnlMinor === null
         ? p.unrealisedPnlMinor
@@ -143,11 +151,14 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
       <td>
         <strong>{p.accountName}</strong>
       </td>
-      <td className="mono">{p.quantity}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>{p.quantity}</td>
       <td>{p.leverage === null ? <span className="muted">—</span> : `${p.leverage}×`}</td>
-      <td className="mono">{p.avgEntryPrice ?? <span className="muted">—</span>}</td>
-      <td className="mono">{p.markPrice ?? <span className="muted">—</span>}</td>
-      <td className="mono" style={{ color: bufferColor(p.liqBufferBp) }}>
+      <td className="mono" style={{ textAlign: 'right' }}>
+        {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : <span className="muted">—</span>}
+      </td>
+      <td className="mono" style={{ textAlign: 'right' }}>{p.avgEntryPrice ?? <span className="muted">—</span>}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>{p.markPrice ?? <span className="muted">—</span>}</td>
+      <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
         {p.liquidationPrice ?? <span className="muted">—</span>}
         {p.liqBufferBp !== null && (
           <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
@@ -155,7 +166,7 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
           </span>
         )}
       </td>
-      <td className={`mono ${pnlClass(p.unrealisedPnlMinor)}`} style={{ fontWeight: 600 }}>
+      <td className={`mono ${pnlClass(p.unrealisedPnlMinor)}`} style={{ textAlign: 'right', fontWeight: 600 }}>
         {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
         {roe !== null && (
           <span style={{ display: 'block', fontSize: 11, fontWeight: 500 }}>
@@ -258,6 +269,11 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
         <span className="card-meta" style={{ marginLeft: 8 }}>
           Qty <strong style={{ color: 'var(--text)' }}>{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>
         </span>
+        {group.totalMarginMinor !== null && (
+          <span className="card-meta">
+            Margin <strong style={{ color: 'var(--text)' }}>{fmtMinor(group.totalMarginMinor, group.marginCurrency)}</strong>
+          </span>
+        )}
         <span className="card-meta">
           {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
         </span>
@@ -284,6 +300,7 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
                 <th>Account</th>
                 <th style={{ textAlign: 'right' }}>Qty</th>
                 <th>Lev</th>
+                <th style={{ textAlign: 'right' }}>Margin</th>
                 <th style={{ textAlign: 'right' }}>Entry</th>
                 <th style={{ textAlign: 'right' }}>Mark</th>
                 <th style={{ textAlign: 'right' }}>Liquidation</th>
@@ -322,7 +339,11 @@ export function Futures() {
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions });
+  const positions = useQuery({
+    queryKey: ['futures-positions'],
+    queryFn: fetchFuturesPositions,
+    refetchInterval: 3000,
+  });
 
   const refreshMut = useMutation({
     mutationFn: () => refreshFuturesPositions(),
@@ -422,6 +443,20 @@ export function Futures() {
     return byCurrency;
   }, [rows]);
 
+  // Compute total Margin invested across all positions
+  const totalMargin = useMemo(() => {
+    const byCurrency: Record<string, string> = {};
+    for (const p of rows) {
+      if (p.lockedMarginMinor !== null && p.lockedMarginMinor !== '' && p.lockedMarginMinor !== '0') {
+        const cur = p.marginCurrency;
+        byCurrency[cur] = byCurrency[cur] === undefined
+          ? p.lockedMarginMinor
+          : addMinors(byCurrency[cur]!, p.lockedMarginMinor);
+      }
+    }
+    return byCurrency;
+  }, [rows]);
+
   const toggleGroup = (key: string): void => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -436,13 +471,30 @@ export function Futures() {
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Positions</h2>
+        <span
+          className="badge"
+          style={{
+            background: 'rgba(75,181,99,0.12)',
+            color: 'var(--ok)',
+            border: '1px solid var(--ok)',
+            fontSize: 11,
+            fontWeight: 600,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '2px 8px',
+          }}
+        >
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
+          Live (3s)
+        </span>
         <button
           className="btn secondary btn-sm"
           style={{ marginLeft: 'auto' }}
           disabled={refreshMut.isPending}
           onClick={() => refreshMut.mutate()}
         >
-          {refreshMut.isPending ? 'Reading the exchange…' : 'Refresh from exchange'}
+          {refreshMut.isPending ? 'Reading the exchange…' : 'Sync from exchange'}
         </button>
         <span className="muted" style={{ fontSize: 12.5 }}>
           {positions.data === undefined ? '' : `updated ${new Date(positions.data.at).toLocaleTimeString('en-IN')}`}
@@ -462,6 +514,19 @@ export function Futures() {
               ))}
               {Object.keys(totalPnl).length === 0 && (
                 <span className="pnl-big muted">—</span>
+              )}
+            </div>
+          </div>
+          <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
+            <div className="stat-label">Margin Invested</div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              {Object.entries(totalMargin).map(([cur, minor]) => (
+                <span key={cur} className="stat-value" style={{ fontWeight: 600 }}>
+                  {fmtMinor(minor, cur as 'INR' | 'USDT')}
+                </span>
+              ))}
+              {Object.keys(totalMargin).length === 0 && (
+                <span className="stat-value muted">—</span>
               )}
             </div>
           </div>

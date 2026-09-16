@@ -126,12 +126,23 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     const s = asStr(v);
     return (s === null || s === '' || Number(s) <= 0 || !Number.isFinite(Number(s))) ? null : s;
   };
+  const toLockedMarginMinor = (v: unknown, marginCurr: string, pegStr: string | null): string | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const num = Number(v);
+    if (!Number.isFinite(num)) return null;
+    if (marginCurr === 'INR') {
+      const peg = pegStr && Number(pegStr) > 0 ? Number(pegStr) : 100;
+      return Math.round(num * peg * 100).toString();
+    }
+    return Math.round(num * 1e8).toString();
+  };
   const pair = asStr(row['pair']);
   const activePos = asStr(row['active_pos']);
   const margin = asStr(row['margin_currency_short_name']);
   const venuePositionId = asStr(row['id']);
   if (pair === null || activePos === null || margin === null || venuePositionId === null) return null;
   if (margin !== 'INR' && margin !== 'USDT') return null;
+  const peg = settlementPeg(row['settlement_currency_avg_price']);
   return {
     venuePositionId,
     pair,
@@ -142,13 +153,13 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     liquidationPrice: asStr(row['liquidation_price']),
     leverage: (typeof row['leverage'] === 'number') ? (row['leverage'] as number)
       : (typeof row['leverage'] === 'string' && row['leverage'] !== '') ? Number(row['leverage']) : null,
-    lockedMarginMinor: asStr(row['locked_margin']),
+    lockedMarginMinor: toLockedMarginMinor(row['locked_margin'], margin, peg),
     stopLossTrigger: triggerVal(row['stop_loss_trigger']),
     takeProfitTrigger: triggerVal(row['take_profit_trigger']),
     marginType: (row['margin_type'] === 'isolated' || row['margin_type'] === 'crossed')
       ? (row['margin_type'] as FuturesPositionMarginType) : null,
     fundingRateBp: (typeof row['funding_rate_bp'] === 'number') ? (row['funding_rate_bp'] as number) : null,
-    settlementCurrencyAvgPrice: settlementPeg(row['settlement_currency_avg_price']),
+    settlementCurrencyAvgPrice: peg,
     observedAtMs,
   };
 }
