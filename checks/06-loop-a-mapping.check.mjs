@@ -11,7 +11,7 @@ export async function run(assert) {
   // Each recognised literal → its canonical state.
   const cases = [
     ['acked', 'acked'], ['acknowledged', 'acked'], ['new', 'acked'],
-    ['open', 'open'], ['active', 'open'],
+    ['open', 'open'], ['active', 'open'], ['initial', 'open'], ['init', 'open'],
     ['partially_filled', 'partially_filled'], ['partial', 'partially_filled'],
     ['filled', 'filled'], ['complete', 'filled'],
     ['cancelled', 'cancelled'], ['canceled', 'cancelled'], ['CANCELLED', 'cancelled'], ['Cancelled', 'cancelled'],

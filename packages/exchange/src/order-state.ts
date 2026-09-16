@@ -41,6 +41,8 @@ const ALIASES: Readonly<Record<string, OrderState>> = {
   new: 'acked',
   open: 'open',
   active: 'open',
+  initial: 'open',
+  init: 'open',
   partial: 'partially_filled',
   partially_filled: 'partially_filled',
   partially_filled_cancelled: 'partially_cancelled',

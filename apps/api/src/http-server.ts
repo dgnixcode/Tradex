@@ -1401,6 +1401,15 @@ export function createHttpServer(deps: HttpDeps): Server {
       // the wait from the request; the group executor's 200-round cap keeps a
       // wedged queue from spinning this handler forever.
       await engine.executor.drain();
+      // Poll working legs immediately after drain so immediate fills (e.g. market
+      // orders or crossing limits) are recognized, protection (SL/TP) is attached,
+      // and the trade flips to completed before the client receives the report.
+      try {
+        await engine.worker.pollTrade(tdb, tradeId);
+      } catch (e) {
+        console.error(`[poll] post-drain pollTrade failed for trade ${tradeId}:`,
+          e instanceof Error ? e.message : String(e));
+      }
       // Mirror the venue's state back into our tables (futures positions) — the
       // hook that finally gives the Positions page a producer. BEST-EFFORT on
       // purpose: the orders are already sent by the time this runs, and a

@@ -538,6 +538,7 @@ export interface FuturesListOrdersRequest {
   readonly side: 'buy' | 'sell';
   /** CSV. Defaults to every status — see `FUTURES_ORDER_STATUSES`. */
   readonly status?: string | undefined;
+  readonly marginCurrency?: FuturesMarginCurrency | undefined;
   readonly page?: number | undefined;
   readonly size?: number | undefined;
 }
@@ -590,6 +591,7 @@ export async function listFuturesOrdersSigned(
     pair: req.pair,
     side: req.side,
     status: req.status ?? FUTURES_ORDER_STATUSES.join(','),
+    margin_currency_short_name: req.marginCurrency !== undefined ? [req.marginCurrency] : ['INR', 'USDT'],
     page: req.page ?? 1,
     size: req.size ?? 100,
   });

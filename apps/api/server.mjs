@@ -466,7 +466,7 @@ if (sending) {
     },
     // L4a — the read-back that replaces the order-status endpoint futures lacks.
     listOrders: async ({ pair, side }) => {
-      const read = await listFuturesOrdersSigned(sign, { pair, side }, { baseUrl: VENUE_BASE });
+      const read = await listFuturesOrdersSigned(sign, { pair, side, marginCurrency: spec.marginCurrency }, { baseUrl: VENUE_BASE });
       if (!read.ok) return { ok: false, detail: read.failure.detail ?? read.failure.code ?? 'unreadable' };
       return { ok: true, orders: read.orders };
     },
@@ -530,6 +530,7 @@ if (sending) {
         'child_order.id as childId', 'child_order.account_id as accountId',
         'child_order.tenant_id as tenantId', 'child_order.market as market',
         'child_order.final_quantity as finalQuantity', 'child_order.leg_seq as legSeq',
+        'child_order.exchange_order_id as exchangeOrderId',
         'group_trade.order_type as orderType', 'group_trade.limit_price as limitPrice',
         'group_trade.asset as asset', 'group_trade.is_futures as isFutures',
         'group_trade.side as side', 'group_trade.margin_currency as marginCurrency',
@@ -547,13 +548,16 @@ if (sending) {
       row.marginCurrency);
     const sign = await signFor(row.tenantId, row.accountId);
     if (sign === null) return { ok: false };
-    const read = await listFuturesOrdersSigned(sign, { pair, side: row.side }, { baseUrl: VENUE_BASE })
+    const read = await listFuturesOrdersSigned(sign, { pair, side: row.side, marginCurrency: row.marginCurrency }, { baseUrl: VENUE_BASE })
       .catch(() => ({ ok: false }));
     if (read.ok !== true) return { ok: false };
-    const match = read.orders.find((o) => o.pair === pair && o.side === row.side
-      && o.orderType === row.orderType
-      && o.totalQuantity === row.finalQuantity
-      && (o.price ?? null) === (row.limitPrice ?? null));
+    const match = read.orders.find((o) => {
+      if (row.exchangeOrderId && o.venueOrderId === row.exchangeOrderId) return true;
+      return o.pair === pair && o.side === row.side
+        && o.orderType === row.orderType
+        && o.totalQuantity === row.finalQuantity
+        && (o.price ?? null) === (row.limitPrice ?? null);
+    });
     if (match === undefined) return { ok: true, order: null };
     return { ok: true, order: { id: match.venueOrderId, statusRaw: match.statusRaw } };
   };
