@@ -1,46 +1,45 @@
+import { Link } from 'react-router-dom';
 import { Brand } from './Brand.tsx';
 import { useBranding } from '../branding.tsx';
 
 interface FooterCol {
   readonly title: string;
-  readonly links: readonly { readonly label: string; readonly href: string }[];
+  readonly links: readonly { readonly label: string; readonly to: string }[];
 }
 
 const COLUMNS: readonly FooterCol[] = [
   {
     title: 'Wealth Management',
     links: [
-      { label: 'Non-Custodial Model', href: '#model' },
-      { label: 'Capital Guarantee', href: '#guarantee' },
-      { label: 'Profit Calculator', href: '#calculator' },
-      { label: 'How It Works', href: '#how-it-works' },
+      { label: 'Investment Model', to: '/model' },
+      { label: 'Capital Guarantee', to: '/guarantee' },
+      { label: 'ROI Calculator', to: '/#calculator' },
+      { label: 'How It Works', to: '/model' },
     ],
   },
   {
-    title: 'Exchanges & Access',
+    title: 'Our Firm',
     links: [
-      { label: 'CoinDCX Integration', href: '#model' },
-      { label: 'Trade-Only API Keys', href: '#security' },
-      { label: 'Zero Withdrawal Access', href: '#security' },
-      { label: '24/7 Liquidity', href: '#faq' },
+      { label: 'About Us', to: '/about' },
+      { label: 'Schedule Consultation', to: '/contact' },
+      { label: 'Frequently Asked Questions', to: '/faq' },
+      { label: 'Contact Advisors', to: '/contact' },
     ],
   },
   {
-    title: 'Risk & Architecture',
+    title: 'Safety & Custody',
     links: [
-      { label: '12 Pre-Trade Safety Gates', href: '#security' },
-      { label: 'Algorithmic Stop Loss', href: '#guarantee' },
-      { label: 'Principal Protection', href: '#guarantee' },
-      { label: 'Exact-Decimal Math', href: '#security' },
+      { label: 'CoinDCX Non-Custodial', to: '/model' },
+      { label: 'Zero Withdrawal Rights', to: '/guarantee' },
+      { label: '12 Pre-Trade Safety Gates', to: '/guarantee' },
+      { label: '24/7 Instant Liquidity', to: '/faq' },
     ],
   },
   {
-    title: 'Client Support',
+    title: 'Internal Access',
     links: [
-      { label: 'Frequently Asked Questions', href: '#faq' },
-      { label: 'Client Portal Login', href: '/login' },
-      { label: 'Security Overview', href: '#security' },
-      { label: 'System Status', href: '#' },
+      { label: 'Operator Portal (Company)', to: '/login' },
+      { label: 'System Status', to: '#' },
     ],
   },
 ];
@@ -67,7 +66,13 @@ export function MarketingFooter() {
           <div key={col.title} className="mk-footer-col">
             <h4>{col.title}</h4>
             {col.links.map((l) => (
-              <a key={l.label} href={l.href}>{l.label}</a>
+              l.to.startsWith('/#') ? (
+                <a key={l.label} href={l.to.substring(1)}>{l.label}</a>
+              ) : l.to.startsWith('#') ? (
+                <a key={l.label} href={l.to}>{l.label}</a>
+              ) : (
+                <Link key={l.label} to={l.to}>{l.label}</Link>
+              )
             ))}
           </div>
         ))}
@@ -82,7 +87,7 @@ export function MarketingFooter() {
         lineHeight: '1.6',
         color: 'var(--muted)',
       }}>
-        <strong>Regulatory &amp; Non-Custodial Disclosure:</strong> {branding.name} operates as a non-custodial software and algorithmic asset management platform. We never take possession, custody, or deposit of your digital assets or fiat currency. Client funds remain exclusively in user-owned accounts on registered exchanges (such as CoinDCX). Access is restricted strictly to read and trade execution via API keys; withdrawal permissions are disabled. Past performance does not guarantee future results. Target returns of 3%–5% monthly are based on systematic quantitative risk models and disciplined stop-loss execution.
+        <strong>Regulatory &amp; Non-Custodial Disclosure:</strong> {branding.name} operates as a non-custodial software and algorithmic wealth management provider. We never take possession, custody, or deposit of your digital assets or fiat currency. Client funds remain exclusively in user-owned accounts on registered exchanges (such as CoinDCX). Access is restricted strictly to trade execution; withdrawal permissions are disabled. Past performance does not guarantee future results. Target returns of 3%–5% monthly are based on systematic quantitative risk models and disciplined stop-loss execution.
       </div>
 
       <div className="mk-footer-bottom">

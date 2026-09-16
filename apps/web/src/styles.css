@@ -2704,4 +2704,8 @@ body:has(.panel-dark)::before {
   .calc-results-row { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 860px) {
+  .wm-contact-grid { grid-template-columns: 1fr !important; gap: 28px !important; }
+}
+
 

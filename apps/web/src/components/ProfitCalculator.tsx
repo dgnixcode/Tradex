@@ -19,10 +19,13 @@ const USDT_PRESETS = [
   { label: '$50,000', value: 50000 },
 ];
 
+const RATE_PRESETS = [3.0, 3.5, 4.0, 4.5, 5.0];
+
 export function ProfitCalculator() {
   const [currency, setCurrency] = useState<Currency>('INR');
   const [amount, setAmount] = useState<number>(1000000); // 10 Lakh default
   const [monthlyRate, setMonthlyRate] = useState<number>(4.0); // 4% default
+  const [isCustomRate, setIsCustomRate] = useState<boolean>(false);
 
   const presets = currency === 'INR' ? INR_PRESETS : USDT_PRESETS;
   const symbol = currency === 'INR' ? '₹' : '$';
@@ -35,12 +38,12 @@ export function ProfitCalculator() {
   };
 
   const { monthlyProfit, yearlyProfit, totalYearlyValue, apyPercent } = useMemo(() => {
-    const rateDecimal = monthlyRate / 100;
+    const rateDecimal = (monthlyRate || 0) / 100;
     const mProfit = amount * rateDecimal;
     // Compounded monthly over 12 months: P * (1 + r)^12
     const totalCompounded = amount * Math.pow(1 + rateDecimal, 12);
     const yProfit = totalCompounded - amount;
-    const apy = ((totalCompounded - amount) / amount) * 100;
+    const apy = ((totalCompounded - amount) / (amount || 1)) * 100;
 
     return {
       monthlyProfit: mProfit,
@@ -55,13 +58,13 @@ export function ProfitCalculator() {
       <div className="calc-header">
         <div className="calc-header-left">
           <span className="pill ok" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Interactive ROI Tool
+            Interactive ROI Calculator
           </span>
           <h3 style={{ margin: '8px 0 4px', fontSize: '22px', fontWeight: 700 }}>
             Estimate Your Crypto Wealth Growth
           </h3>
           <p className="muted" style={{ margin: 0, fontSize: '13.5px' }}>
-            Simulate monthly returns based on our target 3%–5% systematic trading strategies.
+            Simulate monthly earnings based on our target 3%–5% systematic wealth management strategies.
           </p>
         </div>
 
@@ -135,28 +138,80 @@ export function ProfitCalculator() {
 
           <div className="field" style={{ marginTop: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label htmlFor="calc-rate" style={{ marginBottom: 0 }}>Target Monthly Profit Rate</label>
-              <span className="pill ok" style={{ fontWeight: 700, fontSize: '14px' }}>
-                {monthlyRate.toFixed(1)}% / month
-              </span>
+              <label htmlFor="calc-rate-input" style={{ marginBottom: 0 }}>Target Monthly Profit Rate</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  id="calc-rate-input"
+                  type="number"
+                  min="1.0"
+                  max="25.0"
+                  step="0.1"
+                  value={monthlyRate}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isNaN(v) && v >= 0) {
+                      setMonthlyRate(v);
+                      setIsCustomRate(true);
+                    }
+                  }}
+                  style={{
+                    width: '64px',
+                    padding: '3px 6px',
+                    fontSize: '13.5px',
+                    fontWeight: 700,
+                    textAlign: 'right',
+                    borderRadius: '6px',
+                    border: '1px solid var(--line-strong)',
+                    background: '#fff',
+                  }}
+                />
+                <span style={{ fontWeight: 700, color: '#16a34a', fontSize: '13.5px' }}>% / mo</span>
+              </div>
+            </div>
+
+            {/* Rate Presets & Custom toggle */}
+            <div className="calc-chips" style={{ marginTop: '10px' }}>
+              {RATE_PRESETS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`calc-chip ${!isCustomRate && monthlyRate === r ? 'active' : ''}`}
+                  onClick={() => {
+                    setMonthlyRate(r);
+                    setIsCustomRate(false);
+                  }}
+                >
+                  {r.toFixed(1)}%
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`calc-chip ${isCustomRate ? 'active' : ''}`}
+                onClick={() => setIsCustomRate(true)}
+              >
+                ✏️ Custom %
+              </button>
             </div>
 
             <input
               id="calc-rate"
               type="range"
-              min="3.0"
-              max="5.0"
+              min="1.0"
+              max="10.0"
               step="0.1"
               value={monthlyRate}
-              onChange={(e) => setMonthlyRate(Number(e.target.value))}
+              onChange={(e) => {
+                setMonthlyRate(Number(e.target.value));
+                setIsCustomRate(!RATE_PRESETS.includes(Number(e.target.value)));
+              }}
               className="calc-range-slider"
-              style={{ marginTop: '12px' }}
+              style={{ marginTop: '14px' }}
             />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
               <span>3.0% (Conservative)</span>
-              <span>4.0% (Target Average)</span>
-              <span>5.0% (High Target)</span>
+              <span>4.0% (Target Baseline)</span>
+              <span>5.0%+ (Growth Target)</span>
             </div>
           </div>
 
@@ -168,7 +223,7 @@ export function ProfitCalculator() {
                   100% Principal Protection Guarantee
                 </strong>
                 <span style={{ fontSize: '12.5px', color: 'var(--muted)', lineHeight: '1.4', display: 'block', marginTop: '2px' }}>
-                  Your initial capital of <strong>{formatMoney(amount)}</strong> remains in your personal CoinDCX wallet with zero withdrawal rights granted to anyone.
+                  Your initial capital of <strong>{formatMoney(amount)}</strong> stays in your personal CoinDCX wallet. Our team never has withdrawal permissions.
                 </span>
               </div>
             </div>
@@ -183,7 +238,7 @@ export function ProfitCalculator() {
               +{formatMoney(monthlyProfit)}
               <span className="calc-result-sub"> / month</span>
             </div>
-            <span className="calc-result-hint">Deposited directly into your CoinDCX balance</span>
+            <span className="calc-result-hint">Generated directly into your exchange balance</span>
           </div>
 
           <div className="calc-results-row">
@@ -207,11 +262,11 @@ export function ProfitCalculator() {
           </div>
 
           <div className="calc-cta-wrap">
-            <Link to="/login" className="btn btn-lg" style={{ width: '100%', textAlign: 'center' }}>
-              Start Managing {formatMoney(amount)} Now →
+            <Link to="/contact" className="btn btn-lg" style={{ width: '100%', textAlign: 'center', textDecoration: 'none' }}>
+              Request Wealth Consultation for {formatMoney(amount)} →
             </Link>
             <p className="calc-disclaimer">
-              * Calculations assume consistent monthly reinvestment. Capital remains in your self-custodied exchange account.
+              * Calculations illustrate monthly compounded growth. Funds remain under your sole custody in your verified exchange account.
             </p>
           </div>
         </div>

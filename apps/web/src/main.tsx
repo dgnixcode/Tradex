@@ -10,6 +10,11 @@ import { Login } from './routes/Login.tsx';
 import { Signup } from './routes/Signup.tsx';
 import { ForgotPassword } from './routes/ForgotPassword.tsx';
 import { ResetPassword } from './routes/ResetPassword.tsx';
+import { About } from './routes/About.tsx';
+import { Model } from './routes/Model.tsx';
+import { Guarantee } from './routes/Guarantee.tsx';
+import { Contact } from './routes/Contact.tsx';
+import { FaqPage } from './routes/FaqPage.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
 import { Confirmation } from './routes/Confirmation.tsx';
 import { Execution } from './routes/Execution.tsx';
@@ -56,6 +61,11 @@ const router = createBrowserRouter([
     element: <Root />,
     children: [
       { path: '/', element: <Landing /> },
+      { path: '/about', element: <About /> },
+      { path: '/model', element: <Model /> },
+      { path: '/guarantee', element: <Guarantee /> },
+      { path: '/contact', element: <Contact /> },
+      { path: '/faq', element: <FaqPage /> },
       { path: '/login', element: <Login /> },
       { path: '/signup', element: <Signup /> },
       { path: '/forgot-password', element: <ForgotPassword /> },

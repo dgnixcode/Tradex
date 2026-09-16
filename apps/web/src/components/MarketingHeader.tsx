@@ -4,17 +4,17 @@ import { useAuth } from '../auth.tsx';
 import { Brand } from './Brand.tsx';
 
 interface NavLink {
-  readonly href: string;
+  readonly to: string;
   readonly label: string;
 }
 
 const NAV: readonly NavLink[] = [
-  { href: '#model', label: 'Investment Model' },
-  { href: '#guarantee', label: 'Capital Guarantee' },
-  { href: '#calculator', label: 'ROI Calculator' },
-  { href: '#how-it-works', label: 'How It Works' },
-  { href: '#security', label: 'Security' },
-  { href: '#faq', label: 'FAQ' },
+  { to: '/about', label: 'About Us' },
+  { to: '/model', label: 'Investment Model' },
+  { to: '/guarantee', label: 'Capital Guarantee' },
+  { to: '/#calculator', label: 'ROI Calculator' },
+  { to: '/faq', label: 'FAQ' },
+  { to: '/contact', label: 'Contact Us' },
 ];
 
 export function MarketingHeader() {
@@ -36,17 +36,25 @@ export function MarketingHeader() {
 
       <nav className="mk-nav" aria-label="Primary">
         {NAV.map((l) => (
-          <a key={l.href} href={l.href}>{l.label}</a>
+          l.to.startsWith('/#') ? (
+            <a key={l.to} href={l.to.substring(1)}>{l.label}</a>
+          ) : (
+            <Link key={l.to} to={l.to}>{l.label}</Link>
+          )
         ))}
       </nav>
 
       <div className="mk-header-actions">
         {authed ? (
-          <Link to="/app" className="btn btn-sm">Go to Dashboard</Link>
+          <Link to="/app" className="btn btn-sm">Management Console</Link>
         ) : (
           <>
-            <Link to="/login" className="btn secondary btn-sm">Client Portal</Link>
-            <Link to="/login" className="btn btn-sm">Get Started</Link>
+            <Link to="/login" className="btn secondary btn-sm" title="Internal Company Access Only" style={{ fontSize: '12px', padding: '6px 12px', color: 'var(--muted)' }}>
+              Operator Portal
+            </Link>
+            <Link to="/contact" className="btn btn-sm wm-btn-primary">
+              Book Consultation
+            </Link>
           </>
         )}
         <button
@@ -66,10 +74,15 @@ export function MarketingHeader() {
       {menuOpen && (
         <div className="mk-mobile-menu">
           {NAV.map((l) => (
-            <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)}>{l.label}</a>
+            l.to.startsWith('/#') ? (
+              <a key={l.to} href={l.to.substring(1)} onClick={() => setMenuOpen(false)}>{l.label}</a>
+            ) : (
+              <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)}>{l.label}</Link>
+            )
           ))}
-          <Link to={authed ? '/app' : '/login'} onClick={() => setMenuOpen(false)}>
-            {authed ? 'Go to Dashboard' : 'Client Portal'}
+          <Link to="/contact" onClick={() => setMenuOpen(false)}>Book Consultation</Link>
+          <Link to={authed ? '/app' : '/login'} onClick={() => setMenuOpen(false)} style={{ fontSize: '13px', color: 'var(--muted)' }}>
+            {authed ? 'Management Console' : 'Operator Portal'}
           </Link>
         </div>
       )}

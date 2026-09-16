@@ -12,28 +12,28 @@ interface FaqItem {
 
 const FAQS: readonly FaqItem[] = [
   {
-    q: 'Can you withdraw or steal my money from my CoinDCX account?',
-    a: 'Absolutely not. When you generate an API key on CoinDCX, you only enable Read and Trade permissions, keeping Withdrawal permissions strictly disabled. It is cryptographically impossible for anyone to move or withdraw funds through our system. You remain the sole custodian of your assets 24/7.',
+    q: 'Can anyone withdraw or transfer money from my CoinDCX account?',
+    a: 'No, never. Management access is strictly trade-only, with withdrawal permissions permanently disabled. It is technically and cryptographically impossible for anyone to move or withdraw funds from your account. You remain the sole custodian of your assets with full 24/7 access.',
   },
   {
-    q: 'How does Aza WealthKare generate consistent 3%–5% monthly profit?',
-    a: 'Our quantitative trading infrastructure identifies low-risk market inefficiencies, systematic trend momentum, and delta-neutral hedging opportunities. Instead of gambling on volatile spikes, we execute high-probability trades with strict 1:2+ risk-to-reward ratios and automated trailing stop-losses, compounding steady gains month after month.',
+    q: 'How does Aza WealthKare generate consistent 3%–5% monthly profits?',
+    a: 'Our quantitative desk executes systematic, disciplined trading across low-risk market spreads, delta-hedging, and trend-following strategies. By employing rigorous 1:2+ risk-reward ratios and automated trailing stop-losses, we capture steady monthly returns while capping market exposure.',
   },
   {
     q: 'How does the 100% Capital Safety Guarantee work?',
-    a: 'We use a multi-tiered capital preservation architecture: 12 pre-execution risk gates, tight automated bracket orders (stop loss and take profit on every fill), and an absolute maximum portfolio drawdown limit. If the market experiences sudden black-swan volatility, algorithmic circuit breakers instantly protect your principal.',
+    a: 'We operate under a strict capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps. Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
   },
   {
     q: 'Can I withdraw my funds or profits whenever I want?',
-    a: 'Yes, 100% at any time. Because your capital stays inside your personal CoinDCX wallet, you have full liquidity. You can withdraw your profits, deposit additional funds, or delete your API key at any second directly from your exchange app with zero lock-in penalties.',
+    a: 'Yes, 100% at any time. Because your money never leaves your personal CoinDCX wallet, you have complete liquidity. You can withdraw your profits to your linked bank account or stop management at any second directly from your exchange app.',
   },
   {
     q: 'Which exchanges and currencies are supported?',
-    a: 'We currently natively support CoinDCX for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios. Support for Binance and other global tier-1 venues is also supported on custom enterprise setups.',
+    a: 'We natively support CoinDCX for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios. Support for Binance and global exchange venues is also provided for bespoke client allocations.',
   },
   {
-    q: 'What is the minimum capital required to get started?',
-    a: 'You can begin with as little as ₹50,000 (or $500 USDT) in your own exchange account. For optimal multi-account position sizing and institutional diversification, accounts of ₹1 Lakh to ₹50 Lakhs+ perform exceptionally well.',
+    q: 'How do I get started with Aza WealthKare?',
+    a: 'Simply request a consultation via our contact form. Our senior wealth advisor will reach out to understand your goals, guide you through securing your personal exchange account with trade-only delegation, and activate your portfolio management.',
   },
 ];
 
@@ -66,7 +66,7 @@ export function Landing() {
         <div className="wm-hero-content">
           <div className="wm-badge-row">
             <span className="pill ok wm-hero-pill">
-              🛡️ Non-Custodial Wealth Management · 100% Capital Safety
+              🛡️ Non-Custodial Wealth Management · 100% Capital Protection
             </span>
           </div>
 
@@ -76,17 +76,17 @@ export function Landing() {
           </h1>
 
           <p className="wm-hero-sub">
-            We manage systematic quantitative trading on your personal <strong>CoinDCX</strong> or exchange account.
+            We professionally manage institutional trading directly inside your personal <strong>CoinDCX</strong> exchange account.
             Targeting <strong>3% to 5% monthly profit</strong> with an ironclad <strong>100% capital protection guarantee</strong>.
-            Zero withdrawal permissions — your funds never leave your hands.
+            Zero third-party deposits — your money never leaves your hands.
           </p>
 
           <div className="wm-hero-ctas">
-            <Link to="/login" className="btn btn-lg wm-btn-primary">
-              Start Managing Wealth →
+            <Link to="/contact" className="btn btn-lg wm-btn-primary">
+              Book a Consultation →
             </Link>
             <a href="#calculator" className="btn btn-lg secondary wm-btn-secondary">
-              Calculate Your Profits ↓
+              Calculate Your Growth ↓
             </a>
           </div>
 
@@ -109,12 +109,12 @@ export function Landing() {
             <div className="wm-trust-divider" />
             <div className="wm-trust-item">
               <span className="wm-trust-val">100%</span>
-              <span className="wm-trust-lbl">Principal Protected</span>
+              <span className="wm-trust-lbl">Principal Guarantee</span>
             </div>
           </div>
         </div>
 
-        {/* Hero Visual: Live Portfolio Showcase Card */}
+        {/* Hero Visual: Client Portfolio Card */}
         <div className="wm-hero-visual">
           <div className="wm-portfolio-card">
             <div className="wm-card-top">
@@ -122,24 +122,24 @@ export function Landing() {
                 <span className="wm-dot active" />
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>
-                    CoinDCX Connected Portfolio
+                    CoinDCX Managed Portfolio
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    Self-Custodied · API Trade Execution
+                    Client Self-Custody · Real-Time Execution
                   </div>
                 </div>
               </div>
               <span className="pill ok" style={{ fontSize: '11px', padding: '3px 8px' }}>
-                LIVE PROTECTED
+                PROTECTED
               </span>
             </div>
 
             <div className="wm-card-balance-block">
-              <span className="wm-card-subhead">Total Managed Capital</span>
-              <div className="wm-card-balance">₹10,00,000.00</div>
+              <span className="wm-card-subhead">Monthly Performance Target</span>
+              <div className="wm-card-balance" style={{ color: '#16a34a' }}>+3.0% – +5.0%</div>
               <div className="wm-card-pnl">
-                <span className="wm-pnl-green">+₹42,300.00 (+4.23%)</span>
-                <span className="wm-pnl-label">this month's net profit</span>
+                <span className="wm-pnl-green">Steady Compounded Growth</span>
+                <span className="wm-pnl-label">deposited to your exchange</span>
               </div>
             </div>
 
@@ -149,36 +149,36 @@ export function Landing() {
                 <span className="m-val" style={{ color: '#16a34a' }}>100% Shielded</span>
               </div>
               <div className="wm-card-metric-box">
-                <span className="m-label">API Access Mode</span>
-                <span className="m-val">Trade Only (No W/D)</span>
+                <span className="m-label">Custody Location</span>
+                <span className="m-val">Your Personal Account</span>
               </div>
             </div>
 
-            {/* Mini trade ledger snapshot */}
+            {/* Systematic positions snapshot */}
             <div className="wm-card-trades">
               <div className="wm-card-trades-head">
-                <span>Recent Automated Fills</span>
+                <span>Systematic Strategies Active</span>
                 <span>CoinDCX Venue</span>
               </div>
               <div className="wm-trade-row">
-                <span className="t-pair">BTC-USDT Futures</span>
-                <span className="t-side buy">LONG</span>
+                <span className="t-pair">BTC-USDT Market Spread</span>
+                <span className="t-side buy">ACTIVE</span>
                 <span className="t-pnl">+1.84%</span>
               </div>
               <div className="wm-trade-row">
-                <span className="t-pair">ETH-INR Futures</span>
-                <span className="t-side buy">LONG</span>
+                <span className="t-pair">ETH-INR Trend Discipline</span>
+                <span className="t-side buy">ACTIVE</span>
                 <span className="t-pnl">+1.15%</span>
               </div>
               <div className="wm-trade-row">
-                <span className="t-pair">SOL-USDT Futures</span>
-                <span className="t-side sell">SHORT</span>
+                <span className="t-pair">SOL-USDT Momentum</span>
+                <span className="t-side sell">HEDGED</span>
                 <span className="t-pnl">+1.24%</span>
               </div>
             </div>
 
             <div className="wm-card-footer">
-              <span>🔒 256-bit Encrypted API · Withdrawals Cryptographically Blocked</span>
+              <span>🔒 Zero Third-Party Deposit · 24/7 Liquidity in Your Bank</span>
             </div>
           </div>
         </div>
@@ -190,7 +190,7 @@ export function Landing() {
           <span className="kicker">The Aza WealthKare Standard</span>
           <h2>A New Paradigm in Crypto Wealth Management</h2>
           <p>
-            Traditional funds ask you to surrender your money. We built a system where you never lose control of a single rupee.
+            Traditional funds ask you to send them your money. We built a system where your capital stays safely in your own hands.
           </p>
         </div>
 
@@ -199,12 +199,12 @@ export function Landing() {
             <div className="wm-pillar-icon">🛡️</div>
             <h3>100% Capital Safety Guarantee</h3>
             <p>
-              Your initial principal is safeguarded with strict mathematical risk management. Every trade has algorithmic stop-losses, trailing circuit breakers, and reserve-backed risk absorption so your capital is protected.
+              Your initial principal is protected with strict mathematical risk management. Every trade has algorithmic stop-losses, trailing circuit breakers, and reserve-backed risk absorption.
             </p>
             <ul className="wm-pillar-points">
               <li>Algorithmic downside locks on all legs</li>
               <li>Maximum portfolio drawdown limit (&lt; 2.5%)</li>
-              <li>Automatic risk de-escalation in extreme volatility</li>
+              <li>Automatic risk de-escalation in high volatility</li>
             </ul>
           </div>
 
@@ -212,12 +212,12 @@ export function Landing() {
             <div className="wm-pillar-icon">🏦</div>
             <h3>100% Non-Custodial Control</h3>
             <p>
-              Your money stays in your personal <strong>CoinDCX</strong> (or exchange) account. We only connect via trade-only API keys with zero withdrawal rights. You can revoke access or withdraw your funds at any second.
+              Your money stays in your personal <strong>CoinDCX</strong> account. We manage trading with strictly withdrawal-disabled access. You can stop or withdraw your money at any second.
             </p>
             <ul className="wm-pillar-points">
-              <li>No transfer of crypto or INR to third parties</li>
+              <li>Zero transfer of crypto or INR to third parties</li>
               <li>You hold the exchange credentials and 2FA</li>
-              <li>Instant 24/7 liquidity directly in your bank</li>
+              <li>Instant 24/7 liquidity directly to your bank</li>
             </ul>
           </div>
 
@@ -225,7 +225,7 @@ export function Landing() {
             <div className="wm-pillar-icon">📈</div>
             <h3>Consistent 3%–5% Monthly Profits</h3>
             <p>
-              Our quantitative engine uses systematic delta-neutral and trend-following strategies. Instead of high-risk gambling, we systematically compound consistent 36%–60% annualized gains for our clients.
+              Our quantitative desk uses systematic delta-neutral and trend-following strategies. Instead of high-risk gambling, we compound consistent 36%–60% annualized gains for our clients.
             </p>
             <ul className="wm-pillar-points">
               <li>Strict 1:2+ risk-to-reward ratio on every setup</li>
@@ -250,9 +250,9 @@ export function Landing() {
       {/* -------------------------------------------------- HOW IT WORKS */}
       <section id="how-it-works" className="mk-section mk-block">
         <div className="section-head">
-          <span className="kicker">Effortless 4-Step Onboarding</span>
+          <span className="kicker">Seamless Client Onboarding</span>
           <h2>How It Works: Zero Transfer, Total Transparency</h2>
-          <p>Get started in less than 5 minutes without ever sending your money to anyone.</p>
+          <p>Get started with private wealth management in 4 straightforward steps.</p>
         </div>
 
         <div className="wm-steps-grid">
@@ -260,31 +260,31 @@ export function Landing() {
             <div className="wm-step-num">01</div>
             <h3>Keep Capital in Your Exchange</h3>
             <p>
-              Maintain your INR or USDT balance inside your personal verified <strong>CoinDCX</strong> account. You never transfer money to us.
+              Maintain your INR or USDT balance inside your personal verified <strong>CoinDCX</strong> account. You never transfer capital to us.
             </p>
           </div>
 
           <div className="wm-step-card">
             <div className="wm-step-num">02</div>
-            <h3>Generate Trade-Only API Key</h3>
+            <h3>Book Private Consultation</h3>
             <p>
-              Inside CoinDCX settings, create an API key. Check <strong>"Read"</strong> and <strong>"Trade"</strong>. Leave <strong>"Withdrawal" UNCHECKED</strong>.
+              Connect with our senior wealth advisory team to structure your risk preferences, capital allocation, and target return parameters.
             </p>
           </div>
 
           <div className="wm-step-card">
             <div className="wm-step-num">03</div>
-            <h3>Connect to Aza WealthKare</h3>
+            <h3>Enable Secure Delegation</h3>
             <p>
-              Link your API key through our secure client portal. Our system verifies the key has zero withdrawal permissions before activating.
+              We guide you through granting trade-only delegation on your exchange with withdrawal permissions permanently disabled.
             </p>
           </div>
 
           <div className="wm-step-card">
             <div className="wm-step-num">04</div>
-            <h3>Enjoy 3%–5% Monthly Gains</h3>
+            <h3>Enjoy 3%–5% Monthly Profits</h3>
             <p>
-              Our quantitative engine executes institutional-grade trades. Monitor your live profits right inside your CoinDCX mobile app.
+              Our institutional engine executes systematic trades. Watch your compounding profits accumulate live in your CoinDCX mobile app.
             </p>
           </div>
         </div>
@@ -294,8 +294,8 @@ export function Landing() {
       <section className="mk-section mk-block">
         <div className="section-head">
           <span className="kicker">Transparent Comparison</span>
-          <h2>Why Investors Choose Aza WealthKare</h2>
-          <p>See how our non-custodial wealth management model compares with traditional options.</p>
+          <h2>Why High-Net-Worth Clients Choose {branding.name}</h2>
+          <p>See how our non-custodial wealth management model compares with traditional investment alternatives.</p>
         </div>
 
         <div className="wm-table-wrap">
@@ -312,13 +312,13 @@ export function Landing() {
               <tr>
                 <td><strong>Custody of Funds</strong></td>
                 <td className="highlight ok-text">✓ 100% in your own CoinDCX account</td>
-                <td className="bad-text">✗ You must transfer crypto to them</td>
+                <td className="bad-text">✗ You must deposit crypto to them</td>
                 <td>✓ Bank / Asset Management Co.</td>
               </tr>
               <tr>
                 <td><strong>Withdrawal Risk</strong></td>
                 <td className="highlight ok-text">✓ Impossible (Withdrawal disabled)</td>
-                <td className="bad-text">✗ High (They can freeze or exit scam)</td>
+                <td className="bad-text">✗ High (They hold your coins)</td>
                 <td>✓ Regulated banking</td>
               </tr>
               <tr>
@@ -337,12 +337,12 @@ export function Landing() {
                 <td><strong>Liquidity</strong></td>
                 <td className="highlight ok-text">✓ 24/7 instant withdrawal anytime</td>
                 <td className="bad-text">✗ 1 to 3 years lock-in periods</td>
-                <td>Pre-mature penalty / T+2 days</td>
+                <td>Penalty on early exit / T+2 days</td>
               </tr>
               <tr>
                 <td><strong>Transparency</strong></td>
                 <td className="highlight ok-text">✓ Live trades visible on your exchange</td>
-                <td>Monthly static PDF statement</td>
+                <td>Monthly static PDF report</td>
                 <td>Quarterly fact sheet</td>
               </tr>
             </tbody>
@@ -356,7 +356,7 @@ export function Landing() {
           <span className="kicker">Proven Track Record</span>
           <h2>Consistent Month-on-Month Performance</h2>
           <p>
-            Disciplined risk management produces steady compounding results without taking reckless gambles.
+            Disciplined quantitative risk management produces steady compounding results without reckless gambles.
           </p>
         </div>
 
@@ -396,16 +396,16 @@ export function Landing() {
       <section id="security" className="mk-section mk-block">
         <div className="section-head">
           <span className="kicker">Institutional Safety Architecture</span>
-          <h2>Built for Complete Peace of Mind</h2>
-          <p>Real money demands uncompromising engineering. Here is how we guarantee your capital security.</p>
+          <h2>Built for Total Peace of Mind</h2>
+          <p>Real money demands uncompromising engineering. Here is how your capital security is ensured.</p>
         </div>
 
         <div className="features">
           <div className="feature">
             <div className="feature-icon">🔒</div>
-            <h3>Cryptographic Withdrawal Lock</h3>
+            <h3>Zero Withdrawal Authority</h3>
             <p>
-              Your API key is generated with <strong>withdrawal privileges disabled</strong>. Even our own administrators cannot initiate a transfer or withdrawal from your account.
+              Management access is granted with <strong>withdrawals permanently blocked</strong>. Even our own operators cannot initiate an outgoing transfer from your exchange.
             </p>
           </div>
 
@@ -413,13 +413,13 @@ export function Landing() {
             <div className="feature-icon">🛡️</div>
             <h3>12 Automated Safety Gates</h3>
             <p>
-              Before any order is sent, 12 safety checks run: live spread validation, slippage buffers, margin limits, leverage caps, and exchange market liquidity.
+              Before any order executes, 12 safety checks run: live spread validation, slippage buffers, balance sufficiency, and exchange market liquidity.
             </p>
           </div>
 
           <div className="feature">
             <div className="feature-icon">⚡</div>
-            <h3>Bracket Stop-Loss Protection</h3>
+            <h3>Automated Bracket Stop-Loss</h3>
             <p>
               Every single position is immediately bracketed with a stop-loss and trailing take-profit order to lock in gains and prevent runaway drawdown.
             </p>
@@ -427,7 +427,7 @@ export function Landing() {
 
           <div className="feature">
             <div className="feature-icon">🎯</div>
-            <h3>Exact Decimal Math Engine</h3>
+            <h3>Exact-Decimal Precision</h3>
             <p>
               All sizing calculations are executed using exact-decimal arithmetic. Never floating-point approximations. Not a single paisa is unaccounted for.
             </p>
@@ -435,7 +435,7 @@ export function Landing() {
 
           <div className="feature">
             <div className="feature-icon">📱</div>
-            <h3>Instant Audit on Your Phone</h3>
+            <h3>Live Verification on Your Phone</h3>
             <p>
               Because trades execute directly on your CoinDCX account, you can open your CoinDCX app anytime to view every position, order, and rupee live.
             </p>
@@ -443,9 +443,9 @@ export function Landing() {
 
           <div className="feature">
             <div className="feature-icon">🔑</div>
-            <h3>Hardware-Grade Key Storage</h3>
+            <h3>Isolated Execution Boundary</h3>
             <p>
-              API credentials are encrypted at rest using AES-256-GCM envelope encryption and never leave our isolated signing boundary.
+              Credentials are encrypted at rest using AES-256-GCM envelope encryption and never leave our secure, dedicated trading environment.
             </p>
           </div>
         </div>
@@ -490,11 +490,11 @@ export function Landing() {
             Put Your Exchange Capital to Work Today
           </h2>
           <p style={{ maxWidth: '640px', margin: '0 auto 28px', color: 'var(--text-dim)', fontSize: '16px' }}>
-            Join smart crypto investors earning 3% to 5% monthly profits without ever transferring custody of their funds.
+            Join discerning investors earning 3% to 5% monthly profits without ever transferring custody of their funds.
           </p>
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link to="/login" className="btn btn-lg wm-btn-primary" style={{ minWidth: '220px' }}>
-              Open Client Account →
+            <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ minWidth: '240px', textDecoration: 'none' }}>
+              Schedule a Consultation →
             </Link>
             <a href="#calculator" className="btn btn-lg secondary wm-btn-secondary">
               Calculate Returns
