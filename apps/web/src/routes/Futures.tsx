@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions,
+  adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions, fetchGroups,
   refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
 } from '../api.js';
 import type { FuturesPositionRow } from '../api.ts';
@@ -58,6 +58,18 @@ function bufferColor(bp: number | null): string | undefined {
 /** Add two minor-unit strings. Works for both positive and negative values. */
 function addMinors(a: string, b: string): string {
   return String(BigInt(a) + BigInt(b));
+}
+
+/** Calculate proportional minor units (e.g. 25% of 6952663) using basis points */
+function calcProportionalMinor(minor: string | null, pct: number): string | null {
+  if (minor === null || minor === '' || minor === '0' || !Number.isFinite(pct) || pct <= 0) return null;
+  try {
+    const b = BigInt(minor);
+    const bp = BigInt(Math.round(pct * 100));
+    return String((b * bp) / 10000n);
+  } catch {
+    return null;
+  }
 }
 
 function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null; leverage: string | null; side: 'long' | 'short' | 'flat' }): number | null {
@@ -429,11 +441,51 @@ function PositionManageModal({
   const [activeTab, setActiveTab] = useState<'protection' | 'partial' | 'increase' | 'close'>('protection');
   const [confirmExit, setConfirmExit] = useState(false);
 
+  const qc = useQueryClient();
+
+  // Query groups for group funding balance (auto-refreshes every 3s)
+  const groupsQuery = useQuery({
+    queryKey: ['groups'],
+    queryFn: fetchGroups,
+    refetchInterval: 3000,
+  });
+
+  const matchedGroup = useMemo(() => {
+    const gn = position.groupName;
+    if (!groupsQuery.data || !gn) return null;
+    const gnLower = gn.trim().toLowerCase();
+    return groupsQuery.data.find(
+      (g) => g.name === gn || g.name.trim().toLowerCase() === gnLower,
+    ) ?? null;
+  }, [groupsQuery.data, position.groupName]);
+
+  const otherCurrency: 'INR' | 'USDT' = position.marginCurrency === 'INR' ? 'USDT' : 'INR';
+  const groupFundingCurMinor = matchedGroup ? matchedGroup.allocatedByCurrency[position.marginCurrency] : null;
+  const groupFundingOtherMinor = matchedGroup ? matchedGroup.allocatedByCurrency[otherCurrency] : null;
+
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await Promise.all([
+        groupsQuery.refetch(),
+        qc.invalidateQueries({ queryKey: ['futures-positions'] }),
+      ]);
+    } finally {
+      setTimeout(() => setIsManualRefreshing(false), 500);
+    }
+  };
+  const isRefreshing = isManualRefreshing || groupsQuery.isFetching;
+
   // Partial close / reduce state
   const [reducePct, setReducePct] = useState<number>(25);
+  const [customReduceInput, setCustomReduceInput] = useState<string>('');
+  const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
 
   // Increase / add state
   const [increasePct, setIncreasePct] = useState<number>(25);
+  const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
+  const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
 
   // Protection state
   const initSl = position.stopLossTrigger && position.stopLossTrigger !== '0' && Number(position.stopLossTrigger) > 0 ? position.stopLossTrigger : '';
@@ -479,6 +531,8 @@ function PositionManageModal({
   const remainQty = Math.max(0, totalQty - Number(reduceQty)).toFixed(4);
   const increaseQty = (totalQty * increasePct / 100).toFixed(4);
   const newTotalQty = (totalQty + Number(increaseQty)).toFixed(4);
+  const addMarginMinor = calcProportionalMinor(position.lockedMarginMinor, increasePct);
+  const reduceMarginMinor = calcProportionalMinor(position.lockedMarginMinor, reducePct);
 
   return (
     <div className="position-modal-overlay" onClick={onClose}>
@@ -614,7 +668,8 @@ function PositionManageModal({
                     style={{
                       padding: '2px 10px', fontSize: 11,
                       background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'percent' ? '#fff' : 'var(--muted)',
+                      color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
+                      fontWeight: slTpMode === 'percent' ? 700 : 400,
                       border: 'none',
                     }}
                     onClick={() => setSlTpMode('percent')}
@@ -627,7 +682,8 @@ function PositionManageModal({
                     style={{
                       padding: '2px 10px', fontSize: 11,
                       background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'price' ? '#fff' : 'var(--muted)',
+                      color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
+                      fontWeight: slTpMode === 'price' ? 700 : 400,
                       border: 'none',
                     }}
                     onClick={() => setSlTpMode('price')}
@@ -749,8 +805,9 @@ function PositionManageModal({
                             style={{
                               flex: 1, padding: '3px 0', fontSize: 11,
                               background: tpPct === String(v) ? 'var(--ok)' : 'var(--surface-3)',
-                              color: tpPct === String(v) ? '#fff' : 'var(--text-dim)',
+                              color: tpPct === String(v) ? '#000000' : 'var(--text-dim)',
                               borderColor: tpPct === String(v) ? 'var(--ok)' : 'var(--line)',
+                              fontWeight: tpPct === String(v) ? 700 : 500,
                             }}
                             onClick={() => setTpPct(String(v))}
                           >
@@ -797,12 +854,12 @@ function PositionManageModal({
               </p>
 
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to close:</span>
-                  <strong style={{ fontSize: 14, color: 'var(--text)' }}>{reducePct}%</strong>
+                  <strong style={{ fontSize: 14, color: '#f59e0b' }}>−{reducePct}%</strong>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                   {REDUCE_PCT_CHIPS.map((pct) => (
                     <button
                       key={pct}
@@ -810,27 +867,76 @@ function PositionManageModal({
                       className="btn btn-sm secondary"
                       style={{
                         flex: 1,
+                        minWidth: 50,
                         padding: '6px 0',
                         fontSize: 12,
-                        background: reducePct === pct ? 'var(--accent)' : 'var(--surface-3)',
-                        color: reducePct === pct ? '#fff' : 'var(--text-dim)',
-                        borderColor: reducePct === pct ? 'var(--accent)' : 'var(--line)',
+                        background: reducePct === pct && !isCustomReduce ? '#f59e0b' : 'var(--surface-3)',
+                        color: reducePct === pct && !isCustomReduce ? '#000000' : 'var(--text-dim)',
+                        borderColor: reducePct === pct && !isCustomReduce ? '#f59e0b' : 'var(--line)',
+                        fontWeight: reducePct === pct && !isCustomReduce ? 700 : 500,
                       }}
-                      onClick={() => setReducePct(pct)}
+                      onClick={() => {
+                        setReducePct(pct);
+                        setCustomReduceInput('');
+                      }}
                     >
                       −{pct}%
                     </button>
                   ))}
+
+                  {/* Custom % Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Custom %"
+                      value={customReduceInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setCustomReduceInput(val);
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num > 0 && num < 100) {
+                          setReducePct(num);
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        fontSize: 12,
+                        background: isCustomReduce ? 'rgba(245, 158, 11, 0.15)' : 'var(--surface-3)',
+                        borderColor: isCustomReduce ? '#f59e0b' : 'var(--line)',
+                        color: isCustomReduce ? '#f59e0b' : 'var(--text)',
+                        fontWeight: isCustomReduce ? 700 : 400,
+                        textAlign: 'center',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                  </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <div>
-                    <span style={{ color: 'var(--muted)' }}>Selling: </span>
-                    <strong style={{ color: 'var(--text)' }}>{reduceQty}</strong>
+                    <span style={{ color: 'var(--muted)' }}>Selling Size: </span>
+                    <strong style={{ color: '#f59e0b' }}>{reduceQty}</strong>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: 'var(--muted)' }}>Remaining: </span>
+                    <span style={{ color: 'var(--muted)' }}>Remaining Size: </span>
                     <strong style={{ color: 'var(--text)' }}>{remainQty}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Est. Margin Released: </span>
+                    <strong style={{ color: '#f59e0b' }}>
+                      {reduceMarginMinor ? fmtMinor(reduceMarginMinor, position.marginCurrency) : '—'}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Est. Margin Remaining: </span>
+                    <span style={{ color: 'var(--text)' }}>
+                      {position.lockedMarginMinor && reduceMarginMinor
+                        ? fmtMinor(String(BigInt(position.lockedMarginMinor) - BigInt(reduceMarginMinor)), position.marginCurrency)
+                        : '—'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -842,8 +948,14 @@ function PositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm"
+                  style={{
+                    background: '#f59e0b',
+                    color: '#000000',
+                    fontWeight: 700,
+                    border: 'none',
+                  }}
                   disabled={isAdjusting || reducePct <= 0 || reducePct >= 100}
-                  onClick={() => onAdjust(position.venuePositionId, 'reduce', reducePct * 100)}
+                  onClick={() => onAdjust(position.venuePositionId, 'reduce', Math.round(reducePct * 100))}
                 >
                   {isAdjusting ? 'Executing Partial Exit…' : `Close ${reducePct}% (${reduceQty} ${position.pair.split('_')[0].replace(/^[A-Z]-/, '')})`}
                 </button>
@@ -854,17 +966,87 @@ function PositionManageModal({
           {/* ── Tab 3: Add / Increase ── */}
           {activeTab === 'increase' && (
             <div>
-              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                Add more size to this existing position at current market price.
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Add more size to this existing position at current market price using group capital.
               </p>
 
+              {/* Group Funding Balance Card with Live / Manual Refresh */}
+              <div
+                style={{
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius)',
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Group Available Capital
+                    </span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: 'var(--ok)',
+                        boxShadow: '0 0 6px var(--ok)',
+                      }}
+                      title="Auto-refreshing live data every 3s"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: 16, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+                      {groupFundingCurMinor !== null ? fmtMinor(groupFundingCurMinor, position.marginCurrency) : '—'}
+                    </strong>
+                    {otherCurrency && groupFundingOtherMinor !== null && groupFundingOtherMinor !== '0' && (
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                        ({fmtMinor(groupFundingOtherMinor, otherCurrency)})
+                      </span>
+                    )}
+                    <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+                      • {position.groupName || 'Ungrouped'}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-sm secondary"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '4px 10px',
+                    fontSize: 11.5,
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Refresh group capital and live positions"
+                >
+                  <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>
+                    🔄
+                  </span>
+                  {isRefreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
+
+              {/* Percentage Selection & Calculations */}
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to add:</span>
                   <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                {/* Chips + Custom Input */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                   {INCREASE_PCT_CHIPS.map((pct) => (
                     <button
                       key={pct}
@@ -872,31 +1054,121 @@ function PositionManageModal({
                       className="btn btn-sm secondary"
                       style={{
                         flex: 1,
+                        minWidth: 54,
                         padding: '6px 0',
                         fontSize: 12,
-                        background: increasePct === pct ? 'var(--ok)' : 'var(--surface-3)',
-                        color: increasePct === pct ? '#fff' : 'var(--text-dim)',
-                        borderColor: increasePct === pct ? 'var(--ok)' : 'var(--line)',
+                        background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
+                        color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
+                        borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                        fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
                       }}
-                      onClick={() => setIncreasePct(pct)}
+                      onClick={() => {
+                        setIncreasePct(pct);
+                        setCustomIncreaseInput('');
+                      }}
                     >
                       +{pct}%
                     </button>
                   ))}
+
+                  {/* Custom % Field */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Custom %"
+                      value={customIncreaseInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setCustomIncreaseInput(val);
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num > 0) {
+                          setIncreasePct(num);
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        fontSize: 12,
+                        background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
+                        borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                        color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
+                        fontWeight: isCustomIncrease ? 700 : 400,
+                        textAlign: 'center',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                  </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                {/* Financial Breakdown */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <div>
-                    <span style={{ color: 'var(--muted)' }}>Adding: </span>
+                    <span style={{ color: 'var(--muted)' }}>Estimated Funds Used: </span>
+                    <strong style={{ color: 'var(--ok)' }}>
+                      {addMarginMinor ? fmtMinor(addMarginMinor, position.marginCurrency) : '—'}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Adding Size: </span>
                     <strong style={{ color: 'var(--ok)' }}>+{increaseQty}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Current Margin: </span>
+                    <span style={{ color: 'var(--text)' }}>
+                      {position.lockedMarginMinor ? fmtMinor(position.lockedMarginMinor, position.marginCurrency) : '—'}
+                    </span>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ color: 'var(--muted)' }}>New Total Size: </span>
                     <strong style={{ color: 'var(--text)' }}>{newTotalQty}</strong>
                   </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>New Est. Total Margin: </span>
+                    <strong style={{ color: 'var(--text)' }}>
+                      {position.lockedMarginMinor && addMarginMinor
+                        ? fmtMinor(addMinors(position.lockedMarginMinor, addMarginMinor), position.marginCurrency)
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Remaining Group Fund: </span>
+                    <span style={{ color: groupFundingCurMinor && addMarginMinor && BigInt(groupFundingCurMinor) < BigInt(addMarginMinor) ? 'var(--danger)' : 'var(--text)' }}>
+                      {groupFundingCurMinor && addMarginMinor
+                        ? (BigInt(groupFundingCurMinor) < BigInt(addMarginMinor)
+                            ? `${fmtMinor(String(BigInt(groupFundingCurMinor) - BigInt(addMarginMinor)), position.marginCurrency)} (Deficit)`
+                            : fmtMinor(String(BigInt(groupFundingCurMinor) - BigInt(addMarginMinor)), position.marginCurrency))
+                        : (groupFundingCurMinor ? fmtMinor(groupFundingCurMinor, position.marginCurrency) : '—')}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Warning if requested funds exceed available group capital */}
+                {groupFundingCurMinor && addMarginMinor && BigInt(groupFundingCurMinor) < BigInt(addMarginMinor) && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '8px 12px',
+                      background: 'rgba(240, 85, 90, 0.12)',
+                      border: '1px solid var(--danger)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 12,
+                      color: 'var(--danger)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span>⚠️</span>
+                    <span>
+                      Estimated funds needed ({fmtMinor(addMarginMinor, position.marginCurrency)}) exceed available group capital ({fmtMinor(groupFundingCurMinor, position.marginCurrency)})!
+                    </span>
+                  </div>
+                )}
               </div>
 
+              {/* Action Buttons */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                 <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isAdjusting}>
                   Cancel
@@ -904,11 +1176,11 @@ function PositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm"
-                  style={{ background: 'var(--ok)' }}
+                  style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
                   disabled={isAdjusting || increasePct <= 0}
-                  onClick={() => onAdjust(position.venuePositionId, 'increase', increasePct * 100)}
+                  onClick={() => onAdjust(position.venuePositionId, 'increase', Math.round(increasePct * 100))}
                 >
-                  {isAdjusting ? 'Increasing Position…' : `Add +${increasePct}% (+${increaseQty})`}
+                  {isAdjusting ? 'Increasing Position…' : `Add +${increasePct}% (+${increaseQty}) • Est. ${addMarginMinor ? fmtMinor(addMarginMinor, position.marginCurrency) : ''}`}
                 </button>
               </div>
             </div>
