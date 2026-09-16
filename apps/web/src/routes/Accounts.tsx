@@ -38,14 +38,24 @@ export function Accounts() {
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h2 style={{ margin: 0 }}>Accounts</h2>
-        {isOwner ? (
-          <Link to="/app/accounts/connect" className="btn btn-sm" style={{ marginLeft: 'auto' }}>Connect an account</Link>
-        ) : (
-          <span className="muted" style={{ marginLeft: 'auto', fontSize: 12.5 }}>connecting needs the owner</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          <button
+            className="btn secondary btn-sm"
+            onClick={() => accounts.refetch()}
+            disabled={accounts.isFetching}
+            title="Refresh accounts list"
+          >
+            {accounts.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+          </button>
+          {isOwner ? (
+            <Link to="/app/accounts/connect" className="btn btn-sm">Connect an account</Link>
+          ) : (
+            <span className="muted" style={{ fontSize: 12.5 }}>connecting needs the owner</span>
+          )}
+        </div>
       </div>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         The exchange accounts connected to this workspace. One account, one set of keys.

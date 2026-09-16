@@ -106,25 +106,122 @@ export function AccountDetail() {
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not delete the account'),
   });
 
-  if (account.isLoading) return <div className="panel">Loading account…</div>;
-  if (account.isError) return <div className="panel error">{(account.error as Error).message}</div>;
-  if (!account.isSuccess) return <div className="panel">No such account.</div>;
+  if (account.isLoading) return <div className="panel full-width-page">Loading account…</div>;
+  if (account.isError) return <div className="panel error full-width-page">{(account.error as Error).message}</div>;
+  if (!account.isSuccess) return <div className="panel full-width-page">No such account.</div>;
 
   const a = account.data;
-  const busy = finish.isPending || suspend.isPending || resume.isPending || remove.isPending;
+  const busy = finish.isPending || suspend.isPending || resume.isPending || remove.isPending || sync.isPending;
 
   return (
-    <>
+    <div className="account-detail-page full-width-page">
       <div className="panel">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0 }}>{a.name}</h2>
-          <span className={`badge ${statusBadgeClass(a.status)}`}>
-            {STATUS_LABEL[a.status] ?? a.status}
-          </span>
-          <Link to="/app/accounts" className="btn secondary btn-sm" style={{ marginLeft: 'auto' }}>
-            ← All accounts
-          </Link>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h2 style={{ margin: 0 }}>{a.name}</h2>
+            <span className={`badge ${statusBadgeClass(a.status)}`}>
+              {STATUS_LABEL[a.status] ?? a.status}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {/* Refresh / Sync Balances button */}
+            <button
+              className="btn secondary btn-sm"
+              disabled={sync.isPending || account.isFetching}
+              onClick={() => {
+                sync.mutate();
+                void account.refetch();
+              }}
+              title="Fetch fresh balances directly from exchange"
+            >
+              {sync.isPending ? 'Syncing with exchange…' : '🔄 Refresh / Sync'}
+            </button>
+
+            {/* Quick Action buttons */}
+            {isOwner && a.status === 'pending_validation' && (
+              <button className="btn btn-sm" disabled={busy} onClick={() => finish.mutate()}>
+                {finish.isPending ? 'Switching on…' : 'Finish connecting'}
+              </button>
+            )}
+
+            {isOwner && a.status === 'active' && (
+              confirmSuspend ? (
+                <span className="inline-confirm">
+                  <span className="muted" style={{ fontSize: 12.5 }}>Stop trading?</span>
+                  <button className="btn danger btn-sm" disabled={busy} onClick={() => suspend.mutate()}>
+                    {suspend.isPending ? 'Deactivating…' : 'Yes, deactivate'}
+                  </button>
+                  <button className="btn ghost btn-sm" onClick={() => setConfirmSuspend(false)}>Cancel</button>
+                </span>
+              ) : (
+                <button
+                  className="btn secondary btn-sm"
+                  disabled={busy}
+                  onClick={() => setConfirmSuspend(true)}
+                  title="Pause trading this account"
+                >
+                  Deactivate
+                </button>
+              )
+            )}
+
+            {isOwner && a.status === 'suspended' && (
+              <button className="btn btn-sm" disabled={busy} onClick={() => resume.mutate()}>
+                {resume.isPending ? 'Reactivating…' : 'Reactivate'}
+              </button>
+            )}
+
+            {isOwner && a.deletable && (
+              confirmDelete ? (
+                <span className="inline-confirm">
+                  <span className="muted" style={{ fontSize: 12.5 }}>Delete account?</span>
+                  <button className="btn danger btn-sm" disabled={busy} onClick={() => remove.mutate()}>
+                    {remove.isPending ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                  <button className="btn ghost btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                </span>
+              ) : (
+                <button
+                  className="btn danger-outline btn-sm"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(true)}
+                  title="Permanently remove account (only if never traded)"
+                >
+                  Delete
+                </button>
+              )
+            )}
+
+            <Link to="/app/accounts" className="btn ghost btn-sm">
+              ← All accounts
+            </Link>
+          </div>
         </div>
+
+        {syncNote !== null && (
+          <div style={{
+            background: 'rgba(76, 141, 255, 0.1)',
+            border: '1px solid rgba(76, 141, 255, 0.3)',
+            color: 'var(--accent)',
+            padding: '8px 14px',
+            borderRadius: 'var(--radius)',
+            marginBottom: 14,
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <span>✓ {syncNote}</span>
+            <button
+              className="btn ghost btn-sm"
+              style={{ padding: '2px 8px', height: 'auto', minHeight: 'unset', color: 'var(--text)' }}
+              onClick={() => setSyncNote(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {a.status === 'pending_validation' && (
           <div className="spread-warning">
@@ -139,7 +236,7 @@ export function AccountDetail() {
           </div>
         )}
 
-        <table style={{ maxWidth: 620 }}>
+        <table style={{ width: '100%' }}>
           <tbody>
             {/* TWO DIFFERENT QUESTIONS, kept apart:
                   * here — how this account is CONFIGURED to trade: the one currency
@@ -150,7 +247,9 @@ export function AccountDetail() {
                 were everything the account had, which is wrong the moment an account
                 holds both INR and USDT. */}
             <tr>
-              <td className="muted">Allocated capital<br /><span style={{ fontSize: 11 }}>(sizing basis)</span></td>
+              <td className="muted" style={{ width: 220, verticalAlign: 'top' }}>
+                Allocated capital<br /><span style={{ fontSize: 11 }}>(sizing basis)</span>
+              </td>
               <td className="mono">
                 {a.allocatedCapitalMinor === null || a.allocatedCurrency === null
                   ? <span className="muted">not read from the exchange yet</span>
@@ -164,7 +263,7 @@ export function AccountDetail() {
               </td>
             </tr>
             <tr>
-              <td className="muted">Available to trade</td>
+              <td className="muted" style={{ width: 220, verticalAlign: 'top' }}>Available to trade</td>
               <td>
                 {/* THE MOST-ASKED-FOR LINE ON THIS PAGE, so it shows every funding
                     currency and its real balance — not just the one the sizing basis
@@ -173,21 +272,21 @@ export function AccountDetail() {
                 {a.fundingCurrencies.length === 0 ? (
                   <span className="muted">nothing yet — sync after funding the account</span>
                 ) : (
-                  <table style={{ margin: 0 }}>
+                  <table style={{ margin: 0, width: '100%', maxWidth: 520 }}>
                     <tbody>
                       {a.fundingCurrencies.map((c) => {
                         const row = a.balances.find((b) => b.currency === c);
                         return (
                           <tr key={c}>
-                            <td style={{ paddingLeft: 0, width: 60 }}>{c}</td>
+                            <td style={{ paddingLeft: 0, width: 80, fontWeight: 600 }}>{c}</td>
                             <td className="mono" style={{ paddingLeft: 0 }}>
                               {row === undefined
                                 ? <span className="muted">no balance on record — sync</span>
                                 : formatMinor(row.freeMinor, row.scale, c)}
                             </td>
-                            <td style={{ paddingLeft: 8 }}>
+                            <td style={{ paddingLeft: 12 }}>
                               {c === a.allocatedCurrency
-                                ? <span className="muted" style={{ fontSize: 11 }}>sizing basis</span>
+                                ? <span className="badge planned" style={{ fontSize: 10.5 }}>sizing basis</span>
                                 : null}
                             </td>
                           </tr>
@@ -199,7 +298,7 @@ export function AccountDetail() {
               </td>
             </tr>
             <tr>
-              <td className="muted">Reconciled against</td>
+              <td className="muted" style={{ width: 220 }}>Reconciled against</td>
               <td className="mono">
                 {a.confirmedAgainstMinor === null || a.allocatedCurrency === null
                   ? <span className="muted">not switched on yet</span>
@@ -207,15 +306,15 @@ export function AccountDetail() {
               </td>
             </tr>
             <tr>
-              <td className="muted">Switched on</td>
+              <td className="muted" style={{ width: 220 }}>Switched on</td>
               <td>{when(a.confirmedAt)}</td>
             </tr>
             <tr>
-              <td className="muted">Added</td>
+              <td className="muted" style={{ width: 220 }}>Added</td>
               <td>{when(a.createdAt)}</td>
             </tr>
             <tr>
-              <td className="muted">Groups</td>
+              <td className="muted" style={{ width: 220 }}>Groups</td>
               <td>
                 {a.groupCount === 0
                   ? <span className="muted">in no group</span>
@@ -229,33 +328,41 @@ export function AccountDetail() {
       </div>
 
       <div className="panel">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>What the exchange says this account holds</h2>
           <button
             className="btn secondary btn-sm"
             style={{ marginLeft: 'auto' }}
-            disabled={sync.isPending}
-            onClick={() => sync.mutate()}
+            disabled={sync.isPending || account.isFetching}
+            onClick={() => {
+              sync.mutate();
+              void account.refetch();
+            }}
           >
-            {sync.isPending ? 'Reading the exchange…' : 'Sync balances'}
+            {sync.isPending ? 'Reading the exchange…' : '🔄 Sync balances'}
           </button>
         </div>
-        <p className="sub muted" style={{ marginTop: -8 }}>
+        <p className="sub muted" style={{ marginTop: 0, marginBottom: 16 }}>
           The exchange&apos;s own numbers, and what every trade is sized from. They only change here
           when the account is read — so sync after a deposit or a withdrawal.
         </p>
-        {syncNote !== null && <div className="muted" style={{ marginBottom: 8, fontSize: 12.5 }}>{syncNote}</div>}
         {a.balances.length === 0 ? (
           <p className="muted">No balances were recorded.</p>
         ) : (
-          <table>
+          <table style={{ width: '100%' }}>
             <thead>
-              <tr><th>Currency</th><th>Free</th><th>Locked</th><th>Can pay for a trade</th><th>Read at</th></tr>
+              <tr>
+                <th style={{ width: '15%' }}>Currency</th>
+                <th style={{ width: '25%' }}>Free</th>
+                <th style={{ width: '25%' }}>Locked</th>
+                <th style={{ width: '20%' }}>Can pay for a trade</th>
+                <th style={{ width: '15%' }}>Read at</th>
+              </tr>
             </thead>
             <tbody>
               {a.balances.map((b) => (
                 <tr key={b.currency}>
-                  <td>{b.currency}</td>
+                  <td style={{ fontWeight: 600 }}>{b.currency}</td>
                   <td className="mono">{formatMinor(b.freeMinor, b.scale, b.currency)}</td>
                   <td className="mono">{formatMinor(b.lockedMinor, b.scale, b.currency)}</td>
                   <td>
@@ -280,13 +387,16 @@ export function AccountDetail() {
       </div>
 
       <div className="panel">
-        <h2>Actions</h2>
+        <h2>Account Actions</h2>
+        <p className="sub muted" style={{ marginTop: -12, marginBottom: 16 }}>
+          Lifecycle management and trading controls for this connected exchange account.
+        </p>
         {!isOwner ? (
           <p className="muted">
             Changing an account needs the workspace owner with a fresh second factor.
           </p>
         ) : (
-          <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
             {a.status === 'pending_validation' && (
               <button className="btn" disabled={busy} onClick={() => finish.mutate()}>
                 {finish.isPending ? 'Switching on…' : 'Finish connecting'}
@@ -303,13 +413,13 @@ export function AccountDetail() {
               </span>
             ) : (
               <button className="btn secondary" disabled={busy} onClick={() => setConfirmSuspend(true)}>
-                Deactivate
+                Deactivate Account
               </button>
             ))}
 
             {a.status === 'suspended' && (
               <button className="btn" disabled={busy} onClick={() => resume.mutate()}>
-                {resume.isPending ? 'Reactivating…' : 'Reactivate'}
+                {resume.isPending ? 'Reactivating…' : 'Reactivate Account'}
               </button>
             )}
 
@@ -326,14 +436,19 @@ export function AccountDetail() {
               </span>
             ) : (
               <button className="btn danger-outline" disabled={busy} onClick={() => setConfirmDelete(true)}>
-                Delete
+                Delete Account
               </button>
             )) : (
-              <p className="muted" style={{ margin: 0 }}>{a.undeletableReason}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button className="btn danger-outline" disabled title={a.undeletableReason ?? 'Account cannot be deleted'}>
+                  Delete Account
+                </button>
+                <span className="muted" style={{ fontSize: 12 }}>{a.undeletableReason}</span>
+              </div>
             )}
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

@@ -13,6 +13,7 @@
   --bg-2: #0d1016;
   --panel: #12151d;
   --panel-2: #191d27;
+  --panel-bg: #141824;
   --surface-3: #1f2430;
   --line: #232935;
   --line-strong: #313846;
@@ -1060,11 +1061,12 @@ tr.skipped td { color: var(--muted); }
   display: flex;
   gap: 24px;
   align-items: center;
-  padding: 16px 20px;
-  border-radius: var(--radius);
-  background: var(--panel-bg, #fafafa);
+  padding: 18px 24px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%);
   border: 1px solid var(--line);
   margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
 }
 .positions-summary .pnl-big {
   font-size: 26px;
@@ -1076,24 +1078,25 @@ tr.skipped td { color: var(--muted); }
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-dim);
-  margin-bottom: 2px;
+  color: var(--muted);
+  margin-bottom: 3px;
 }
 .positions-summary .stat-value {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .position-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  margin-bottom: 10px;
-  background: var(--bg, #fff);
+  border-radius: var(--radius-lg);
+  margin-bottom: 12px;
+  background: linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .position-card:hover {
-  border-color: var(--accent, #c47a4a);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-color: var(--line-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 .position-card-header {
   display: flex;
@@ -1503,6 +1506,29 @@ body:has(.panel-dark)::before {
   margin: 0 auto;
   overflow-y: auto;
   height: 100vh;
+  box-sizing: border-box;
+}
+
+/* Full width pages (e.g. Accounts, AccountDetail, Positions) */
+.panel-dark .app-content > .full-width-page,
+.panel-dark .app-content > *:not(.trading-terminal-layout).full-width-page {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 24px 32px !important;
+  box-sizing: border-box;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+.account-detail-page {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.account-detail-page .panel {
+  width: 100%;
   box-sizing: border-box;
 }
 

@@ -261,7 +261,9 @@ export class PlanningService {
       try {
         const usdtInrBook = await this.deps.getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
         usdtInrMid = bookMid(usdtInrBook);
-      } catch {}
+      } catch {
+        // Fallback: USDT/INR book unavailable, sizing will proceed with unit rate
+      }
     }
 
     // Market-scope switches (phase 05): the operator-set mode for each market the

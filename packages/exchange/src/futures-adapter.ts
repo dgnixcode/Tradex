@@ -245,7 +245,7 @@ export interface FuturesAdapter {
  * `INR-{ASSET}_INR` for INR-margined. Kept here so both the concrete adapter
  * and the test venue construct pairs the same way.
  */
-export function futuresPairOf(market: MarketRef, marginCurrency: FuturesMarginCurrency): string {
+export function futuresPairOf(market: MarketRef, _marginCurrency: FuturesMarginCurrency): string {
   if (market.quote === 'INR') return `INR-${market.asset}_INR`;
   return `B-${market.asset}_${market.quote}`;
 }

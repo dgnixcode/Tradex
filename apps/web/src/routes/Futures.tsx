@@ -395,7 +395,7 @@ export function Futures() {
   };
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Positions</h2>
@@ -562,55 +562,59 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
   };
 
   const pillStyle = (active: boolean) => ({
-    padding: '2px 10px', fontSize: 11,
-    background: active ? 'var(--accent-soft)' : 'transparent',
-    color: active ? 'var(--text)' : 'var(--text-dim)',
+    padding: '3px 12px', fontSize: 11, fontWeight: 600,
+    background: active ? 'var(--accent)' : 'var(--surface-3)',
+    color: active ? '#fff' : 'var(--text-dim)',
     border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+    borderRadius: 'var(--radius-pill)',
+    cursor: 'pointer',
   });
 
   const chipStyle = (active: boolean) => ({
-    flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 600 : 500,
-    background: active ? 'var(--accent-soft)' : 'transparent',
-    color: active ? 'var(--text)' : 'var(--text-dim)',
+    flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 700 : 500,
+    background: active ? 'var(--accent)' : 'var(--surface-3)',
+    color: active ? '#fff' : 'var(--muted)',
     border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
     borderRadius: 'var(--radius-pill)',
+    cursor: 'pointer',
   } as const);
 
   return (
     <div
       style={{
-        marginBottom: 14, padding: 12, borderRadius: 10,
-        border: '1px solid var(--border, rgba(0,0,0,0.12))',
-        background: 'var(--panel-bg, #fafafa)',
+        marginBottom: 16, padding: 16, borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--line-strong)',
+        background: 'linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%)',
+        boxShadow: 'var(--shadow-md)',
       }}
     >
-      <div style={{ marginBottom: 8, fontSize: 13 }}>
-        <strong>Set protection</strong>
+      <div style={{ marginBottom: 12, fontSize: 13, display: 'flex', alignItems: 'center' }}>
+        <strong style={{ color: 'var(--text)' }}>Set protection</strong>
         {existing !== undefined && (
-          <span className="muted" style={{ marginLeft: 8 }}>
+          <span className="badge planned" style={{ marginLeft: 10, fontSize: 11 }}>
             {existing.accountName} · {existing.pair}
           </span>
         )}
       </div>
       {/* Single Price / % toggle for both SL and TP */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Mode
         </span>
-        <div style={{ display: 'flex', gap: 3 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
           <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'percent'} style={pillStyle(slTpMode === 'percent')} onClick={() => setSlTpMode('percent')}>%</button>
           <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'price'} style={pillStyle(slTpMode === 'price')} onClick={() => setSlTpMode('price')}>Price</button>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* ── Stop-loss ── */}
-        <div className="field" style={{ margin: 0, minWidth: 180, flex: 1 }}>
-          <label htmlFor="edit-sl" style={{ marginBottom: 5 }}>Stop-loss trigger</label>
+        <div className="field" style={{ margin: 0, minWidth: 200, flex: 1 }}>
+          <label htmlFor="edit-sl" style={{ marginBottom: 6 }}>Stop-loss trigger</label>
           {slTpMode === 'price' ? (
             <>
               <input id="edit-sl" inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="leave empty to skip" />
               {sl !== '' && hasRef && sideOk && (
-                <div className="hint" style={{ marginTop: 4 }}>
+                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
                   ≈ {triggerToPct(refPrice, Number(sl), positionSide as 'long' | 'short', 'sl').toFixed(2)}% from entry
                 </div>
               )}
@@ -628,7 +632,7 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
                   if (v === '' || Number(v) <= 100) setSlPct(v);
                 }}
               />
-              <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                 {SL_PCT_CHIPS.map((v) => (
                   <button
                     key={v} type="button" className="btn btn-sm"
@@ -640,26 +644,26 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
                 ))}
               </div>
               {hasRef && sideOk && slPct !== '' && pctValid(slPct) && (
-                <div className="hint" style={{ marginTop: 4 }}>
+                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
                   ≈ {pctToTrigger(refPrice, Number(slPct), positionSide as 'long' | 'short', 'sl').toFixed(2)} trigger price
                 </div>
               )}
             </>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginTop: 10 }}>
             <input type="checkbox" id="edit-tsl" checked={trailing} onChange={(e) => setTrailing(e.target.checked)} />
-            <label htmlFor="edit-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text-dim)' }}>Make Trailing (1% step)</label>
+            <label htmlFor="edit-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>Make Trailing (1% step)</label>
           </div>
         </div>
 
         {/* ── Take-profit ── */}
-        <div className="field" style={{ margin: 0, minWidth: 180, flex: 1 }}>
-          <label htmlFor="edit-tp" style={{ marginBottom: 5 }}>Take-profit trigger</label>
+        <div className="field" style={{ margin: 0, minWidth: 200, flex: 1 }}>
+          <label htmlFor="edit-tp" style={{ marginBottom: 6 }}>Take-profit trigger</label>
           {slTpMode === 'price' ? (
             <>
               <input id="edit-tp" inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} placeholder="leave empty to skip" />
               {tp !== '' && hasRef && sideOk && (
-                <div className="hint" style={{ marginTop: 4 }}>
+                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
                   ≈ {triggerToPct(refPrice, Number(tp), positionSide as 'long' | 'short', 'tp').toFixed(2)}% from entry
                 </div>
               )}
@@ -677,7 +681,7 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
                   if (v === '' || Number(v) <= 100) setTpPct(v);
                 }}
               />
-              <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                 {TP_PCT_CHIPS.map((v) => (
                   <button
                     key={v} type="button" className="btn btn-sm"
@@ -689,7 +693,7 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
                 ))}
               </div>
               {hasRef && sideOk && tpPct !== '' && pctValid(tpPct) && (
-                <div className="hint" style={{ marginTop: 4 }}>
+                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
                   ≈ {pctToTrigger(refPrice, Number(tpPct), positionSide as 'long' | 'short', 'tp').toFixed(2)} trigger price
                 </div>
               )}
@@ -698,14 +702,14 @@ function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionE
         </div>
 
         {/* ── Actions ── */}
-        <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end', flexShrink: 0, paddingBottom: 4 }}>
           <button className="btn btn-sm" disabled={!canSubmit || pending} onClick={handleSubmit}>
             {pending ? 'Saving…' : 'Save'}
           </button>
           <button className="btn btn-sm secondary" onClick={onCancel} disabled={pending}>Cancel</button>
         </div>
       </div>
-      <p className="sub muted" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>
+      <p className="sub muted" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
         The venue does not allow &ldquo;move&rdquo; on a live SL/TP — the server cancels the current leg and creates a fresh one. There is a brief window while the swap happens where the position is unprotected.
       </p>
     </div>
