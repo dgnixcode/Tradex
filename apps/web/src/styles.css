@@ -1879,4 +1879,46 @@ body:has(.panel-dark)::before {
   border: 1px solid rgba(240, 85, 90, 0.35);
 }
 
+.account-nav-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+
+.account-nav-tab {
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  margin-bottom: -1px;
+}
+
+.account-nav-tab:hover {
+  color: var(--text);
+}
+
+.account-nav-tab.active {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+  font-weight: 700;
+}
+
+.account-tab-badge {
+  background: rgba(76, 141, 255, 0.15);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+}
+
 

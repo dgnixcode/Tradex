@@ -19,11 +19,11 @@ import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 
 /* ─── helpers ─── */
 
-function quoteScaleOf(quote: 'INR' | 'USDT'): number {
+export function quoteScaleOf(quote: 'INR' | 'USDT'): number {
   return quote === 'INR' ? 2 : 8;
 }
 
-function fmtMinor(minor: string, quote: 'INR' | 'USDT'): string {
+export function fmtMinor(minor: string, quote: 'INR' | 'USDT'): string {
   const scale = quoteScaleOf(quote);
   const neg = minor.startsWith('-');
   const digits = neg ? minor.slice(1) : minor;
@@ -35,20 +35,20 @@ function fmtMinor(minor: string, quote: 'INR' | 'USDT'): string {
   return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
 }
 
-function pnlClass(minor: string | null): string {
+export function pnlClass(minor: string | null): string {
   if (minor === null) return '';
   if (minor.startsWith('-')) return 'pnl-loss';
   if (minor === '0' || minor === '') return '';
   return 'pnl-profit';
 }
 
-function pnlText(minor: string | null, quote: 'INR' | 'USDT'): string {
+export function pnlText(minor: string | null, quote: 'INR' | 'USDT'): string {
   if (minor === null) return '—';
   if (minor.startsWith('-')) return fmtMinor(minor, quote);
   return `+${fmtMinor(minor, quote)}`;
 }
 
-function bufferColor(bp: number | null): string | undefined {
+export function bufferColor(bp: number | null): string | undefined {
   if (bp === null) return undefined;
   if (bp < 200) return 'var(--danger)';
   if (bp < 1000) return '#c48a00';
@@ -56,12 +56,12 @@ function bufferColor(bp: number | null): string | undefined {
 }
 
 /** Add two minor-unit strings. Works for both positive and negative values. */
-function addMinors(a: string, b: string): string {
+export function addMinors(a: string, b: string): string {
   return String(BigInt(a) + BigInt(b));
 }
 
 /** Calculate proportional minor units (e.g. 25% of 6952663) using basis points */
-function calcProportionalMinor(minor: string | null, pct: number): string | null {
+export function calcProportionalMinor(minor: string | null, pct: number): string | null {
   if (minor === null || minor === '' || minor === '0' || !Number.isFinite(pct) || pct <= 0) return null;
   try {
     const b = BigInt(minor);
@@ -72,7 +72,7 @@ function calcProportionalMinor(minor: string | null, pct: number): string | null
   }
 }
 
-function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null; leverage: string | null; side: 'long' | 'short' | 'flat' }): number | null {
+export function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null; leverage: string | null; side: 'long' | 'short' | 'flat' }): number | null {
   if (p.avgEntryPrice === null || p.markPrice === null || p.side === 'flat') return null;
   const entry = Number(p.avgEntryPrice);
   const mark = Number(p.markPrice);
@@ -83,7 +83,7 @@ function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null;
   return Number.isFinite(pct) ? pct : null;
 }
 
-function roeText(pct: number | null): string {
+export function roeText(pct: number | null): string {
   if (pct === null) return '';
   const sign = pct >= 0 ? '+' : '';
   return ` (${sign}${pct.toFixed(2)}%)`;
@@ -446,7 +446,7 @@ const TP_PCT_CHIPS = [2, 5, 10, 15, 20, 30] as const;
 const REDUCE_PCT_CHIPS = [10, 25, 50, 75] as const;
 const INCREASE_PCT_CHIPS = [25, 50, 100] as const;
 
-interface PositionManageModalProps {
+export interface PositionManageModalProps {
   readonly position: FuturesPositionRow;
   readonly onClose: () => void;
   readonly onExit: (id: string, marginCurrency: 'INR' | 'USDT') => void;
@@ -457,7 +457,7 @@ interface PositionManageModalProps {
   readonly isProtecting: boolean;
 }
 
-function PositionManageModal({
+export function PositionManageModal({
   position,
   onClose,
   onExit,
