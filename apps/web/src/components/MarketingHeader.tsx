@@ -3,31 +3,25 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth.tsx';
 import { Brand } from './Brand.tsx';
 
-// Reusable marketing header, shared by the landing page and any future public
-// page. It is distinct from the authenticated panel's header (App.tsx): this one
-// carries section-anchor navigation and a login CTA, not a logout button. It
-// gains a hairline border only once the page scrolls, so the hero sits flush
-// against a borderless bar and the chrome appears as you move down.
-
 interface NavLink {
   readonly href: string;
   readonly label: string;
 }
 
 const NAV: readonly NavLink[] = [
-  { href: '#how', label: 'How it works' },
-  { href: '#features', label: 'Features' },
-  { href: '#safety', label: 'Safety' },
+  { href: '#model', label: 'Investment Model' },
+  { href: '#guarantee', label: 'Capital Guarantee' },
+  { href: '#calculator', label: 'ROI Calculator' },
+  { href: '#how-it-works', label: 'How It Works' },
+  { href: '#security', label: 'Security' },
+  { href: '#faq', label: 'FAQ' },
 ];
 
 export function MarketingHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { state } = useAuth();
-  // A signed-in visitor is welcome on the marketing page; the header just offers
-  // the way back into the app instead of a login prompt.
   const authed = state.status === 'authenticated';
-  const cta = authed ? { to: '/app', label: 'Go to dashboard' } : { to: '/login', label: 'Log in' };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -47,7 +41,14 @@ export function MarketingHeader() {
       </nav>
 
       <div className="mk-header-actions">
-        <Link to={cta.to} className="btn secondary btn-sm">{cta.label}</Link>
+        {authed ? (
+          <Link to="/app" className="btn btn-sm">Go to Dashboard</Link>
+        ) : (
+          <>
+            <Link to="/login" className="btn secondary btn-sm">Client Portal</Link>
+            <Link to="/login" className="btn btn-sm">Get Started</Link>
+          </>
+        )}
         <button
           className="mk-menu-btn"
           aria-label="Toggle menu"
@@ -67,7 +68,9 @@ export function MarketingHeader() {
           {NAV.map((l) => (
             <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)}>{l.label}</a>
           ))}
-          <Link to={cta.to} onClick={() => setMenuOpen(false)}>{cta.label}</Link>
+          <Link to={authed ? '/app' : '/login'} onClick={() => setMenuOpen(false)}>
+            {authed ? 'Go to Dashboard' : 'Client Portal'}
+          </Link>
         </div>
       )}
     </header>

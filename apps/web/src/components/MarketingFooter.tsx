@@ -1,12 +1,6 @@
 import { Brand } from './Brand.tsx';
 import { useBranding } from '../branding.tsx';
 
-// Reusable marketing footer. Columns of links plus the brand blurb and the
-// rung-0 note — the same honesty the app header carries, so a visitor learns
-// before signing in that the platform currently previews and dry-runs trades.
-// Links that have no destination yet point at section anchors or '#', to be
-// wired as those pages exist.
-
 interface FooterCol {
   readonly title: string;
   readonly links: readonly { readonly label: string; readonly href: string }[];
@@ -14,27 +8,39 @@ interface FooterCol {
 
 const COLUMNS: readonly FooterCol[] = [
   {
-    title: 'Product',
+    title: 'Wealth Management',
     links: [
-      { label: 'How it works', href: '#how' },
-      { label: 'Features', href: '#features' },
-      { label: 'Safety', href: '#safety' },
+      { label: 'Non-Custodial Model', href: '#model' },
+      { label: 'Capital Guarantee', href: '#guarantee' },
+      { label: 'Profit Calculator', href: '#calculator' },
+      { label: 'How It Works', href: '#how-it-works' },
     ],
   },
   {
-    title: 'Platform',
+    title: 'Exchanges & Access',
     links: [
-      { label: 'Multi-account trading', href: '#features' },
-      { label: 'Exact-money engine', href: '#safety' },
-      { label: 'Order preview', href: '#how' },
+      { label: 'CoinDCX Integration', href: '#model' },
+      { label: 'Trade-Only API Keys', href: '#security' },
+      { label: 'Zero Withdrawal Access', href: '#security' },
+      { label: '24/7 Liquidity', href: '#faq' },
     ],
   },
   {
-    title: 'Company',
+    title: 'Risk & Architecture',
     links: [
-      { label: 'About', href: '#' },
-      { label: 'Contact', href: '#' },
-      { label: 'Status', href: '#' },
+      { label: '12 Pre-Trade Safety Gates', href: '#security' },
+      { label: 'Algorithmic Stop Loss', href: '#guarantee' },
+      { label: 'Principal Protection', href: '#guarantee' },
+      { label: 'Exact-Decimal Math', href: '#security' },
+    ],
+  },
+  {
+    title: 'Client Support',
+    links: [
+      { label: 'Frequently Asked Questions', href: '#faq' },
+      { label: 'Client Portal Login', href: '/login' },
+      { label: 'Security Overview', href: '#security' },
+      { label: 'System Status', href: '#' },
     ],
   },
 ];
@@ -48,10 +54,15 @@ export function MarketingFooter() {
         <div className="mk-footer-brand">
           <Brand to="/" />
           <p>
-            One order across every connected exchange account — sized per account,
-            checked before it goes out, reconciled after.
+            Institutional-grade crypto wealth management. Your funds remain safely inside your personal CoinDCX or exchange account at all times. Systematic algorithmic execution generating consistent 3%–5% monthly returns with 100% capital protection.
           </p>
+          <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <span className="pill ok" style={{ fontSize: '11px' }}>🛡️ Non-Custodial</span>
+            <span className="pill ok" style={{ fontSize: '11px' }}>🔒 Zero Withdrawal Rights</span>
+            <span className="pill ok" style={{ fontSize: '11px' }}>📈 3%–5% Monthly Target</span>
+          </div>
         </div>
+
         {COLUMNS.map((col) => (
           <div key={col.title} className="mk-footer-col">
             <h4>{col.title}</h4>
@@ -61,14 +72,25 @@ export function MarketingFooter() {
           </div>
         ))}
       </div>
+
+      <div className="mk-footer-disclaimer" style={{
+        maxWidth: '1200px',
+        margin: '36px auto 0',
+        padding: '20px 24px',
+        borderTop: '1px solid var(--line)',
+        fontSize: '12px',
+        lineHeight: '1.6',
+        color: 'var(--muted)',
+      }}>
+        <strong>Regulatory &amp; Non-Custodial Disclosure:</strong> {branding.name} operates as a non-custodial software and algorithmic asset management platform. We never take possession, custody, or deposit of your digital assets or fiat currency. Client funds remain exclusively in user-owned accounts on registered exchanges (such as CoinDCX). Access is restricted strictly to read and trade execution via API keys; withdrawal permissions are disabled. Past performance does not guarantee future results. Target returns of 3%–5% monthly are based on systematic quantitative risk models and disciplined stop-loss execution.
+      </div>
+
       <div className="mk-footer-bottom">
-        <span>© {COPYRIGHT_YEAR} {branding.name} · Multi-account trading, unified</span>
-        <span className="rung-badge">preview &amp; dry-run</span>
+        <span>© {COPYRIGHT_YEAR} {branding.name} · Wealth Management with Zero Custody Risk</span>
+        <span className="rung-badge">100% Capital Protected · Non-Custodial</span>
       </div>
     </footer>
   );
 }
 
-// A fixed year rather than a runtime new Date(): the build is deterministic and
-// the footer year is not worth a clock read that would differ between renders.
 const COPYRIGHT_YEAR = 2026;
