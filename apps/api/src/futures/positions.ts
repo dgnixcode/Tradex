@@ -61,6 +61,7 @@ interface RawFuturesPositionRow {
   readonly stopLossTrigger: string | null;
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
+  readonly settlementCurrencyAvgPrice: string | null;
 }
 
 async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]): Promise<readonly RawFuturesPositionRow[]> {
@@ -74,6 +75,7 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
       'leverage', 'locked_margin_minor as lockedMarginMinor',
       'stop_loss_trigger as stopLossTrigger', 'take_profit_trigger as takeProfitTrigger',
       'funding_rate_bp as fundingRateBp',
+      'settlement_currency_avg_price as settlementCurrencyAvgPrice',
     ] as unknown as never)
     .where('account_id' as never, 'in', accountIds as never)
     .execute();
@@ -92,6 +94,7 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
     stopLossTrigger: r['stopLossTrigger'] === null ? null : String(r['stopLossTrigger']),
     takeProfitTrigger: r['takeProfitTrigger'] === null ? null : String(r['takeProfitTrigger']),
     fundingRateBp: r['fundingRateBp'] === null ? null : Number(r['fundingRateBp']),
+    settlementCurrencyAvgPrice: r['settlementCurrencyAvgPrice'] === null ? null : String(r['settlementCurrencyAvgPrice']),
   }));
 }
 
@@ -122,6 +125,7 @@ export async function buildFuturesPositions(
       stopLossTrigger: r.stopLossTrigger,
       takeProfitTrigger: r.takeProfitTrigger,
       fundingRateBp: r.fundingRateBp,
+      settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
     }));
   return {
     views: buildFuturesViews(shaped, nowMs),

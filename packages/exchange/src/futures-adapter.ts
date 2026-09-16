@@ -164,6 +164,7 @@ export interface FuturesPositionSnapshot {
   readonly takeProfitTrigger: string | null;
   readonly marginType: FuturesPositionMarginType | null;
   readonly fundingRateBp: number | null;
+  readonly settlementCurrencyAvgPrice?: string | null;
   readonly observedAtMs: number;
 }
 

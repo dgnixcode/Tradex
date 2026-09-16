@@ -118,6 +118,14 @@ function toOrderSnapshot(row: Record<string, unknown>, request: FuturesPlaceOrde
 
 function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number): FuturesPositionSnapshot | null {
   const asStr = (v: unknown): string | null => (typeof v === 'string' ? v : v === null || v === undefined ? null : String(v));
+  const triggerVal = (v: unknown): string | null => {
+    const s = asStr(v);
+    return (s === null || s === '0' || s === '0.0' || s === '') ? null : s;
+  };
+  const settlementPeg = (v: unknown): string | null => {
+    const s = asStr(v);
+    return (s === null || s === '' || Number(s) <= 0 || !Number.isFinite(Number(s))) ? null : s;
+  };
   const pair = asStr(row['pair']);
   const activePos = asStr(row['active_pos']);
   const margin = asStr(row['margin_currency_short_name']);
@@ -135,11 +143,12 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     leverage: (typeof row['leverage'] === 'number') ? (row['leverage'] as number)
       : (typeof row['leverage'] === 'string' && row['leverage'] !== '') ? Number(row['leverage']) : null,
     lockedMarginMinor: asStr(row['locked_margin']),
-    stopLossTrigger: asStr(row['stop_loss_trigger']),
-    takeProfitTrigger: asStr(row['take_profit_trigger']),
+    stopLossTrigger: triggerVal(row['stop_loss_trigger']),
+    takeProfitTrigger: triggerVal(row['take_profit_trigger']),
     marginType: (row['margin_type'] === 'isolated' || row['margin_type'] === 'crossed')
       ? (row['margin_type'] as FuturesPositionMarginType) : null,
     fundingRateBp: (typeof row['funding_rate_bp'] === 'number') ? (row['funding_rate_bp'] as number) : null,
+    settlementCurrencyAvgPrice: settlementPeg(row['settlement_currency_avg_price']),
     observedAtMs,
   };
 }

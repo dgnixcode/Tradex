@@ -58,6 +58,23 @@ function addMinors(a: string, b: string): string {
   return String(BigInt(a) + BigInt(b));
 }
 
+function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null; leverage: string | null; side: 'long' | 'short' | 'flat' }): number | null {
+  if (p.avgEntryPrice === null || p.markPrice === null || p.side === 'flat') return null;
+  const entry = Number(p.avgEntryPrice);
+  const mark = Number(p.markPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(mark) || entry <= 0) return null;
+  const lev = p.leverage !== null && Number(p.leverage) > 0 ? Number(p.leverage) : 1;
+  const dir = p.side === 'short' ? -1 : 1;
+  const pct = ((mark - entry) / entry) * 100 * lev * dir;
+  return Number.isFinite(pct) ? pct : null;
+}
+
+function roeText(pct: number | null): string {
+  if (pct === null) return '';
+  const sign = pct >= 0 ? '+' : '';
+  return ` (${sign}${pct.toFixed(2)}%)`;
+}
+
 /* ─── grouped position type ─── */
 
 interface PositionGroup {
@@ -117,6 +134,10 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
   readonly editingId: string | null;
   readonly adjusting: string | null;
 }) {
+  const roe = calcRoePct(p);
+  const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
+  const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+
   return (
     <tr>
       <td>
@@ -136,14 +157,19 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
       </td>
       <td className={`mono ${pnlClass(p.unrealisedPnlMinor)}`} style={{ fontWeight: 600 }}>
         {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
+        {roe !== null && (
+          <span style={{ display: 'block', fontSize: 11, fontWeight: 500 }}>
+            {roeText(roe).trim()}
+          </span>
+        )}
       </td>
       <td>
-        {p.stopLossTrigger === null && p.takeProfitTrigger === null
+        {!hasSl && !hasTp
           ? <span className="muted" style={{ fontSize: 11.5 }}>none</span>
           : (
               <>
-                {p.stopLossTrigger !== null && <span className="badge skipped" style={{ fontSize: 10 }}>SL {p.stopLossTrigger}</span>}
-                {p.takeProfitTrigger !== null && <span className="badge planned" style={{ fontSize: 10, marginLeft: 3 }}>TP {p.takeProfitTrigger}</span>}
+                {hasSl && <span className="badge skipped" style={{ fontSize: 10 }}>SL {p.stopLossTrigger}</span>}
+                {hasTp && <span className="badge planned" style={{ fontSize: 10, marginLeft: 3 }}>TP {p.takeProfitTrigger}</span>}
               </>
             )}
         {p.side !== 'flat' && (
@@ -203,6 +229,12 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
   readonly adjusting: string | null;
 }) {
   const sideColor = group.side === 'long' ? 'var(--ok)' : group.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
+  const weightedRoeSum = group.positions.reduce((acc, pos) => {
+    const r = calcRoePct(pos);
+    return r !== null ? acc + r * Number(pos.quantity) : acc;
+  }, 0);
+  const groupRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
 
   return (
     <div className="position-card">
@@ -233,6 +265,11 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
         {/* PnL */}
         <span className={`card-pnl ${pnlClass(group.totalPnlMinor)}`}>
           {pnlText(group.totalPnlMinor, group.marginCurrency)}
+          {groupRoe !== null && (
+            <span style={{ fontSize: 11, marginLeft: 6, fontWeight: 500 }}>
+              {roeText(groupRoe)}
+            </span>
+          )}
         </span>
 
         {/* Expand chevron */}
@@ -527,8 +564,10 @@ function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'sh
 }
 
 function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionEditorProps) {
-  const [sl, setSl] = useState(existing?.stopLossTrigger ?? '');
-  const [tp, setTp] = useState(existing?.takeProfitTrigger ?? '');
+  const initSl = existing?.stopLossTrigger && existing.stopLossTrigger !== '0' && existing.stopLossTrigger !== '0.0' && Number(existing.stopLossTrigger) > 0 ? existing.stopLossTrigger : '';
+  const initTp = existing?.takeProfitTrigger && existing.takeProfitTrigger !== '0' && existing.takeProfitTrigger !== '0.0' && Number(existing.takeProfitTrigger) > 0 ? existing.takeProfitTrigger : '';
+  const [sl, setSl] = useState(initSl);
+  const [tp, setTp] = useState(initTp);
   const [slTpMode, setSlTpMode] = useState<ProtectionMode>('percent');
   const [slPct, setSlPct] = useState('');
   const [tpPct, setTpPct] = useState('');

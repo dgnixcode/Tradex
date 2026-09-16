@@ -119,6 +119,7 @@ export async function upsertFuturesPositions(
       take_profit_trigger: dec(snap.takeProfitTrigger),
       margin_type: snap.marginType,
       funding_rate_bp: snap.fundingRateBp,
+      settlement_currency_avg_price: dec(snap.settlementCurrencyAvgPrice ?? null),
       updated_at: at,
     };
 
@@ -138,6 +139,7 @@ export async function upsertFuturesPositions(
           take_profit_trigger: dec(snap.takeProfitTrigger),
           margin_type: snap.marginType,
           funding_rate_bp: snap.fundingRateBp,
+          settlement_currency_avg_price: dec(snap.settlementCurrencyAvgPrice ?? null),
           updated_at: at,
         } as never) as never)
       .execute();

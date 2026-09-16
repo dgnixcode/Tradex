@@ -30,6 +30,7 @@ export interface FuturesPositionRow {
   readonly stopLossTrigger: string | null;
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
+  readonly settlementCurrencyAvgPrice?: string | null;
 }
 
 export interface FuturesPositionView {
@@ -52,6 +53,7 @@ export interface FuturesPositionView {
   readonly stopLossTrigger: string | null;
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
+  readonly settlementCurrencyAvgPrice?: string | null;
   readonly markStaleForMs: number | null;
 }
 
@@ -86,8 +88,20 @@ function unrealisedPnlMinor(row: FuturesPositionRow): string | null {
   const { av: markV, bv: entryV, scale: priceScale } = align(mark, entry);
   const diff = markV - entryV; // at priceScale
   // qty is at qty.scale; multiply → scale = qty.scale + priceScale
-  const raw = qty.v * diff;
-  const combinedScale = qty.scale + priceScale;
+  let raw = qty.v * diff;
+  let combinedScale = qty.scale + priceScale;
+
+  // For INR-margined positions on USDT-quoted contracts (e.g. B-ETH_USDT), convert USDT PnL to INR.
+  // CoinDCX freezes the USDT->INR exchange rate at entry onto settlement_currency_avg_price (typically ~102).
+  if (row.marginCurrency === 'INR' && (row.pair.endsWith('_USDT') || row.pair.includes('USDT'))) {
+    const pegStr = row.settlementCurrencyAvgPrice && Number(row.settlementCurrencyAvgPrice) > 0
+      ? row.settlementCurrencyAvgPrice
+      : '100'; // fallback peg if not reported
+    const peg = parseDecimal(pegStr);
+    raw = raw * peg.v;
+    combinedScale += peg.scale;
+  }
+
   // Convert to quote-minor units (integer at quote scale).
   const target = QUOTE_SCALE[row.marginCurrency];
   if (combinedScale >= target) {
@@ -133,6 +147,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
     stopLossTrigger: row.stopLossTrigger,
     takeProfitTrigger: row.takeProfitTrigger,
     fundingRateBp: row.fundingRateBp,
+    settlementCurrencyAvgPrice: row.settlementCurrencyAvgPrice ?? null,
     markStaleForMs: row.markObservedAtMs === null ? null : Math.max(0, nowMs - row.markObservedAtMs),
   };
 }

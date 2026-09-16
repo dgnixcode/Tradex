@@ -504,6 +504,7 @@ export interface FuturesPositionRow {
   readonly stopLossTrigger: string | null;
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
+  readonly settlementCurrencyAvgPrice?: string | null;
   readonly markStaleForMs: number | null;
 }
 

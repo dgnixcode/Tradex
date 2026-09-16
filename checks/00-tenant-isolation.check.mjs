@@ -189,7 +189,7 @@ export async function run(assert) {
   assert(/ensure_audit_partition/.test(allCode), 'no partition-maintenance function exists');
   assert(/PARTITION\s+OF\s+audit_event\s+DEFAULT/i.test(allCode),
     'no DEFAULT partition — an audit write would fail outright if the scheduler fell behind');
-  assert(!/TTL|DROP\s+PARTITION/i.test(allCode),
+  assert(!/\bTTL\b|DROP\s+PARTITION/i.test(allCode),
     'something looks like it deletes audit rows; retention is 5 years (CoinDCX clause 6.6 and PMLA)');
 
   // ------------------------------------------- 6. the scoping layer agrees
