@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions,
@@ -6,14 +6,16 @@ import {
 } from '../api.js';
 import type { FuturesPositionRow } from '../api.ts';
 
-// The Positions page — plan/phase-15 T15.11.
+// The Positions page — modern UI/UX overhaul.
 //
-// Two-tier layout:
-//   1. Summary header — total unrealised PnL, position count, last updated.
-//   2. Grouped position cards — aggregated by pair+side+currency (matches how
-//      group trades work). Each card expands to show per-account rows.
-//
-// PnL styling: green +₹ for profit, red −₹ for loss, everywhere.
+// Key improvements:
+//   1. Group Name visibility: Every position links to its Account Group (e.g. "📁 Momentum").
+//   2. Real-money Safety: Accidental clicks eliminated by replacing direct "Close" buttons
+//      with a full-featured "Manage" modal with two-step exit confirmation.
+//   3. High-Density Visibility: Cards are expanded by default so all metrics are readable immediately.
+//   4. High-Scale Account Handling: Groups with 100+ accounts feature account search and smart
+//      pagination ("Show all N accounts") preventing overwhelming scroll length.
+//   5. Live 3s Real-Time Marks, Margins, and ROE % throughout.
 
 /* ─── helpers ─── */
 
@@ -75,6 +77,19 @@ function roeText(pct: number | null): string {
   return ` (${sign}${pct.toFixed(2)}%)`;
 }
 
+function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
+  return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
+}
+
+function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
+  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
+  const pct = down
+    ? ((refPrice - triggerPrice) / refPrice) * 100
+    : ((triggerPrice - refPrice) / refPrice) * 100;
+  return Math.abs(pct);
+}
+
 /* ─── grouped position type ─── */
 
 interface PositionGroup {
@@ -92,6 +107,8 @@ interface PositionGroup {
   totalPnlMinor: string | null;
   /** Per-account positions in this group. */
   positions: FuturesPositionRow[];
+  /** Unique group names across positions in this instrument. */
+  groupNames: string[];
 }
 
 function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
@@ -112,11 +129,15 @@ function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
         totalMarginMinor: null,
         totalPnlMinor: null,
         positions: [],
+        groupNames: [],
       };
       map.set(key, g);
     }
     g.positions.push(p);
     g.totalQty += Number(p.quantity);
+    if (p.groupName && !g.groupNames.includes(p.groupName)) {
+      g.groupNames.push(p.groupName);
+    }
     if (p.lockedMarginMinor !== null && p.lockedMarginMinor !== '' && p.lockedMarginMinor !== '0') {
       g.totalMarginMinor = g.totalMarginMinor === null
         ? p.lockedMarginMinor
@@ -133,14 +154,12 @@ function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
 
 /* ─── per-account row inside a group card ─── */
 
-function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
+function AccountRow({
+  p,
+  onManage,
+}: {
   readonly p: FuturesPositionRow;
-  readonly onExit: (venuePositionId: string, marginCurrency: 'INR' | 'USDT') => void;
-  readonly onEdit: (venuePositionId: string) => void;
-  readonly onAdjust: (venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number) => void;
-  readonly exiting: string | null;
-  readonly editingId: string | null;
-  readonly adjusting: string | null;
+  readonly onManage: (position: FuturesPositionRow) => void;
 }) {
   const roe = calcRoePct(p);
   const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
@@ -149,7 +168,12 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
   return (
     <tr>
       <td>
-        <strong>{p.accountName}</strong>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <strong style={{ fontSize: 13.5, color: 'var(--text)' }}>{p.accountName}</strong>
+          <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <span style={{ opacity: 0.6 }}>📁</span> {p.groupName || 'Ungrouped'}
+          </div>
+        </div>
       </td>
       <td className="mono" style={{ textAlign: 'right' }}>{p.quantity}</td>
       <td>{p.leverage === null ? <span className="muted">—</span> : `${p.leverage}×`}</td>
@@ -157,12 +181,12 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
         {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : <span className="muted">—</span>}
       </td>
       <td className="mono" style={{ textAlign: 'right' }}>{p.avgEntryPrice ?? <span className="muted">—</span>}</td>
-      <td className="mono" style={{ textAlign: 'right' }}>{p.markPrice ?? <span className="muted">—</span>}</td>
+      <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{p.markPrice ?? <span className="muted">—</span>}</td>
       <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
         {p.liquidationPrice ?? <span className="muted">—</span>}
         {p.liqBufferBp !== null && (
           <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
-            {(p.liqBufferBp / 100).toFixed(2)}% buffer
+            {(p.liqBufferBp / 100).toFixed(1)}% buf
           </span>
         )}
       </td>
@@ -175,70 +199,52 @@ function AccountRow({ p, onExit, onEdit, onAdjust, exiting, editingId, adjusting
         )}
       </td>
       <td>
-        {!hasSl && !hasTp
-          ? <span className="muted" style={{ fontSize: 11.5 }}>none</span>
-          : (
-              <>
-                {hasSl && <span className="badge skipped" style={{ fontSize: 10 }}>SL {p.stopLossTrigger}</span>}
-                {hasTp && <span className="badge planned" style={{ fontSize: 10, marginLeft: 3 }}>TP {p.takeProfitTrigger}</span>}
-              </>
-            )}
-        {p.side !== 'flat' && (
-          <button
-            className="btn btn-sm secondary"
-            style={{ marginLeft: 6, fontSize: 10.5, padding: '1px 7px' }}
-            onClick={() => onEdit(p.venuePositionId)}
-            disabled={editingId === p.venuePositionId}
-          >
-            Set
-          </button>
+        {!hasSl && !hasTp ? (
+          <span className="muted" style={{ fontSize: 11.5 }}>none</span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
+            {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+          </div>
         )}
       </td>
-      <td style={{ whiteSpace: 'nowrap' }}>
-        {p.side !== 'flat' && (
-          <>
-            {[2500, 5000, 7500, 10000].map((bp) => (
-              <button
-                key={`r${bp}`}
-                className="btn btn-sm secondary"
-                style={{ marginRight: 3, fontSize: 10.5, padding: '1px 6px' }}
-                disabled={adjusting !== null || exiting !== null}
-                title={bp === 10000 ? 'Close the whole position' : `Close ${bp / 100}% of the position`}
-                onClick={() => (bp === 10000
-                  ? onExit(p.venuePositionId, p.marginCurrency)
-                  : onAdjust(p.venuePositionId, 'reduce', bp))}
-              >
-                −{bp / 100}%
-              </button>
-            ))}
-          </>
-        )}
+      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
         <button
-          className="btn btn-sm"
-          style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontSize: 10.5, padding: '2px 8px' }}
-          disabled={exiting !== null || adjusting !== null || p.side === 'flat'}
-          onClick={() => onExit(p.venuePositionId, p.marginCurrency)}
+          type="button"
+          className="btn btn-sm secondary"
+          style={{
+            fontSize: 11.5,
+            padding: '3px 10px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontWeight: 600,
+          }}
+          onClick={() => onManage(p)}
         >
-          {exiting === p.venuePositionId ? 'Exiting…' : 'Close'}
+          <span>⚙</span> Manage
         </button>
       </td>
     </tr>
   );
 }
 
-/* ─── group card ─── */
+/* ─── group card with high-scale account handling ─── */
 
-function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exiting, editingId, adjusting }: {
+function GroupCard({
+  group,
+  collapsed,
+  onToggle,
+  onManage,
+}: {
   readonly group: PositionGroup;
-  readonly expanded: boolean;
+  readonly collapsed: boolean;
   readonly onToggle: () => void;
-  readonly onExit: (venuePositionId: string, marginCurrency: 'INR' | 'USDT') => void;
-  readonly onEdit: (venuePositionId: string) => void;
-  readonly onAdjust: (venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number) => void;
-  readonly exiting: string | null;
-  readonly editingId: string | null;
-  readonly adjusting: string | null;
+  readonly onManage: (position: FuturesPositionRow) => void;
 }) {
+  const [accountSearch, setAccountSearch] = useState('');
+  const [showAll, setShowAll] = useState(false);
+
   const sideColor = group.side === 'long' ? 'var(--ok)' : group.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
   const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
   const weightedRoeSum = group.positions.reduce((acc, pos) => {
@@ -246,6 +252,27 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
     return r !== null ? acc + r * Number(pos.quantity) : acc;
   }, 0);
   const groupRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
+
+  // Filter accounts within this group if search term provided
+  const filteredPositions = useMemo(() => {
+    if (!accountSearch.trim()) return group.positions;
+    const q = accountSearch.toLowerCase().trim();
+    return group.positions.filter((p) =>
+      p.accountName.toLowerCase().includes(q) ||
+      (p.groupName && p.groupName.toLowerCase().includes(q))
+    );
+  }, [group.positions, accountSearch]);
+
+  const hasMany = group.positions.length > 5;
+  const visiblePositions = hasMany && !showAll && !accountSearch.trim()
+    ? filteredPositions.slice(0, 5)
+    : filteredPositions;
+
+  const groupTitle = group.groupNames.length === 1
+    ? group.groupNames[0]
+    : group.groupNames.length > 1
+      ? `${group.groupNames.slice(0, 2).join(', ')}${group.groupNames.length > 2 ? ` (+${group.groupNames.length - 2})` : ''}`
+      : 'Ungrouped';
 
   return (
     <div className="position-card">
@@ -265,8 +292,13 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
         </span>
         <span className="card-meta">{group.marginCurrency}</span>
 
+        {/* Group Name badge */}
+        <span className="group-badge" title={group.groupNames.join(', ')}>
+          📁 {groupTitle}
+        </span>
+
         {/* Aggregated stats */}
-        <span className="card-meta" style={{ marginLeft: 8 }}>
+        <span className="card-meta" style={{ marginLeft: 6 }}>
           Qty <strong style={{ color: 'var(--text)' }}>{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>
         </span>
         {group.totalMarginMinor !== null && (
@@ -289,56 +321,694 @@ function GroupCard({ group, expanded, onToggle, onExit, onEdit, onAdjust, exitin
         </span>
 
         {/* Expand chevron */}
-        <span className={`expand-icon ${expanded ? 'open' : ''}`}>▼</span>
+        <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
       </div>
 
-      {expanded && (
+      {!collapsed && (
         <div className="position-card-body">
+          {/* Sub-header with account filter if group has more than 5 accounts */}
+          {hasMany && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 14px',
+                background: 'rgba(0, 0, 0, 0.2)',
+                borderBottom: '1px solid var(--line)',
+              }}
+            >
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Showing {visiblePositions.length} of {group.positions.length} accounts in this trade
+              </span>
+              <input
+                type="text"
+                className="card-account-search"
+                placeholder="Filter accounts in group…"
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+
           <table>
             <thead>
               <tr>
-                <th>Account</th>
+                <th>Account & Group</th>
                 <th style={{ textAlign: 'right' }}>Qty</th>
                 <th>Lev</th>
                 <th style={{ textAlign: 'right' }}>Margin</th>
                 <th style={{ textAlign: 'right' }}>Entry</th>
-                <th style={{ textAlign: 'right' }}>Mark</th>
+                <th style={{ textAlign: 'right' }}>Mark (Live)</th>
                 <th style={{ textAlign: 'right' }}>Liquidation</th>
-                <th style={{ textAlign: 'right' }}>PnL</th>
+                <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
                 <th>Protection</th>
-                <th></th>
+                <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {group.positions.map((p) => (
+              {visiblePositions.map((p) => (
                 <AccountRow
                   key={`${p.accountId}-${p.pair}-${p.marginCurrency}`}
                   p={p}
-                  exiting={exiting}
-                  editingId={editingId}
-                  adjusting={adjusting}
-                  onExit={onExit}
-                  onEdit={onEdit}
-                  onAdjust={onAdjust}
+                  onManage={onManage}
                 />
               ))}
             </tbody>
           </table>
+
+          {/* Show More toggle for groups with 100+ accounts */}
+          {hasMany && !accountSearch.trim() && (
+            <div className="show-more-bar">
+              <span>Showing {visiblePositions.length} of {group.positions.length} accounts</span>
+              <button
+                type="button"
+                className="btn btn-sm secondary"
+                style={{ fontSize: 11, padding: '2px 10px' }}
+                onClick={() => setShowAll((v) => !v)}
+              >
+                {showAll ? 'Show Fewer (5) ▲' : `Show All ${group.positions.length} Accounts (${group.positions.length - 5} more) ▼`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-/* ─── main component ─── */
+/* ─── Position Management Modal (Zero Accidental Exits) ─── */
+
+const SL_PCT_CHIPS = [1, 2, 5, 10] as const;
+const TP_PCT_CHIPS = [2, 5, 10, 15, 20, 30] as const;
+const REDUCE_PCT_CHIPS = [10, 25, 50, 75] as const;
+const INCREASE_PCT_CHIPS = [25, 50, 100] as const;
+
+interface PositionManageModalProps {
+  readonly position: FuturesPositionRow;
+  readonly onClose: () => void;
+  readonly onExit: (id: string, marginCurrency: 'INR' | 'USDT') => void;
+  readonly onAdjust: (id: string, direction: 'reduce' | 'increase', percentBp: number) => void;
+  readonly onProtection: (args: { id: string; slp?: string | undefined; tpp?: string | undefined; trailing?: boolean | undefined }) => void;
+  readonly isExiting: boolean;
+  readonly isAdjusting: boolean;
+  readonly isProtecting: boolean;
+}
+
+function PositionManageModal({
+  position,
+  onClose,
+  onExit,
+  onAdjust,
+  onProtection,
+  isExiting,
+  isAdjusting,
+  isProtecting,
+}: PositionManageModalProps) {
+  const [activeTab, setActiveTab] = useState<'protection' | 'partial' | 'increase' | 'close'>('protection');
+  const [confirmExit, setConfirmExit] = useState(false);
+
+  // Partial close / reduce state
+  const [reducePct, setReducePct] = useState<number>(25);
+
+  // Increase / add state
+  const [increasePct, setIncreasePct] = useState<number>(25);
+
+  // Protection state
+  const initSl = position.stopLossTrigger && position.stopLossTrigger !== '0' && Number(position.stopLossTrigger) > 0 ? position.stopLossTrigger : '';
+  const initTp = position.takeProfitTrigger && position.takeProfitTrigger !== '0' && Number(position.takeProfitTrigger) > 0 ? position.takeProfitTrigger : '';
+  const [sl, setSl] = useState(initSl);
+  const [tp, setTp] = useState(initTp);
+  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
+  const [slPct, setSlPct] = useState('');
+  const [tpPct, setTpPct] = useState('');
+  const [trailing, setTrailing] = useState(false);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isExiting && !isAdjusting && !isProtecting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, isExiting, isAdjusting, isProtecting]);
+
+  const roe = calcRoePct(position);
+  const refPrice = position.avgEntryPrice !== null ? Number(position.avgEntryPrice) : NaN;
+  const hasRef = Number.isFinite(refPrice) && refPrice > 0;
+  const sideOk = position.side === 'long' || position.side === 'short';
+
+  const effectiveSl = slTpMode === 'percent' && slPct !== '' && hasRef && sideOk
+    ? pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
+    : sl;
+  const effectiveTp = slTpMode === 'percent' && tpPct !== '' && hasRef && sideOk
+    ? pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
+    : tp;
+
+  const validNumber = /^\d+(\.\d+)?$/;
+  const slValid = slTpMode === 'price' ? (sl === '' || validNumber.test(sl)) : (slPct === '' || (validNumber.test(slPct) && Number(slPct) <= 100));
+  const tpValid = slTpMode === 'price' ? (tp === '' || validNumber.test(tp)) : (tpPct === '' || (validNumber.test(tpPct) && Number(tpPct) <= 100));
+  const canSaveProtection = slValid && tpValid && ((slTpMode === 'price' ? sl !== '' : slPct !== '') || (slTpMode === 'price' ? tp !== '' : tpPct !== ''));
+
+  const sideBadgeColor = position.side === 'long' ? 'var(--ok)' : 'var(--danger)';
+  const totalQty = Number(position.quantity);
+  const reduceQty = (totalQty * reducePct / 100).toFixed(4);
+  const remainQty = Math.max(0, totalQty - Number(reduceQty)).toFixed(4);
+  const increaseQty = (totalQty * increasePct / 100).toFixed(4);
+  const newTotalQty = (totalQty + Number(increaseQty)).toFixed(4);
+
+  return (
+    <div className="position-modal-overlay" onClick={onClose}>
+      <div className="position-modal" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="position-modal-header">
+          <div>
+            <h3 className="position-modal-title">
+              <span>{position.pair}</span>
+              <span
+                className="badge"
+                style={{
+                  color: sideBadgeColor,
+                  borderColor: sideBadgeColor,
+                  background: position.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                }}
+              >
+                {position.side} {position.leverage ? `${position.leverage}×` : ''}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 400 }}>
+                ({position.marginCurrency})
+              </span>
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                {position.accountName}
+              </span>
+              <span className="group-badge">
+                📁 {position.groupName || 'Ungrouped'}
+              </span>
+            </div>
+          </div>
+          <button type="button" className="position-modal-close" onClick={onClose} title="Close (Esc)">
+            ✕
+          </button>
+        </div>
+
+        {/* Live Metrics Header Card */}
+        <div className="position-modal-metrics">
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Unrealised PnL</span>
+            <span className={`modal-metric-value ${pnlClass(position.unrealisedPnlMinor)}`} style={{ fontSize: 15 }}>
+              {pnlText(position.unrealisedPnlMinor, position.marginCurrency)}
+              {roe !== null && <span style={{ fontSize: 12, marginLeft: 4 }}>{roeText(roe).trim()}</span>}
+            </span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Position Size</span>
+            <span className="modal-metric-value">{position.quantity}</span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Margin Invested</span>
+            <span className="modal-metric-value">
+              {position.lockedMarginMinor ? fmtMinor(position.lockedMarginMinor, position.marginCurrency) : '—'}
+            </span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Entry Price</span>
+            <span className="modal-metric-value">{position.avgEntryPrice ?? '—'}</span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Mark Price</span>
+            <span className="modal-metric-value" style={{ color: 'var(--accent)' }}>
+              {position.markPrice ?? '—'}
+            </span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Liquidation Price</span>
+            <span className="modal-metric-value" style={{ color: bufferColor(position.liqBufferBp) }}>
+              {position.liquidationPrice ?? '—'}
+              {position.liqBufferBp !== null && (
+                <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>
+                  {(position.liqBufferBp / 100).toFixed(1)}% buffer
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Tabs */}
+        <div className="position-modal-tabs">
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'protection' ? 'active' : ''}`}
+            onClick={() => setActiveTab('protection')}
+          >
+            🛡️ SL / TP Protection
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'partial' ? 'active' : ''}`}
+            onClick={() => setActiveTab('partial')}
+          >
+            ✂️ Partial Exit
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'increase' ? 'active' : ''}`}
+            onClick={() => setActiveTab('increase')}
+          >
+            ➕ Add / Increase
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab danger-tab ${activeTab === 'close' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('close'); setConfirmExit(false); }}
+          >
+            🚨 Close Position
+          </button>
+        </div>
+
+        {/* Tab Body */}
+        <div className="position-modal-body">
+          {/* ── Tab 1: SL/TP Protection ── */}
+          {activeTab === 'protection' && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+                  Set automatic bracket protection on CoinDCX.
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--panel-2)', padding: '2px 4px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--line)' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      padding: '2px 10px', fontSize: 11,
+                      background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
+                      color: slTpMode === 'percent' ? '#fff' : 'var(--muted)',
+                      border: 'none',
+                    }}
+                    onClick={() => setSlTpMode('percent')}
+                  >
+                    % Percent
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      padding: '2px 10px', fontSize: 11,
+                      background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
+                      color: slTpMode === 'price' ? '#fff' : 'var(--muted)',
+                      border: 'none',
+                    }}
+                    onClick={() => setSlTpMode('price')}
+                  >
+                    Exact Price
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                {/* Stop Loss */}
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="modal-sl" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                    Stop Loss Trigger
+                  </label>
+                  {slTpMode === 'price' ? (
+                    <>
+                      <input
+                        id="modal-sl"
+                        inputMode="decimal"
+                        value={sl}
+                        onChange={(e) => setSl(e.target.value)}
+                        placeholder="leave empty to clear"
+                        style={{ marginTop: 6 }}
+                      />
+                      {sl !== '' && hasRef && sideOk && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          ≈ {triggerToPct(refPrice, Number(sl), position.side as 'long' | 'short', 'sl').toFixed(2)}% loss from entry
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        id="modal-sl"
+                        inputMode="decimal"
+                        value={slPct}
+                        placeholder="e.g. 5"
+                        onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
+                        style={{ marginTop: 6 }}
+                      />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {SL_PCT_CHIPS.map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className="btn btn-sm secondary"
+                            style={{
+                              flex: 1, padding: '3px 0', fontSize: 11,
+                              background: slPct === String(v) ? 'var(--danger)' : 'var(--surface-3)',
+                              color: slPct === String(v) ? '#fff' : 'var(--text-dim)',
+                              borderColor: slPct === String(v) ? 'var(--danger)' : 'var(--line)',
+                            }}
+                            onClick={() => setSlPct(String(v))}
+                          >
+                            {v}%
+                          </button>
+                        ))}
+                      </div>
+                      {hasRef && sideOk && slPct !== '' && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Trigger: {pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl').toFixed(2)}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 12, gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      id="modal-trailing"
+                      checked={trailing}
+                      onChange={(e) => setTrailing(e.target.checked)}
+                      style={{ width: 14, height: 14, cursor: 'pointer' }}
+                    />
+                    <label htmlFor="modal-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+                      Auto-Trailing SL (1% step)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Take Profit */}
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="modal-tp" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                    Take Profit Trigger
+                  </label>
+                  {slTpMode === 'price' ? (
+                    <>
+                      <input
+                        id="modal-tp"
+                        inputMode="decimal"
+                        value={tp}
+                        onChange={(e) => setTp(e.target.value)}
+                        placeholder="leave empty to clear"
+                        style={{ marginTop: 6 }}
+                      />
+                      {tp !== '' && hasRef && sideOk && (
+                        <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
+                          ≈ {triggerToPct(refPrice, Number(tp), position.side as 'long' | 'short', 'tp').toFixed(2)}% gain from entry
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        id="modal-tp"
+                        inputMode="decimal"
+                        value={tpPct}
+                        placeholder="e.g. 10"
+                        onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
+                        style={{ marginTop: 6 }}
+                      />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {TP_PCT_CHIPS.map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className="btn btn-sm secondary"
+                            style={{
+                              flex: 1, padding: '3px 0', fontSize: 11,
+                              background: tpPct === String(v) ? 'var(--ok)' : 'var(--surface-3)',
+                              color: tpPct === String(v) ? '#fff' : 'var(--text-dim)',
+                              borderColor: tpPct === String(v) ? 'var(--ok)' : 'var(--line)',
+                            }}
+                            onClick={() => setTpPct(String(v))}
+                          >
+                            {v}%
+                          </button>
+                        ))}
+                      </div>
+                      {hasRef && sideOk && tpPct !== '' && (
+                        <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
+                          Trigger: {pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp').toFixed(2)}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isProtecting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={!canSaveProtection || isProtecting}
+                  onClick={() => onProtection({
+                    id: position.venuePositionId,
+                    slp: effectiveSl || undefined,
+                    tpp: effectiveTp || undefined,
+                    trailing,
+                  })}
+                >
+                  {isProtecting ? 'Updating Protection…' : 'Save Protection Rules'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 2: Partial Exit ── */}
+          {activeTab === 'partial' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Safely scale out of this position by selling a portion at current market. The remainder stays open with your current leverage and protection.
+              </p>
+
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to close:</span>
+                  <strong style={{ fontSize: 14, color: 'var(--text)' }}>{reducePct}%</strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {REDUCE_PCT_CHIPS.map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: 1,
+                        padding: '6px 0',
+                        fontSize: 12,
+                        background: reducePct === pct ? 'var(--accent)' : 'var(--surface-3)',
+                        color: reducePct === pct ? '#fff' : 'var(--text-dim)',
+                        borderColor: reducePct === pct ? 'var(--accent)' : 'var(--line)',
+                      }}
+                      onClick={() => setReducePct(pct)}
+                    >
+                      −{pct}%
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Selling: </span>
+                    <strong style={{ color: 'var(--text)' }}>{reduceQty}</strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Remaining: </span>
+                    <strong style={{ color: 'var(--text)' }}>{remainQty}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isAdjusting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={isAdjusting || reducePct <= 0 || reducePct >= 100}
+                  onClick={() => onAdjust(position.venuePositionId, 'reduce', reducePct * 100)}
+                >
+                  {isAdjusting ? 'Executing Partial Exit…' : `Close ${reducePct}% (${reduceQty} ${position.pair.split('_')[0].replace(/^[A-Z]-/, '')})`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 3: Add / Increase ── */}
+          {activeTab === 'increase' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Add more size to this existing position at current market price.
+              </p>
+
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to add:</span>
+                  <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {INCREASE_PCT_CHIPS.map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: 1,
+                        padding: '6px 0',
+                        fontSize: 12,
+                        background: increasePct === pct ? 'var(--ok)' : 'var(--surface-3)',
+                        color: increasePct === pct ? '#fff' : 'var(--text-dim)',
+                        borderColor: increasePct === pct ? 'var(--ok)' : 'var(--line)',
+                      }}
+                      onClick={() => setIncreasePct(pct)}
+                    >
+                      +{pct}%
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Adding: </span>
+                    <strong style={{ color: 'var(--ok)' }}>+{increaseQty}</strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>New Total Size: </span>
+                    <strong style={{ color: 'var(--text)' }}>{newTotalQty}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isAdjusting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ background: 'var(--ok)' }}
+                  disabled={isAdjusting || increasePct <= 0}
+                  onClick={() => onAdjust(position.venuePositionId, 'increase', increasePct * 100)}
+                >
+                  {isAdjusting ? 'Increasing Position…' : `Add +${increasePct}% (+${increaseQty})`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 4: Close Position (Two-Step Accidental Protection) ── */}
+          {activeTab === 'close' && (
+            <div>
+              <div
+                style={{
+                  border: '1px solid rgba(240, 85, 90, 0.4)',
+                  background: 'rgba(240, 85, 90, 0.08)',
+                  borderRadius: 'var(--radius)',
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <h4 style={{ margin: '0 0 8px', color: 'var(--danger)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>⚠️</span> Full Market Exit Confirmation
+                </h4>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                  Closing this position will immediately execute a market order on CoinDCX for the entire <strong>{position.quantity}</strong>.
+                </p>
+                <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                  <li>Any attached Stop Loss or Take Profit orders will be safely cancelled first.</li>
+                  <li>Estimated PnL to be realized: <strong className={pnlClass(position.unrealisedPnlMinor)}>{pnlText(position.unrealisedPnlMinor, position.marginCurrency)}</strong></li>
+                  <li>Margin released: <strong>{position.lockedMarginMinor ? fmtMinor(position.lockedMarginMinor, position.marginCurrency) : '—'}</strong></li>
+                </ul>
+              </div>
+
+              {!confirmExit ? (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExiting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ background: 'var(--danger)', color: '#fff', border: 'none' }}
+                    onClick={() => setConfirmExit(true)}
+                  >
+                    Close Position at Market ⚡
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 12,
+                    padding: 14,
+                    background: 'rgba(240, 85, 90, 0.15)',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid var(--danger)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)', textAlign: 'right' }}>
+                    🚨 Are you absolutely sure? Real money position will be closed immediately!
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={() => setConfirmExit(false)}
+                      disabled={isExiting}
+                    >
+                      No, Keep Position
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700 }}
+                      disabled={isExiting}
+                      onClick={() => onExit(position.venuePositionId, position.marginCurrency)}
+                    >
+                      {isExiting ? 'Closing Position Now…' : 'YES, CONFIRM MARKET EXIT'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Component ─── */
 
 export function Futures() {
   const qc = useQueryClient();
-  const [exiting, setExiting] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [adjusting, setAdjusting] = useState<string | null>(null);
+  const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // By default, cards are EXPANDED so all critical details are visible immediately.
+  // collapsedGroups keeps track of cards the user explicitly minimized.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
   const positions = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
@@ -360,31 +1030,29 @@ export function Futures() {
   const adjustMut = useMutation({
     mutationFn: ({ id, direction, percentBp }: { id: string; direction: 'reduce' | 'increase'; percentBp: number }) =>
       adjustFuturesPosition(id, direction, percentBp),
-    onMutate: ({ id }) => { setAdjusting(id); setMessage(null); },
     onSuccess: (out, { direction, percentBp }) => {
       setMessage({
         kind: 'ok',
         text: `${direction === 'reduce' ? 'Closed' : 'Added'} ${percentBp / 100}% — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit via positions/exit)' : ''}.`,
       });
+      setManagingPosition(null);
       void qc.invalidateQueries({ queryKey: ['futures-positions'] });
     },
     onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
-    onSettled: () => setAdjusting(null),
   });
 
   const exitMut = useMutation({
     mutationFn: ({ id, marginCurrency }: { id: string; marginCurrency: 'INR' | 'USDT' }) =>
       exitFuturesPosition(id, marginCurrency),
-    onMutate: ({ id }) => { setExiting(id); setMessage(null); },
     onSuccess: (out) => {
       setMessage({
         kind: 'ok',
         text: `Position closed at market (cancelled ${out.cancelled.length} conditional order${out.cancelled.length === 1 ? '' : 's'}${out.venueGroupId === null ? '' : `, venue group ${out.venueGroupId}`}).`,
       });
+      setManagingPosition(null);
       void qc.invalidateQueries({ queryKey: ['futures-positions'] });
     },
     onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
-    onSettled: () => setExiting(null),
   });
 
   const protMut = useMutation({
@@ -392,19 +1060,18 @@ export function Futures() {
       const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
       if (args.slp !== undefined && args.slp !== '') body.stopLossPrice = args.slp;
       if (args.tpp !== undefined && args.tpp !== '') body.takeProfitPrice = args.tpp;
-      
+
       const out = await setFuturesProtection(args.id, body);
-      
+
       if (args.trailing && args.slp) {
-         // Enable trailing SL via separate API call
-         await setTrailingProtection(args.id, {
-           enable: true,
-           currentSlPrice: args.slp,
-           stepBp: '100', // Hardcode 1% step for now
-           distanceBp: '100' // Hardcode 1% distance for now to avoid complex math in UI
-         });
+        await setTrailingProtection(args.id, {
+          enable: true,
+          currentSlPrice: args.slp,
+          stepBp: '100',
+          distanceBp: '100',
+        });
       } else if (!args.trailing) {
-         await setTrailingProtection(args.id, { enable: false });
+        await setTrailingProtection(args.id, { enable: false });
       }
       return out;
     },
@@ -415,7 +1082,7 @@ export function Futures() {
       setMessage(failures.length > 0
         ? { kind: 'err', text: `Some legs failed — ${failures.join('; ')}` }
         : { kind: 'ok', text: 'Protection updated.' });
-      setEditingId(null);
+      setManagingPosition(null);
       void qc.invalidateQueries({ queryKey: ['futures-positions'] });
     },
     onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
@@ -423,14 +1090,18 @@ export function Futures() {
 
   const rows = positions.data?.views ?? [];
   const hasAny = rows.length > 0;
-  const editingRow = editingId === null ? undefined : rows.find((r) => r.venuePositionId === editingId);
 
   // Build grouped positions
   const groups = useMemo(() => buildGroups(rows), [rows]);
 
-  // Compute total PnL across all positions (for the summary header)
+  // Keep managingPosition up-to-date with live polling
+  const liveManagingPosition = useMemo(() => {
+    if (managingPosition === null) return null;
+    return rows.find((r) => r.venuePositionId === managingPosition.venuePositionId) ?? managingPosition;
+  }, [rows, managingPosition]);
+
+  // Compute total PnL across all positions
   const totalPnl = useMemo(() => {
-    // Group by currency for separate totals
     const byCurrency: Record<string, string> = {};
     for (const p of rows) {
       if (p.unrealisedPnlMinor !== null) {
@@ -457,14 +1128,24 @@ export function Futures() {
     return byCurrency;
   }, [rows]);
 
-  const toggleGroup = (key: string): void => {
-    setExpandedGroups((prev) => {
+  const toggleGroupCollapse = (key: string): void => {
+    setCollapsedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
   };
+
+  const collapseAll = (): void => {
+    setCollapsedGroups(new Set(groups.map((g) => g.key)));
+  };
+
+  const expandAll = (): void => {
+    setCollapsedGroups(new Set());
+  };
+
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsedGroups.has(g.key));
 
   return (
     <div className="panel full-width-page">
@@ -488,7 +1169,20 @@ export function Futures() {
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
           Live (3s)
         </span>
+
+        {groups.length > 1 && (
+          <button
+            type="button"
+            className="btn btn-sm secondary"
+            style={{ fontSize: 11.5, padding: '3px 10px' }}
+            onClick={allCollapsed ? expandAll : collapseAll}
+          >
+            {allCollapsed ? 'Expand All' : 'Collapse All'}
+          </button>
+        )}
+
         <button
+          type="button"
           className="btn secondary btn-sm"
           style={{ marginLeft: 'auto' }}
           disabled={refreshMut.isPending}
@@ -548,16 +1242,6 @@ export function Futures() {
         </div>
       )}
 
-      {/* ── Protection editor ── */}
-      {editingId !== null && (
-        <ProtectionEditor
-          onCancel={() => setEditingId(null)}
-          onSubmit={(slp, tpp, trailing) => protMut.mutate({ id: editingId, slp, tpp, trailing })}
-          pending={protMut.isPending}
-          existing={editingRow}
-        />
-      )}
-
       {/* ── Loading / Error / Empty ── */}
       {positions.isLoading && <p className="muted">Loading positions…</p>}
       {positions.isError && <div className="error">{(positions.error as Error).message}</div>}
@@ -570,252 +1254,43 @@ export function Futures() {
         </div>
       )}
 
-      {/* ── Grouped position cards ── */}
+      {/* ── Grouped Position Cards (Expanded by Default) ── */}
       {hasAny && (
         <div>
-          <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', marginBottom: 10, marginTop: 0 }}>
-            Grouped Positions
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', margin: 0 }}>
+              Grouped Positions
+            </h3>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              All metrics and accounts visible by default
+            </span>
+          </div>
+
           {groups.map((g) => (
             <GroupCard
               key={g.key}
               group={g}
-              expanded={expandedGroups.has(g.key)}
-              onToggle={() => toggleGroup(g.key)}
-              exiting={exiting}
-              editingId={editingId}
-              adjusting={adjusting}
-              onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
-              onEdit={(id) => { setEditingId(id); setMessage(null); }}
-              onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
+              collapsed={collapsedGroups.has(g.key)}
+              onToggle={() => toggleGroupCollapse(g.key)}
+              onManage={(pos) => { setManagingPosition(pos); setMessage(null); }}
             />
           ))}
         </div>
       )}
-    </div>
-  );
-}
 
-interface ProtectionEditorProps {
-  readonly onCancel: () => void;
-  readonly onSubmit: (stopLossPrice?: string, takeProfitPrice?: string, trailing?: boolean) => void;
-  readonly pending: boolean;
-  readonly existing: FuturesPositionRow | undefined;
-}
-
-/** Common SL percentage distances for quick-select chips. */
-const SL_PCT_CHIPS = [1, 2, 5, 10] as const;
-/** TP chips include wider targets (15%, 20%) since take-profits are typically further out. */
-const TP_PCT_CHIPS = [1, 2, 5, 10, 15, 20] as const;
-
-type ProtectionMode = 'price' | 'percent';
-
-/**
- * Compute the absolute trigger price from a percentage offset.
- * - SL on Long / TP on Short → price moves DOWN from reference
- * - TP on Long / SL on Short → price moves UP from reference
- */
-function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
-  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
-  return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
-}
-
-function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
-  const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
-  const pct = down
-    ? ((refPrice - triggerPrice) / refPrice) * 100
-    : ((triggerPrice - refPrice) / refPrice) * 100;
-  return Math.abs(pct);
-}
-
-function ProtectionEditor({ onCancel, onSubmit, pending, existing }: ProtectionEditorProps) {
-  const initSl = existing?.stopLossTrigger && existing.stopLossTrigger !== '0' && existing.stopLossTrigger !== '0.0' && Number(existing.stopLossTrigger) > 0 ? existing.stopLossTrigger : '';
-  const initTp = existing?.takeProfitTrigger && existing.takeProfitTrigger !== '0' && existing.takeProfitTrigger !== '0.0' && Number(existing.takeProfitTrigger) > 0 ? existing.takeProfitTrigger : '';
-  const [sl, setSl] = useState(initSl);
-  const [tp, setTp] = useState(initTp);
-  const [slTpMode, setSlTpMode] = useState<ProtectionMode>('percent');
-  const [slPct, setSlPct] = useState('');
-  const [tpPct, setTpPct] = useState('');
-  const [trailing, setTrailing] = useState(false);
-
-  const valid = /^\d+(\.\d+)?$/;
-  const pctValid = (p: string): boolean => p === '' || (valid.test(p) && Number(p) > 0 && Number(p) <= 100);
-
-  const refPrice = existing?.avgEntryPrice !== null && existing?.avgEntryPrice !== undefined
-    ? Number(existing.avgEntryPrice)
-    : NaN;
-  const hasRef = Number.isFinite(refPrice) && refPrice > 0;
-  const positionSide = existing?.side ?? 'long';
-  const sideOk = positionSide === 'long' || positionSide === 'short';
-
-  // Compute effective absolute prices from percent when needed.
-  const effectiveSl = slTpMode === 'percent' && slPct !== '' && hasRef && sideOk
-    ? pctToTrigger(refPrice, Number(slPct), positionSide as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
-    : sl;
-  const effectiveTp = slTpMode === 'percent' && tpPct !== '' && hasRef && sideOk
-    ? pctToTrigger(refPrice, Number(tpPct), positionSide as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
-    : tp;
-
-  const slOk = slTpMode === 'price' ? (sl === '' || valid.test(sl)) : pctValid(slPct);
-  const tpOk = slTpMode === 'price' ? (tp === '' || valid.test(tp)) : pctValid(tpPct);
-  const hasSomething = (slTpMode === 'price' ? sl !== '' : slPct !== '') || (slTpMode === 'price' ? tp !== '' : tpPct !== '');
-  const canSubmit = slOk && tpOk && hasSomething;
-
-  const handleSubmit = (): void => {
-    onSubmit(effectiveSl || undefined, effectiveTp || undefined, trailing);
-  };
-
-  const pillStyle = (active: boolean) => ({
-    padding: '3px 12px', fontSize: 11, fontWeight: 600,
-    background: active ? 'var(--accent)' : 'var(--surface-3)',
-    color: active ? '#fff' : 'var(--text-dim)',
-    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
-    borderRadius: 'var(--radius-pill)',
-    cursor: 'pointer',
-  });
-
-  const chipStyle = (active: boolean) => ({
-    flex: 1, padding: '4px 0', fontSize: 11.5, fontWeight: active ? 700 : 500,
-    background: active ? 'var(--accent)' : 'var(--surface-3)',
-    color: active ? '#fff' : 'var(--muted)',
-    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
-    borderRadius: 'var(--radius-pill)',
-    cursor: 'pointer',
-  } as const);
-
-  return (
-    <div
-      style={{
-        marginBottom: 16, padding: 16, borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--line-strong)',
-        background: 'linear-gradient(180deg, var(--panel-2) 0%, var(--bg-2) 100%)',
-        boxShadow: 'var(--shadow-md)',
-      }}
-    >
-      <div style={{ marginBottom: 12, fontSize: 13, display: 'flex', alignItems: 'center' }}>
-        <strong style={{ color: 'var(--text)' }}>Set protection</strong>
-        {existing !== undefined && (
-          <span className="badge planned" style={{ marginLeft: 10, fontSize: 11 }}>
-            {existing.accountName} · {existing.pair}
-          </span>
-        )}
-      </div>
-      {/* Single Price / % toggle for both SL and TP */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Mode
-        </span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'percent'} style={pillStyle(slTpMode === 'percent')} onClick={() => setSlTpMode('percent')}>%</button>
-          <button type="button" className="btn btn-sm" aria-pressed={slTpMode === 'price'} style={pillStyle(slTpMode === 'price')} onClick={() => setSlTpMode('price')}>Price</button>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        {/* ── Stop-loss ── */}
-        <div className="field" style={{ margin: 0, minWidth: 200, flex: 1 }}>
-          <label htmlFor="edit-sl" style={{ marginBottom: 6 }}>Stop-loss trigger</label>
-          {slTpMode === 'price' ? (
-            <>
-              <input id="edit-sl" inputMode="decimal" value={sl} onChange={(e) => setSl(e.target.value)} placeholder="leave empty to skip" />
-              {sl !== '' && hasRef && sideOk && (
-                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
-                  ≈ {triggerToPct(refPrice, Number(sl), positionSide as 'long' | 'short', 'sl').toFixed(2)}% from entry
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <input
-                id="edit-sl"
-                inputMode="decimal"
-                value={slPct}
-                placeholder="e.g. 5"
-                disabled={!hasRef || !sideOk}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
-                  if (v === '' || Number(v) <= 100) setSlPct(v);
-                }}
-              />
-              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                {SL_PCT_CHIPS.map((v) => (
-                  <button
-                    key={v} type="button" className="btn btn-sm"
-                    aria-pressed={slPct !== '' && Number(slPct) === v}
-                    disabled={!hasRef || !sideOk}
-                    style={chipStyle(slPct !== '' && Number(slPct) === v)}
-                    onClick={() => setSlPct(String(v))}
-                  >{v}%</button>
-                ))}
-              </div>
-              {hasRef && sideOk && slPct !== '' && pctValid(slPct) && (
-                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
-                  ≈ {pctToTrigger(refPrice, Number(slPct), positionSide as 'long' | 'short', 'sl').toFixed(2)} trigger price
-                </div>
-              )}
-            </>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', marginTop: 10 }}>
-            <input type="checkbox" id="edit-tsl" checked={trailing} onChange={(e) => setTrailing(e.target.checked)} />
-            <label htmlFor="edit-tsl" style={{ marginLeft: 6, fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>Make Trailing (1% step)</label>
-          </div>
-        </div>
-
-        {/* ── Take-profit ── */}
-        <div className="field" style={{ margin: 0, minWidth: 200, flex: 1 }}>
-          <label htmlFor="edit-tp" style={{ marginBottom: 6 }}>Take-profit trigger</label>
-          {slTpMode === 'price' ? (
-            <>
-              <input id="edit-tp" inputMode="decimal" value={tp} onChange={(e) => setTp(e.target.value)} placeholder="leave empty to skip" />
-              {tp !== '' && hasRef && sideOk && (
-                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
-                  ≈ {triggerToPct(refPrice, Number(tp), positionSide as 'long' | 'short', 'tp').toFixed(2)}% from entry
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <input
-                id="edit-tp"
-                inputMode="decimal"
-                value={tpPct}
-                placeholder="e.g. 5"
-                disabled={!hasRef || !sideOk}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
-                  if (v === '' || Number(v) <= 100) setTpPct(v);
-                }}
-              />
-              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                {TP_PCT_CHIPS.map((v) => (
-                  <button
-                    key={v} type="button" className="btn btn-sm"
-                    aria-pressed={tpPct !== '' && Number(tpPct) === v}
-                    disabled={!hasRef || !sideOk}
-                    style={chipStyle(tpPct !== '' && Number(tpPct) === v)}
-                    onClick={() => setTpPct(String(v))}
-                  >{v}%</button>
-                ))}
-              </div>
-              {hasRef && sideOk && tpPct !== '' && pctValid(tpPct) && (
-                <div className="hint" style={{ marginTop: 4, color: 'var(--accent)' }}>
-                  ≈ {pctToTrigger(refPrice, Number(tpPct), positionSide as 'long' | 'short', 'tp').toFixed(2)} trigger price
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* ── Actions ── */}
-        <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end', flexShrink: 0, paddingBottom: 4 }}>
-          <button className="btn btn-sm" disabled={!canSubmit || pending} onClick={handleSubmit}>
-            {pending ? 'Saving…' : 'Save'}
-          </button>
-          <button className="btn btn-sm secondary" onClick={onCancel} disabled={pending}>Cancel</button>
-        </div>
-      </div>
-      <p className="sub muted" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
-        The venue does not allow &ldquo;move&rdquo; on a live SL/TP — the server cancels the current leg and creates a fresh one. There is a brief window while the swap happens where the position is unprotected.
-      </p>
+      {/* ── Position Management Modal (Safe Execution & Bracket Controls) ── */}
+      {liveManagingPosition !== null && (
+        <PositionManageModal
+          position={liveManagingPosition}
+          onClose={() => setManagingPosition(null)}
+          onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
+          onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
+          onProtection={(args) => protMut.mutate(args)}
+          isExiting={exitMut.isPending}
+          isAdjusting={adjustMut.isPending}
+          isProtecting={protMut.isPending}
+        />
+      )}
     </div>
   );
 }

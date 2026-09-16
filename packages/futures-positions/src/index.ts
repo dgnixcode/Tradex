@@ -31,12 +31,14 @@ export interface FuturesPositionRow {
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice?: string | null;
+  readonly groupName?: string | null;
 }
 
 export interface FuturesPositionView {
   readonly venuePositionId: string;
   readonly accountId: string;
   readonly accountName: string;
+  readonly groupName?: string | null;
   readonly pair: string;
   readonly marginCurrency: Quote;
   readonly side: 'long' | 'short' | 'flat';
@@ -133,6 +135,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
     venuePositionId: row.venuePositionId,
     accountId: row.accountId,
     accountName: row.accountName,
+    groupName: row.groupName ?? null,
     pair: row.pair,
     marginCurrency: row.marginCurrency,
     side,

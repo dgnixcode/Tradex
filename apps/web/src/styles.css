@@ -1657,3 +1657,181 @@ body:has(.panel-dark)::before {
   }
 }
 
+/* =========================================================================
+   Position Management Modal & Modern UX
+   ========================================================================= */
+.position-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 10, 0.78);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: modalFadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.position-modal {
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 620px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.position-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.position-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.position-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: all 0.12s ease;
+}
+.position-modal-close:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.position-modal-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.modal-metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.modal-metric-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: monospace;
+}
+
+.position-modal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 24px 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.position-modal-tab {
+  padding: 9px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: all 0.12s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.position-modal-tab:hover {
+  color: var(--text);
+}
+.position-modal-tab.active {
+  color: #ffffff;
+  border-bottom-color: var(--accent);
+  background: rgba(76, 141, 255, 0.08);
+}
+.position-modal-tab.danger-tab.active {
+  border-bottom-color: var(--danger);
+  color: var(--danger);
+  background: rgba(240, 85, 90, 0.08);
+}
+
+.position-modal-body {
+  padding: 22px 24px;
+  flex: 1;
+}
+
+.group-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(124, 107, 255, 0.12);
+  color: #b9a8ff;
+  border: 1px solid rgba(124, 107, 255, 0.28);
+  font-weight: 600;
+}
+
+.card-account-search {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  width: 170px;
+  transition: border-color 0.12s ease;
+}
+.card-account-search:focus {
+  border-color: var(--accent);
+}
+
+.show-more-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+

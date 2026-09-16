@@ -107,8 +107,30 @@ export async function buildFuturesPositions(
 ): Promise<FuturesPositionsResponse> {
   const tdb = forTenant(db, tenantId);
   const accounts = await listAccounts(tdb);
+  const accountIds = accounts.map((a) => a.id);
   const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
-  const raw = await readFuturesPositions(tdb, accounts.map((a) => a.id));
+
+  const memberships = accountIds.length > 0
+    ? await tdb.selectFrom('group_member')
+        .innerJoin('account_group', 'account_group.id', 'group_member.group_id')
+        .select([
+          'group_member.account_id as accountId',
+          'account_group.name as groupName',
+        ] as unknown as never)
+        .where('group_member.account_id' as never, 'in', accountIds as never)
+        .where('account_group.archived_at' as never, 'is', null as never)
+        .orderBy('account_group.name' as never)
+        .execute() as unknown as ReadonlyArray<{ accountId: string; groupName: string }>
+    : [];
+
+  const groupsByAccount = new Map<string, string[]>();
+  for (const m of memberships) {
+    const list = groupsByAccount.get(m.accountId) ?? [];
+    list.push(m.groupName);
+    groupsByAccount.set(m.accountId, list);
+  }
+
+  const raw = await readFuturesPositions(tdb, accountIds);
   const prices = rtPrices ?? await getFuturesRtPrices().catch(() => new Map<string, FuturesRtPrice>());
 
   const shaped: FuturesPositionRow[] = raw
@@ -120,6 +142,7 @@ export async function buildFuturesPositions(
       return {
         accountId: r.accountId,
         accountName: nameOf.get(r.accountId) ?? r.accountId.slice(0, 8),
+        groupName: groupsByAccount.get(r.accountId)?.join(', ') ?? null,
         pair: r.pair,
         marginCurrency: r.marginCurrency as Quote,
         venuePositionId: r.venuePositionId,

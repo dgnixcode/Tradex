@@ -490,6 +490,7 @@ export interface FuturesPositionRow {
   readonly venuePositionId: string;
   readonly accountId: string;
   readonly accountName: string;
+  readonly groupName?: string | null;
   readonly pair: string;
   readonly marginCurrency: 'INR' | 'USDT';
   readonly side: 'long' | 'short' | 'flat';
