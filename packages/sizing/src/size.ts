@@ -164,10 +164,6 @@ export function size(input: SizeInput): Sized | Refusal {
   }
 
   const finalQuantity = floorQuantity(rawQty, rules);
-  console.log('DEBUG SIZE.TS:', {
-    rawQty: toStr(rawQty), finalQuantity: toStr(finalQuantity),
-    rulesStep: rules.quantityStep, rulesMin: rules.minQuantity
-  });
 
   const legal = legalise({
     rules,

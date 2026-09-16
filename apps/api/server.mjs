@@ -453,8 +453,10 @@ if (sending) {
         return { kind: 'accepted', venueOrderId: placed.order.venueOrderId, statusRaw: placed.order.venueStatusRaw };
       }
       if (placed.kind === 'refused_deadline') {
+        console.error('[futures-order] deadline refused:', placed.reason);
         return { kind: 'rejected', orderMayExist: false, code: 'deadline', detail: placed.reason };
       }
+      console.error('[futures-order] venue rejected:', placed.failure);
       return {
         kind: 'rejected',
         orderMayExist: placed.failure.orderMayExist === true,

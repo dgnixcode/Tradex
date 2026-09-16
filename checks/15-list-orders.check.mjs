@@ -160,10 +160,11 @@ export async function run(assert) {
     assert(placedViaSigner.kind === 'accepted', `the signed create failed: ${JSON.stringify(placedViaSigner)}`);
     assert(createBodies.length === 1, `expected one signed create body, got ${createBodies.length}`);
     const createBody = JSON.parse(createBodies[0]);
-    assert(!('reduce_only' in createBody),
+    const orderInBody = createBody.order ?? createBody;
+    assert(!('reduce_only' in orderInBody),
       'the create body still carries reduce_only — the futures API has no such field, so this protects '
       + 'nothing and a reducing order sized above the position would flip it');
-    assert(createBody.pair === PAIR && createBody.leverage === 5,
+    assert(orderInBody.pair === PAIR && orderInBody.leverage === 5,
       'the create body lost a field it does need');
 
     console.log('     L4a read-back: initial-window invisible, narrow by pair+side, cancel alias, signer path');

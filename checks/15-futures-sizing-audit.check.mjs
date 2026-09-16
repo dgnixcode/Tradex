@@ -1,35 +1,32 @@
 // 15-futures-sizing-audit — verifies futures sizing and execution hardening.
 import { planAccount, size, legalise } from '../packages/sizing/dist/index.js';
-import assert from 'node:assert';
 
-console.log('Running 15-futures-sizing-audit check...');
+export async function run(assert) {
+  const rules = {
+    venueSymbol: 'B-BTC_USDT',
+    venueCode: 'B-BTC_USDT',
+    market: { asset: 'BTC', quote: 'USDT' },
+    baseScale: 8,
+    quoteScale: 8,
+    minQuantity: '0.00001',
+    minMarketQuantity: null,
+    maxQuantity: '100',
+    maxMarketQuantity: '10',
+    quantityStep: '0.00001',
+    quantityPrecision: 5,
+    minPrice: '1000',
+    maxPrice: '1000000',
+    priceTick: '0.1',
+    pricePrecision: 1,
+    minNotionalMinor: '500000000', // 5 USDT at scale 8
+    tradable: true,
+    allowedTypes: ['market', 'limit'],
+    rulesVersion: 'v1',
+  };
 
-const rules = {
-  venueSymbol: 'B-BTC_USDT',
-  venueCode: 'B-BTC_USDT',
-  market: { asset: 'BTC', quote: 'USDT' },
-  baseScale: 8,
-  quoteScale: 8,
-  minQuantity: '0.00001',
-  minMarketQuantity: null,
-  maxQuantity: '100',
-  maxMarketQuantity: '10',
-  quantityStep: '0.00001',
-  quantityPrecision: 5,
-  minPrice: '1000',
-  maxPrice: '1000000',
-  priceTick: '0.1',
-  pricePrecision: 1,
-  minNotionalMinor: '500000000', // 5 USDT at scale 8
-  tradable: true,
-  allowedTypes: ['market', 'limit'],
-  rulesVersion: 'v1',
-};
-
-// TEST 1: Futures Short Sizing with pct_allocated (Margin Collateral)
-{
-  console.log('Test 1: Futures Short with pct_allocated sizing...');
-  const sized = size({
+  // TEST 1: Futures Short Sizing with pct_allocated (Margin Collateral)
+  {
+    const sized = size({
     intent: {
       asset: 'BTC',
       side: 'sell',
@@ -159,5 +156,5 @@ const rules = {
   assert(outcome.sized.side === 'sell', 'Sized side must be sell');
   console.log('  -> Passed! Planned futures short order:', outcome.sized.finalQuantity, 'BTC, notional:', outcome.sized.notionalMinor);
 }
+}
 
-console.log('\nAll 5 futures sizing audit tests passed successfully!');

@@ -658,11 +658,19 @@ export class FakeVenue {
           this.send(res, 400, '{"code":400,"message":"Orders with a delay of more than 10 seconds will be rejected","status":"error"}');
           return;
         }
-        const pair = typeof parsed['pair'] === 'string' ? parsed['pair'] as string : '';
-        const side = typeof parsed['side'] === 'string' ? parsed['side'] as string : '';
-        const orderType = typeof parsed['order_type'] === 'string' ? parsed['order_type'] as string : '';
-        const marginCurrency = typeof parsed['margin_currency_short_name'] === 'string'
-          ? parsed['margin_currency_short_name'] as string : 'USDT';
+        const orderObj = (parsed['order'] !== null && typeof parsed['order'] === 'object' && !Array.isArray(parsed['order']))
+          ? (parsed['order'] as Record<string, unknown>)
+          : parsed;
+        const pair = typeof orderObj['pair'] === 'string' ? orderObj['pair'] as string : '';
+        const side = typeof orderObj['side'] === 'string' ? orderObj['side'] as string : '';
+        const orderTypeRaw = typeof orderObj['order_type'] === 'string' ? orderObj['order_type'] as string : '';
+        const orderType = (orderTypeRaw === 'market_order' || orderTypeRaw === 'market')
+          ? 'market'
+          : (orderTypeRaw === 'limit_order' || orderTypeRaw === 'limit')
+            ? 'limit'
+            : orderTypeRaw;
+        const marginCurrency = typeof orderObj['margin_currency_short_name'] === 'string'
+          ? orderObj['margin_currency_short_name'] as string : 'USDT';
         if (pair === '' || side === '' || orderType === '') {
           this.send(res, 400, '{"code":400,"message":"pair, side and order_type are required","status":"error"}');
           return;
@@ -671,14 +679,14 @@ export class FakeVenue {
         const orderId = `ford-${this.futuresOrderSeq}`;
         const order: Record<string, unknown> = {
           id: orderId,
-          pair, side, order_type: orderType,
+          pair, side, order_type: orderTypeRaw,
           margin_currency_short_name: marginCurrency,
-          total_quantity: parsed['total_quantity'] ?? null,
-          price: parsed['price'] ?? null,
-          stop_price: parsed['stop_price'] ?? null,
-          leverage: parsed['leverage'] ?? null,
-          position_margin_type: parsed['position_margin_type'] ?? 'isolated',
-          reduce_only: parsed['reduce_only'] ?? false,
+          total_quantity: orderObj['total_quantity'] ?? null,
+          price: orderObj['price'] ?? null,
+          stop_price: orderObj['stop_price'] ?? null,
+          leverage: orderObj['leverage'] ?? null,
+          position_margin_type: orderObj['position_margin_type'] ?? 'isolated',
+          reduce_only: orderObj['reduce_only'] ?? false,
           // Documented as meaningless on create (research/03 G6): "'initial' for
           // all newly placed orders … Ignore this". Kept for wire-shape fidelity.
           status: 'initial',
@@ -693,7 +701,7 @@ export class FakeVenue {
         // page — impossible to exercise end to end.
         if (orderType === 'market') {
           order['status'] = 'filled';
-          const qty = Number(parsed['total_quantity'] ?? 0);
+          const qty = Number(orderObj['total_quantity'] ?? 0);
           const signed = side === 'sell' ? -qty : qty;
           const prior = [...this.futuresPositions.values()]
             .find((p) => p['pair'] === pair && p['margin_currency_short_name'] === marginCurrency);
@@ -702,8 +710,8 @@ export class FakeVenue {
           // the quantity precision these fixtures use so it reads as a real number.
           const next = (before + signed).toFixed(10).replace(/\.?0+$/, '');
           const price = this.futuresLtp.get(pair) ?? '8500000';
-          const lev = parsed['leverage'];
-          const marginType = parsed['position_margin_type'];
+          const lev = orderObj['leverage'];
+          const marginType = orderObj['position_margin_type'];
           this.settleFuturesPosition({
             pair,
             marginCurrency: marginCurrency as 'INR' | 'USDT',
@@ -715,7 +723,7 @@ export class FakeVenue {
           });
         }
 
-        this.send(res, 200, JSON.stringify(order));
+        this.send(res, 200, JSON.stringify([order]));
         return;
       }
 

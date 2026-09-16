@@ -467,17 +467,6 @@ export class PlanningService {
       effectiveDailyCap = toStr(mul(nat(effectiveDailyCap), lev, 0));
     }
 
-    if (req.isFutures) {
-      console.log('DEBUG FUTURES SIZING:', {
-        quote, fundingCurrency, allocatedCurrency: member.allocatedCurrency,
-        marginCurrency: req.marginCurrency,
-        originalAllocated: member.allocatedCapitalMinor,
-        effectiveAllocatedMinor, effectiveFreeMinor,
-        effectiveOrderCap, effectiveDailyCap,
-        leverage: req.leverage, usdtInrMid: ctx.usdtInrMid
-      });
-    }
-
     const gateState: GateState = {
       platformKillSwitch: ctx.platform.killSwitch,
       platformMode: ctx.platform.mode,

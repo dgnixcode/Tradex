@@ -24,6 +24,7 @@ import type {
   FuturesMarginCurrency,
   FuturesInstrument,
   FuturesOrderSnapshot,
+  FuturesOrderType,
   FuturesPlaceOrderRequest,
   FuturesPositionMarginType,
   FuturesPositionSnapshot,
@@ -66,12 +67,32 @@ export type FuturesLeverageOutcome =
   | { readonly ok: true }
   | { readonly ok: false; readonly failure: ClassifiedFailure };
 
+export function toVenueOrderType(orderType: FuturesOrderType): string {
+  if (orderType === 'market') return 'market_order';
+  if (orderType === 'limit') return 'limit_order';
+  return orderType;
+}
+
+export function fromVenueOrderType(venueOrderType: string | null): string {
+  if (venueOrderType === 'market_order') return 'market';
+  if (venueOrderType === 'limit_order') return 'limit';
+  return venueOrderType ?? '';
+}
+
 function messageFrom(body: string): string {
   try {
     const parsed = JSON.parse(body) as unknown;
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (parsed !== null && typeof parsed === 'object') {
+      if (Array.isArray(parsed)) {
+        return JSON.stringify(parsed);
+      }
       const row = parsed as { [key: string]: unknown };
-      if (typeof row['message'] === 'string') return row['message'];
+      const msg = row['message'] ?? row['error'] ?? row['msg'] ?? row['description'];
+      if (typeof msg === 'string' && msg.trim() !== '') return msg;
+      if (Array.isArray(row['errors']) && row['errors'].length > 0) {
+        return row['errors'].map(String).join(', ');
+      }
+      return JSON.stringify(parsed);
     }
   } catch { /* fall through */ }
   return body.slice(0, 200);
@@ -149,11 +170,13 @@ export async function submitFuturesOrderSigned(
   }
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
 
-  const payload: Record<string, unknown> = {
+  const orderPayload: Record<string, unknown> = {
     pair: request.pair,
     side: request.side,
-    order_type: request.orderType,
-    total_quantity: request.quantity,
+    order_type: toVenueOrderType(request.orderType),
+    total_quantity: typeof request.quantity === 'string' && Number.isFinite(Number(request.quantity))
+      ? Number(request.quantity)
+      : request.quantity,
     leverage: request.leverage,
     margin_currency_short_name: request.marginCurrency,
     position_margin_type: request.positionMarginType,
@@ -167,8 +190,14 @@ export async function submitFuturesOrderSigned(
     // futures order fails). The guard that actually works is the CLAMP, applied by
     // the caller before the order is built — see `FuturesPlaceOrderRequest`.
   };
-  if (request.price !== undefined) payload['price'] = request.price;
-  if (request.triggerPrice !== undefined) payload['stop_price'] = request.triggerPrice;
+  if (request.price !== undefined) orderPayload['price'] = request.price;
+  if (request.triggerPrice !== undefined) orderPayload['stop_price'] = request.triggerPrice;
+
+  // The venue contract (coindcx-docs lines 8857, 8917) expects the order parameters
+  // nested under the `order` key: {"timestamp": ..., "order": {...}}.
+  const payload: Record<string, unknown> = {
+    order: orderPayload,
+  };
 
   const signed = await signBody(sign, payload, now);
   const deadlineMs = Math.min(opts.deadlineMs ?? DEFAULT_DEADLINE_MS, budget);
@@ -192,17 +221,26 @@ export async function submitFuturesOrderSigned(
     throw err;
   }
   if (result.status >= 200 && result.status < 300) {
-    let parsed: Record<string, unknown> | null = null;
-    try { parsed = JSON.parse(result.body) as Record<string, unknown>; } catch { /* fall through */ }
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(result.body); } catch { /* fall through */ }
     if (parsed === null) {
       return {
         kind: 'rejected',
         failure: classify({ status: 200, message: 'venue returned a 2xx with unparsable body' }),
       };
     }
-    return { kind: 'accepted', order: toOrderSnapshot(parsed, request) };
+    // Venue returns an array e.g. [ { id: "...", ... } ] or an object in fake venue
+    const row = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+      return {
+        kind: 'rejected',
+        failure: classify({ status: 200, message: 'venue returned a 2xx without order object' }),
+      };
+    }
+    return { kind: 'accepted', order: toOrderSnapshot(row as Record<string, unknown>, request) };
   }
-  return { kind: 'rejected', failure: classify({ status: result.status, message: messageFrom(result.body) }) };
+  const errMessage = messageFrom(result.body) || `HTTP ${result.status} (empty body)`;
+  return { kind: 'rejected', failure: classify({ status: result.status, message: errMessage }) };
 }
 
 /** Sign in-process from a plaintext secret. Checks and the sandbox use this. */
@@ -350,7 +388,10 @@ export async function attachStopAndTakeSigned(
       stop_price: req.stopLoss.triggerPrice,
       order_type: req.stopLoss.orderType,
     };
-    if (req.stopLoss.price !== undefined) leg['price'] = req.stopLoss.price;
+    if (req.stopLoss.price !== undefined) {
+      leg['price'] = req.stopLoss.price;
+      leg['limit_price'] = req.stopLoss.price;
+    }
     payload['stop_loss'] = leg;
   }
   if (req.takeProfit !== undefined) {
@@ -358,7 +399,10 @@ export async function attachStopAndTakeSigned(
       stop_price: req.takeProfit.triggerPrice,
       order_type: req.takeProfit.orderType,
     };
-    if (req.takeProfit.price !== undefined) leg['price'] = req.takeProfit.price;
+    if (req.takeProfit.price !== undefined) {
+      leg['price'] = req.takeProfit.price;
+      leg['limit_price'] = req.takeProfit.price;
+    }
     payload['take_profit'] = leg;
   }
   const now = (opts.nowMs ?? Date.now)();
@@ -518,7 +562,7 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
     venueOrderId: id,
     pair,
     side: strOrNull(row['side']) ?? '',
-    orderType: strOrNull(row['order_type']) ?? '',
+    orderType: fromVenueOrderType(strOrNull(row['order_type'])),
     totalQuantity: strOrNull(row['total_quantity']),
     price: strOrNull(row['price']),
     statusRaw,
