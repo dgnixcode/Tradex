@@ -35,9 +35,9 @@ export type BuyModesAreExactlyTheFive = Expect<Equals<
   'quote_amount' | 'base_quantity' | 'pct_allocated' | 'pct_equity' | 'pct_free'
 >>;
 
-export type SellModesAreExactlyTheFour = Expect<Equals<
+export type SellModesAreExactlyTheSeven = Expect<Equals<
   SellSideModes,
-  'quote_amount' | 'base_quantity' | 'pct_position' | 'sell_all'
+  'quote_amount' | 'base_quantity' | 'pct_allocated' | 'pct_equity' | 'pct_free' | 'pct_position' | 'sell_all'
 >>;
 
 // The two specific exclusions the phase doc names, stated directly so a failure
@@ -50,13 +50,10 @@ export type BuyCannotBeSellAll = Expect<Equals<Extract<BuySideModes, 'sell_all'>
 export type SellCanBePctPosition = Expect<Equals<Extract<SellSideModes, 'pct_position'>, 'pct_position'>>;
 export type SellCanBeSellAll = Expect<Equals<Extract<SellSideModes, 'sell_all'>, 'sell_all'>>;
 
-/** The sell-side mirror of `intents.test.ts`: buy-only bases are not sellable. */
-export function rejectedSellIntents(): readonly unknown[] {
-  // @ts-expect-error pct_allocated is a buy-side basis; a sell sizes from the position held.
+/** Sell intents permit pct_allocated, pct_free, pct_equity for futures short derivative opens. */
+export function legalSellIntents(): readonly unknown[] {
   const a: Extract<Intent, { side: 'sell' }> = { asset: 'BTC', orderType: 'market', side: 'sell', mode: 'pct_allocated', percent: { basisPoints: 2000 } };
-  // @ts-expect-error pct_free is a buy-side basis: free quote balance cannot size a sell of an asset.
   const b: Extract<Intent, { side: 'sell' }> = { asset: 'BTC', orderType: 'market', side: 'sell', mode: 'pct_free', percent: { basisPoints: 2000 } };
-  // @ts-expect-error pct_equity is a buy-side basis.
   const c: Extract<Intent, { side: 'sell' }> = { asset: 'BTC', orderType: 'market', side: 'sell', mode: 'pct_equity', percent: { basisPoints: 2000 } };
   return [a, b, c];
 }

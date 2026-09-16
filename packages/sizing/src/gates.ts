@@ -220,12 +220,13 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
     rules: resolved.rules,
     price: input.price,
     priceSource: input.priceSource,
+    ...(state.isFutures ? { isFutures: state.isFutures } : {}),
     ...(state.allocatedCapitalMinor !== undefined ? { allocatedCapitalMinor: state.allocatedCapitalMinor } : {}),
     ...(state.freeQuoteMinor !== undefined ? { freeQuoteMinor: state.freeQuoteMinor } : {}),
     ...(state.equityQuoteMinor !== undefined ? { equityQuoteMinor: state.equityQuoteMinor } : {}),
-    ...(state.positionQuantity !== undefined ? { positionQuantity: state.positionQuantity } : {}),
-    // The buy sufficiency basis: the free quote balance the account can spend.
-    ...(intent.side === 'buy' && state.freeQuoteMinor !== undefined
+    ...(state.positionQuantity !== undefined && !state.isFutures ? { positionQuantity: state.positionQuantity } : {}),
+    // The sufficiency basis: free quote balance for buys and for futures short/long opens.
+    ...((intent.side === 'buy' || state.isFutures) && state.freeQuoteMinor !== undefined
       ? { availableQuoteMinor: state.freeQuoteMinor }
       : {}),
   };

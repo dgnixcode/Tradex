@@ -544,9 +544,10 @@ export class ExecutionWorker {
     // can be stale the moment outside activity lands. A holding below the market
     // minimum is dust (excluded, never sent), a fully-locked holding is a
     // HOLDING_LOCKED skip, and the size is clamped DOWN to the holding with the
-    // clamp recorded on the row — never clamped up.
+    // Spot sells only: a futures sell is an open short contract funded by margin,
+    // not a liquidation of a held base asset.
     let sendQuantity = child.finalQuantity;
-    if (trade.side === 'sell') {
+    if (trade.side === 'sell' && trade.isFutures !== true) {
       const resized = await this.resizeSellForSend(tdb, child, trade);
       if (resized !== null) {
         if (resized.kind === 'skip') {

@@ -415,25 +415,26 @@ export class PlanningService {
     let effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, quote);
     
     // Cross-currency sizing (Phase 15 backport)
-    // For futures, the trade pair is always USDT. If the user chose to fund with INR,
-    // convert their INR allocated capital and free balance to USDT equivalent.
+    // When trading on a USDT market (e.g. all futures perps):
+    // 1. If the account's allocated capital is in INR paise (scale 2), convert to USDT minor (scale 8).
+    //    1 USDT = rate INR (e.g. 88 INR).
+    //    USDT minor = (INR paise * 10^6) / rate.
+    if (quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {
+      const rate = nat(ctx.usdtInrMid);
+      const allocatedScaled = mul(nat(member.allocatedCapitalMinor), nat('1000000'), 0);
+      effectiveAllocatedMinor = toStr(div(allocatedScaled, rate, 0));
+    }
+
+    // 2. Determine spendable free balance (collateral).
+    // For futures, the user chooses which wallet funds margin: INR or USDT.
     const fundingCurrency = req.isFutures ? (req.marginCurrency ?? member.allocatedCurrency) : member.allocatedCurrency;
     if (req.isFutures && quote === 'USDT' && fundingCurrency === 'INR' && ctx.usdtInrMid !== null) {
       const inrFree = freeQuoteMinorOf(effectiveBalances, 'INR');
-      // Convert INR minor (paise) to USDT minor (8 decimals).
-      // rate is USDT/INR, so 1 USDT = 88 INR.
-      // USDT = INR / rate.
-      // USDT minor = (INR minor / 100) / rate * 10^8 = (INR minor * 10^6) / rate.
       const rate = nat(ctx.usdtInrMid);
-      // Use the INR allocated capital from the member, regardless of member.allocatedCurrency
-      const inrAllocated = member.allocatedCurrency === 'INR'
-        ? member.allocatedCapitalMinor
-        : effectiveAllocatedMinor; // fallback if account is already USDT-denominated
-      const allocatedScaled = mul(nat(inrAllocated), nat('1000000'), 0);
-      effectiveAllocatedMinor = toStr(div(allocatedScaled, rate, 0));
-      
       const freeScaled = mul(nat(inrFree), nat('1000000'), 0);
       effectiveFreeMinor = toStr(div(freeScaled, rate, 0));
+    } else if (req.isFutures && quote === 'USDT' && fundingCurrency === 'USDT') {
+      effectiveFreeMinor = freeQuoteMinorOf(effectiveBalances, 'USDT');
     }
 
     // Convert tenant caps from INR paise (scale 2) to USDT minor (scale 8) when trading on a USDT market
@@ -503,7 +504,7 @@ export class PlanningService {
       // sizing core are relabelled — an early gate (paused, frozen, caps, …)
       // keeps its own, more fundamental, reason.
       let refusal = outcome.refusal;
-      if (freshHolding !== null && !GATE_CODE_SET.has(refusal.code) && !('code' in resolved)) {
+      if (!req.isFutures && freshHolding !== null && !GATE_CODE_SET.has(refusal.code) && !('code' in resolved)) {
         const effMin = effectiveMinQty(resolved.rules, req.orderType);
         const free0 = cmp(nat(freshHolding.free), nat('0')) === 0;
         const lockedGt0 = cmp(nat(freshHolding.locked), nat('0')) > 0;
@@ -672,14 +673,20 @@ export class PlanningService {
     const common = { asset: req.asset, orderType: req.orderType,
       ...(req.orderType === 'limit' && req.limitPrice !== undefined ? { limitPrice: req.limitPrice } : {}) };
     const pct = { percent: { basisPoints: req.percentBp ?? 0 } };
-    if (req.side === 'buy') {
+    if (req.side === 'buy' || req.isFutures === true) {
       switch (req.sizingMode) {
-        case 'quote_amount': return { ...common, side: 'buy', mode: 'quote_amount', quoteAmountMinor: req.sizingValue ?? '0' };
-        case 'base_quantity': return { ...common, side: 'buy', mode: 'base_quantity', baseQuantity: req.sizingValue ?? '0' };
-        case 'pct_allocated': return { ...common, side: 'buy', mode: 'pct_allocated', ...pct };
-        case 'pct_equity': return { ...common, side: 'buy', mode: 'pct_equity', ...pct };
-        case 'pct_free': return { ...common, side: 'buy', mode: 'pct_free', ...pct };
-        default: throw new PlanningError(`sizing mode ${req.sizingMode} is not valid for a buy`, 'bad_mode');
+        case 'quote_amount': return { ...common, side: req.side, mode: 'quote_amount', quoteAmountMinor: req.sizingValue ?? '0' };
+        case 'base_quantity': return { ...common, side: req.side, mode: 'base_quantity', baseQuantity: req.sizingValue ?? '0' };
+        case 'pct_allocated': return { ...common, side: req.side, mode: 'pct_allocated', ...pct };
+        case 'pct_equity': return { ...common, side: req.side, mode: 'pct_equity', ...pct };
+        case 'pct_free': return { ...common, side: req.side, mode: 'pct_free', ...pct };
+        case 'pct_position':
+          if (req.side === 'sell') return { ...common, side: 'sell', mode: 'pct_position', ...pct };
+          throw new PlanningError(`pct_position is not valid for a buy`, 'bad_mode');
+        case 'sell_all':
+          if (req.side === 'sell') return { ...common, side: 'sell', mode: 'sell_all' };
+          throw new PlanningError(`sell_all is not valid for a buy`, 'bad_mode');
+        default: throw new PlanningError(`sizing mode ${req.sizingMode} is not valid for a ${req.side}`, 'bad_mode');
       }
     }
     switch (req.sizingMode) {

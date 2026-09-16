@@ -42,10 +42,13 @@ export type BuyIntent = Common & (
   | { readonly side: 'buy'; readonly mode: 'pct_free'; readonly percent: Percent }
 );
 
-/** Sell intents. `sell_all` and `pct_position` are sell-only by construction. */
+/** Sell intents. Spot sells use position or base/quote. Futures short opens can also use allocated, equity, or free quote capital. */
 export type SellIntent = Common & (
   | { readonly side: 'sell'; readonly mode: 'quote_amount'; readonly quoteAmountMinor: string }
   | { readonly side: 'sell'; readonly mode: 'base_quantity'; readonly baseQuantity: string }
+  | { readonly side: 'sell'; readonly mode: 'pct_allocated'; readonly percent: Percent }
+  | { readonly side: 'sell'; readonly mode: 'pct_equity'; readonly percent: Percent }
+  | { readonly side: 'sell'; readonly mode: 'pct_free'; readonly percent: Percent }
   | { readonly side: 'sell'; readonly mode: 'pct_position'; readonly percent: Percent }
   | { readonly side: 'sell'; readonly mode: 'sell_all' }
 );

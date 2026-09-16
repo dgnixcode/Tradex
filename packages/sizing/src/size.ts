@@ -31,6 +31,8 @@ export interface SizeInput {
   /** Execution price: ask for a buy, bid for a sell, or the customer's limit. */
   readonly price: string;
   readonly priceSource: PriceSource;
+  /** True for futures/derivative trades where sells open short positions using collateral. */
+  readonly isFutures?: boolean | undefined;
   /** pct_allocated basis — the capital typed at onboarding, quote minor units. */
   readonly allocatedCapitalMinor?: string | undefined;
   /** pct_free basis — spendable balance in the quote currency, minor units. */
@@ -64,21 +66,20 @@ export interface Sized {
 /** A percentage in basis points as a Scaled at scale 4, so 2000bp = 0.2000. */
 const asRate = (basisPoints: number): Scaled => ({ v: BigInt(basisPoints), scale: 4 });
 
-interface BuyBudget {
+interface OrderBudget {
   readonly budgetMinor: Scaled;
   readonly basis: SizingBasis | null;
   readonly basisAmountMinor: string | null;
 }
 
 /**
- * The quote budget a buy starts from, before holdback. `quote_amount` is the
+ * The quote budget an order starts from, before holdback. `quote_amount` is the
  * amount itself; a percentage mode multiplies its basis by the percentage. A
  * percentage mode whose basis was not supplied refuses with NO_BASIS_AMOUNT
  * rather than sizing against zero.
  */
-function buyBudget(input: SizeInput, quoteScale: Scale): BuyBudget | Refusal {
+function orderBudget(input: SizeInput, quoteScale: Scale): OrderBudget | Refusal {
   const { intent } = input;
-  if (intent.side !== 'buy') throw new Error('buyBudget called for a sell');
 
   if (intent.mode === 'quote_amount') {
     return {
@@ -93,7 +94,9 @@ function buyBudget(input: SizeInput, quoteScale: Scale): BuyBudget | Refusal {
     pct_free: { amount: input.freeQuoteMinor, label: 'free balance', basis: 'free' },
     pct_equity: { amount: input.equityQuoteMinor, label: 'account equity', basis: 'equity' },
   };
-  if (intent.mode === 'base_quantity') throw new Error('base_quantity is not budget-sized');
+  if (intent.mode === 'base_quantity' || intent.mode === 'pct_position' || intent.mode === 'sell_all') {
+    throw new Error(`${intent.mode} is not budget-sized`);
+  }
   const src = sources[intent.mode];
   if (src.amount === undefined) return refuse('NO_BASIS_AMOUNT', { detail: src.label });
   const basisMinor = scaledFromMinor(src.amount, quoteScale);
@@ -136,19 +139,24 @@ export function size(input: SizeInput): Sized | Refusal {
   let feeRate = '0';
   let tdsRate = '0';
 
-  if (intent.side === 'buy') {
-    if (intent.mode === 'base_quantity') {
-      rawQty = nat(intent.baseQuantity); // an explicit quantity is not holdback-adjusted
-    } else {
-      const budget = buyBudget(input, quoteScale);
-      if ('code' in budget) return budget;
-      basis = budget.basis;
-      basisAmountMinor = budget.basisAmountMinor;
-      const held = applyHoldback(budget.budgetMinor, rules.market.quote);
-      feeRate = rates.feeRate;
-      tdsRate = rates.tdsRate;
-      rawQty = div(held.spendableMinor, price, GUARD_SCALE);
-    }
+  if (intent.mode === 'base_quantity') {
+    rawQty = nat(intent.baseQuantity); // an explicit quantity is not holdback-adjusted
+  } else if (
+    intent.side === 'buy' ||
+    (input.isFutures === true &&
+      (intent.mode === 'pct_allocated' ||
+        intent.mode === 'pct_equity' ||
+        intent.mode === 'pct_free' ||
+        intent.mode === 'quote_amount'))
+  ) {
+    const budget = orderBudget(input, quoteScale);
+    if ('code' in budget) return budget;
+    basis = budget.basis;
+    basisAmountMinor = budget.basisAmountMinor;
+    const held = applyHoldback(budget.budgetMinor, rules.market.quote);
+    feeRate = rates.feeRate;
+    tdsRate = rates.tdsRate;
+    rawQty = div(held.spendableMinor, price, GUARD_SCALE);
   } else {
     const q = sellQuantity(input, price, quoteScale);
     if ('code' in q) return q;
@@ -165,12 +173,13 @@ export function size(input: SizeInput): Sized | Refusal {
     rules,
     side: intent.side,
     orderType: intent.orderType,
+    isFutures: input.isFutures,
     quantity: finalQuantity,
     price,
-    ...(intent.side === 'sell' && input.positionQuantity !== undefined
+    ...(intent.side === 'sell' && !input.isFutures && input.positionQuantity !== undefined
       ? { availableQuantity: nat(input.positionQuantity) }
       : {}),
-    ...(intent.side === 'buy' && input.availableQuoteMinor !== undefined
+    ...(((intent.side === 'buy' || input.isFutures) && input.availableQuoteMinor !== undefined)
       ? { availableQuoteMinor: scaledFromMinor(input.availableQuoteMinor, quoteScale) }
       : {}),
   });

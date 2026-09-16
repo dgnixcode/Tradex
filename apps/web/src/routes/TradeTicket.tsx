@@ -897,6 +897,9 @@ export function TradeTicket() {
               const allocatedMajor = Number(selectedGroup.allocatedByCurrency[marginCurrency]) / Math.pow(10, scale);
               const marginAmt = allocatedMajor * (Number(percent) / 100);
               const notionalAmt = marginAmt * Number(leverage);
+              const notionalInUsdt = marginCurrency === 'INR'
+                ? (usdtInrRate ? notionalAmt / usdtInrRate : notionalAmt / 88)
+                : notionalAmt;
               const currSymbol = marginCurrency === 'INR' ? '₹' : '';
               const currSuffix = marginCurrency === 'USDT' ? ' USDT' : '';
               const fmtMargin = marginCurrency === 'INR'
@@ -906,20 +909,32 @@ export function TradeTicket() {
                 ? `${currSymbol}${notionalAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
                 : `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${currSuffix}`;
               return (
-                <div style={{
-                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                  marginTop: 8, padding: '8px 10px', borderRadius: 8,
-                  background: '#0e1014', border: '1px solid #1f232b',
-                }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin ({percent}%)</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                <>
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                    marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                    background: '#0e1014', border: '1px solid #1f232b',
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin ({percent}%)</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
-                  </div>
-                </div>
+                  {notionalInUsdt > 0 && notionalInUsdt < 5 && (
+                    <div style={{
+                      marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                      background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                      color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span>⚠️</span>
+                      <span>Order value (~{notionalInUsdt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase size or leverage.</span>
+                    </div>
+                  )}
+                </>
               );
             })() : (
               <div className="hint">
@@ -945,22 +960,34 @@ export function TradeTicket() {
                 ? `₹${(marginAmt * usdtInrRate).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
                 : `${marginAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
               return (
-                <div style={{
-                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                  marginTop: 8, padding: '8px 10px', borderRadius: 8,
-                  background: '#0e1014', border: '1px solid #1f232b',
-                }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
-                    <span style={{ fontSize: 10, color: '#6b7280' }}>{quantity} {asset} @ {sizingRefPrice}</span>
+                <>
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                    marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                    background: '#0e1014', border: '1px solid #1f232b',
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
+                      <span style={{ fontSize: 10, color: '#6b7280' }}>{quantity} {asset} @ {sizingRefPrice}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                      <span style={{ fontSize: 10, color: '#6b7280' }}>at {leverage}× leverage</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
-                    <span style={{ fontSize: 10, color: '#6b7280' }}>at {leverage}× leverage</span>
-                  </div>
-                </div>
+                  {notionalAmt > 0 && notionalAmt < 5 && (
+                    <div style={{
+                      marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                      background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                      color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span>⚠️</span>
+                      <span>Order value (~{notionalAmt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase quantity.</span>
+                    </div>
+                  )}
+                </>
               );
             })() : (
               <div className="hint">

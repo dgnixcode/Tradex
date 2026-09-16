@@ -23,6 +23,8 @@ export interface LegaliseInput {
   readonly rules: MarketRules;
   readonly side: OrderSide;
   readonly orderType: OrderType;
+  /** True for futures trades where sells open short positions using collateral rather than selling coin holdings. */
+  readonly isFutures?: boolean | undefined;
   /** Floored quantity, at the market's quantity precision. */
   readonly quantity: Scaled;
   /** Execution price used for notional: ask for a buy, bid for a sell (09). */
@@ -92,12 +94,12 @@ export function legalise(input: LegaliseInput): Legal | Refusal {
   }
 
   // 10. sufficiency — the caller supplies what the account actually has.
-  if (side === 'sell' && input.availableQuantity !== undefined) {
+  if (side === 'sell' && !input.isFutures && input.availableQuantity !== undefined) {
     if (cmp(quantity, input.availableQuantity) > 0) {
       return refuse('INSUFFICIENT_HOLDING', { offending: toStr(input.availableQuantity), limit: qtyStr });
     }
   }
-  if (side === 'buy' && input.availableQuoteMinor !== undefined) {
+  if ((side === 'buy' || input.isFutures) && input.availableQuoteMinor !== undefined) {
     if (cmp(notionalMinor, input.availableQuoteMinor) > 0) {
       return refuse('INSUFFICIENT_BALANCE', { offending: toStr(input.availableQuoteMinor), limit: toStr(notionalMinor) });
     }
