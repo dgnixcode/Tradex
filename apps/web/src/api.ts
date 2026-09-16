@@ -249,6 +249,7 @@ export const removeGroupMember = (groupId: string, accountId: string): Promise<{
 /** The tenant's accounts, for the add-member picker. */
 export const fetchAccountList = (): Promise<readonly AccountListItem[]> =>
   request<readonly AccountListItem[]>('/accounts');
+export const fetchAccounts = fetchAccountList;
 
 /**
  * Re-read this account's balances from the exchange.

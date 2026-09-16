@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  adjustFuturesPosition, exitFuturesPosition, fetchFuturesPositions, fetchGroups,
+  adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
   refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
 } from '../api.js';
-import type { FuturesPositionRow } from '../api.ts';
+import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -248,14 +248,15 @@ function GroupCard({
   collapsed,
   onToggle,
   onManage,
+  onManageGroup,
 }: {
   readonly group: PositionGroup;
   readonly collapsed: boolean;
   readonly onToggle: () => void;
   readonly onManage: (position: FuturesPositionRow) => void;
+  readonly onManageGroup: (group: PositionGroup) => void;
 }) {
   const [accountSearch, setAccountSearch] = useState('');
-  const [showAll, setShowAll] = useState(false);
 
   const sideColor = group.side === 'long' ? 'var(--ok)' : group.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
   const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
@@ -271,14 +272,9 @@ function GroupCard({
     const q = accountSearch.toLowerCase().trim();
     return group.positions.filter((p) =>
       p.accountName.toLowerCase().includes(q) ||
-      (p.groupName && p.groupName.toLowerCase().includes(q))
+      (p.groupName && p.groupName.toLowerCase().includes(q)),
     );
   }, [group.positions, accountSearch]);
-
-  const hasMany = group.positions.length > 5;
-  const visiblePositions = hasMany && !showAll && !accountSearch.trim()
-    ? filteredPositions.slice(0, 5)
-    : filteredPositions;
 
   const groupTitle = group.groupNames.length === 1
     ? group.groupNames[0]
@@ -332,78 +328,111 @@ function GroupCard({
           )}
         </span>
 
+        {/* Manage Group Button */}
+        <button
+          type="button"
+          className="btn btn-sm"
+          style={{
+            padding: '4px 11px',
+            fontSize: 11.5,
+            background: 'rgba(124, 107, 255, 0.22)',
+            color: '#c4b5fd',
+            border: '1px solid rgba(124, 107, 255, 0.45)',
+            fontWeight: 700,
+            marginLeft: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            borderRadius: 'var(--radius-sm)',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onManageGroup(group);
+          }}
+          title="Manage this position across all accounts in the group"
+        >
+          <span>⚡</span> Manage Group
+        </button>
+
         {/* Expand chevron */}
         <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
       </div>
 
       {!collapsed && (
         <div className="position-card-body">
-          {/* Sub-header with account filter if group has more than 5 accounts */}
-          {hasMany && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 14px',
-                background: 'rgba(0, 0, 0, 0.2)',
-                borderBottom: '1px solid var(--line)',
-              }}
-            >
+          {/* Sub-header with account filter bar & count */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 14px',
+              background: 'rgba(0, 0, 0, 0.25)',
+              borderBottom: '1px solid var(--line)',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Showing {visiblePositions.length} of {group.positions.length} accounts in this trade
+                Showing <strong style={{ color: 'var(--text)' }}>{filteredPositions.length}</strong> of {group.positions.length} accounts in this trade
               </span>
+              {group.positions.length > 5 && (
+                <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>
+                  Scrollable table
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="text"
                 className="card-account-search"
-                placeholder="Filter accounts in group…"
+                placeholder="🔍 Filter accounts…"
                 value={accountSearch}
                 onChange={(e) => setAccountSearch(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
+                style={{ width: 190 }}
               />
+              {accountSearch && (
+                <button
+                  type="button"
+                  className="btn btn-sm secondary"
+                  style={{ padding: '2px 8px', fontSize: 11 }}
+                  onClick={(e) => { e.stopPropagation(); setAccountSearch(''); }}
+                >
+                  Clear
+                </button>
+              )}
             </div>
-          )}
+          </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Account & Group</th>
-                <th style={{ textAlign: 'right' }}>Qty</th>
-                <th>Lev</th>
-                <th style={{ textAlign: 'right' }}>Margin</th>
-                <th style={{ textAlign: 'right' }}>Entry</th>
-                <th style={{ textAlign: 'right' }}>Mark (Live)</th>
-                <th style={{ textAlign: 'right' }}>Liquidation</th>
-                <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
-                <th>Protection</th>
-                <th style={{ textAlign: 'center' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePositions.map((p) => (
-                <AccountRow
-                  key={`${p.accountId}-${p.pair}-${p.marginCurrency}`}
-                  p={p}
-                  onManage={onManage}
-                />
-              ))}
-            </tbody>
-          </table>
-
-          {/* Show More toggle for groups with 100+ accounts */}
-          {hasMany && !accountSearch.trim() && (
-            <div className="show-more-bar">
-              <span>Showing {visiblePositions.length} of {group.positions.length} accounts</span>
-              <button
-                type="button"
-                className="btn btn-sm secondary"
-                style={{ fontSize: 11, padding: '2px 10px' }}
-                onClick={() => setShowAll((v) => !v)}
-              >
-                {showAll ? 'Show Fewer (5) ▲' : `Show All ${group.positions.length} Accounts (${group.positions.length - 5} more) ▼`}
-              </button>
-            </div>
-          )}
+          <div className="table-scroll-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account & Group</th>
+                  <th style={{ textAlign: 'right' }}>Qty</th>
+                  <th>Lev</th>
+                  <th style={{ textAlign: 'right' }}>Margin</th>
+                  <th style={{ textAlign: 'right' }}>Entry</th>
+                  <th style={{ textAlign: 'right' }}>Mark (Live)</th>
+                  <th style={{ textAlign: 'right' }}>Liquidation</th>
+                  <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
+                  <th>Protection</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPositions.map((p) => (
+                  <AccountRow
+                    key={`${p.accountId}-${p.pair}-${p.marginCurrency}`}
+                    p={p}
+                    onManage={onManage}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
@@ -443,39 +472,36 @@ function PositionManageModal({
 
   const qc = useQueryClient();
 
-  // Query groups for group funding balance (auto-refreshes every 3s)
-  const groupsQuery = useQuery({
-    queryKey: ['groups'],
-    queryFn: fetchGroups,
-    refetchInterval: 3000,
+  // Query accounts for this account's free balance (single fetch on modal open — no 3s interval!)
+  const accountsQuery = useQuery({
+    queryKey: ['accounts'],
+    queryFn: fetchAccounts,
+    refetchInterval: false,
+    staleTime: 60_000,
   });
 
-  const matchedGroup = useMemo(() => {
-    const gn = position.groupName;
-    if (!groupsQuery.data || !gn) return null;
-    const gnLower = gn.trim().toLowerCase();
-    return groupsQuery.data.find(
-      (g) => g.name === gn || g.name.trim().toLowerCase() === gnLower,
+  const matchedAccount = useMemo(() => {
+    if (!accountsQuery.data) return null;
+    return accountsQuery.data.find(
+      (a) => a.id === position.accountId || a.name.trim().toLowerCase() === position.accountName.trim().toLowerCase(),
     ) ?? null;
-  }, [groupsQuery.data, position.groupName]);
+  }, [accountsQuery.data, position.accountId, position.accountName]);
 
-  const otherCurrency: 'INR' | 'USDT' = position.marginCurrency === 'INR' ? 'USDT' : 'INR';
-  const groupFundingCurMinor = matchedGroup ? matchedGroup.allocatedByCurrency[position.marginCurrency] : null;
-  const groupFundingOtherMinor = matchedGroup ? matchedGroup.allocatedByCurrency[otherCurrency] : null;
+  const accountFreeCashMinor = matchedAccount?.allocatedCapitalMinor ?? null;
 
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
     try {
       await Promise.all([
-        groupsQuery.refetch(),
+        accountsQuery.refetch(),
         qc.invalidateQueries({ queryKey: ['futures-positions'] }),
       ]);
     } finally {
       setTimeout(() => setIsManualRefreshing(false), 500);
     }
   };
-  const isRefreshing = isManualRefreshing || groupsQuery.isFetching;
+  const isRefreshing = isManualRefreshing || accountsQuery.isFetching;
 
   // Partial close / reduce state
   const [reducePct, setReducePct] = useState<number>(25);
@@ -970,7 +996,7 @@ function PositionManageModal({
                 Add more size to this existing position at current market price using group capital.
               </p>
 
-              {/* Group Funding Balance Card with Live / Manual Refresh */}
+              {/* Account Free Cash Card with Manual Refresh (single fetch on open) */}
               <div
                 style={{
                   background: 'var(--surface-2)',
@@ -987,31 +1013,15 @@ function PositionManageModal({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Group Available Capital
+                      Account Free Cash ({position.accountName})
                     </span>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: 'var(--ok)',
-                        boxShadow: '0 0 6px var(--ok)',
-                      }}
-                      title="Auto-refreshing live data every 3s"
-                    />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     <strong style={{ fontSize: 16, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
-                      {groupFundingCurMinor !== null ? fmtMinor(groupFundingCurMinor, position.marginCurrency) : '—'}
+                      {accountFreeCashMinor !== null ? fmtMinor(accountFreeCashMinor, position.marginCurrency) : '—'}
                     </strong>
-                    {otherCurrency && groupFundingOtherMinor !== null && groupFundingOtherMinor !== '0' && (
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                        ({fmtMinor(groupFundingOtherMinor, otherCurrency)})
-                      </span>
-                    )}
                     <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
-                      • {position.groupName || 'Ungrouped'}
+                      • 📁 {position.groupName || 'Ungrouped'}
                     </span>
                   </div>
                 </div>
@@ -1029,7 +1039,7 @@ function PositionManageModal({
                     fontSize: 11.5,
                     whiteSpace: 'nowrap',
                   }}
-                  title="Refresh group capital and live positions"
+                  title="Refresh account balance"
                 >
                   <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>
                     🔄
@@ -1133,19 +1143,19 @@ function PositionManageModal({
                     </strong>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: 'var(--muted)' }}>Remaining Group Fund: </span>
-                    <span style={{ color: groupFundingCurMinor && addMarginMinor && BigInt(groupFundingCurMinor) < BigInt(addMarginMinor) ? 'var(--danger)' : 'var(--text)' }}>
-                      {groupFundingCurMinor && addMarginMinor
-                        ? (BigInt(groupFundingCurMinor) < BigInt(addMarginMinor)
-                            ? `${fmtMinor(String(BigInt(groupFundingCurMinor) - BigInt(addMarginMinor)), position.marginCurrency)} (Deficit)`
-                            : fmtMinor(String(BigInt(groupFundingCurMinor) - BigInt(addMarginMinor)), position.marginCurrency))
-                        : (groupFundingCurMinor ? fmtMinor(groupFundingCurMinor, position.marginCurrency) : '—')}
+                    <span style={{ color: 'var(--muted)' }}>Remaining Free Cash: </span>
+                    <span style={{ color: accountFreeCashMinor && addMarginMinor && BigInt(accountFreeCashMinor) < BigInt(addMarginMinor) ? 'var(--danger)' : 'var(--text)' }}>
+                      {accountFreeCashMinor && addMarginMinor
+                        ? (BigInt(accountFreeCashMinor) < BigInt(addMarginMinor)
+                            ? `${fmtMinor(String(BigInt(accountFreeCashMinor) - BigInt(addMarginMinor)), position.marginCurrency)} (Deficit)`
+                            : fmtMinor(String(BigInt(accountFreeCashMinor) - BigInt(addMarginMinor)), position.marginCurrency))
+                        : (accountFreeCashMinor ? fmtMinor(accountFreeCashMinor, position.marginCurrency) : '—')}
                     </span>
                   </div>
                 </div>
 
-                {/* Warning if requested funds exceed available group capital */}
-                {groupFundingCurMinor && addMarginMinor && BigInt(groupFundingCurMinor) < BigInt(addMarginMinor) && (
+                {/* Warning if requested funds exceed available account free cash */}
+                {accountFreeCashMinor && addMarginMinor && BigInt(accountFreeCashMinor) < BigInt(addMarginMinor) && (
                   <div
                     style={{
                       marginTop: 12,
@@ -1162,7 +1172,7 @@ function PositionManageModal({
                   >
                     <span>⚠️</span>
                     <span>
-                      Estimated funds needed ({fmtMinor(addMarginMinor, position.marginCurrency)}) exceed available group capital ({fmtMinor(groupFundingCurMinor, position.marginCurrency)})!
+                      Estimated margin needed ({fmtMinor(addMarginMinor, position.marginCurrency)}) exceeds free cash in {position.accountName} ({fmtMinor(accountFreeCashMinor, position.marginCurrency)})!
                     </span>
                   </div>
                 )}
@@ -1270,11 +1280,1034 @@ function PositionManageModal({
   );
 }
 
+/* ─── Group Position Management Modal (Safe Bulk Actions & Eligibility Fan-Out) ─── */
+
+interface GroupPositionManageModalProps {
+  readonly group: PositionGroup;
+  readonly onClose: () => void;
+  readonly onRefreshPositions: () => void;
+}
+
+function GroupPositionManageModal({
+  group,
+  onClose,
+  onRefreshPositions,
+}: GroupPositionManageModalProps) {
+  const [activeTab, setActiveTab] = useState<'increase' | 'partial' | 'close' | 'protection'>('increase');
+  const [confirmExit, setConfirmExit] = useState(false);
+
+  // Single balance fetch on modal mount (no 3s interval!)
+  const accountsQuery = useQuery({
+    queryKey: ['accounts'],
+    queryFn: fetchAccounts,
+    refetchInterval: false,
+    staleTime: 60_000,
+  });
+
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await Promise.all([
+        accountsQuery.refetch(),
+        onRefreshPositions(),
+      ]);
+    } finally {
+      setTimeout(() => setIsManualRefreshing(false), 500);
+    }
+  };
+  const isRefreshing = isManualRefreshing || accountsQuery.isFetching;
+
+  // Percentage states
+  const [increasePct, setIncreasePct] = useState<number>(25);
+  const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
+  const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
+
+  const [reducePct, setReducePct] = useState<number>(25);
+  const [customReduceInput, setCustomReduceInput] = useState<string>('');
+  const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
+
+  // Protection state
+  const [slPct, setSlPct] = useState('5');
+  const [tpPct, setTpPct] = useState('10');
+  const [trailing, setTrailing] = useState(false);
+
+  // Search inside modal
+  const [modalSearch, setModalSearch] = useState('');
+
+  // Bulk execution states
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number; accountName: string } | null>(null);
+  const [execResult, setExecResult] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isExecuting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, isExecuting]);
+
+  // Account map for quick lookup
+  const accountsMap = useMemo(() => {
+    const map = new Map<string, AccountListItem>();
+    if (accountsQuery.data) {
+      for (const a of accountsQuery.data) {
+        map.set(a.id, a);
+        map.set(a.name.toLowerCase().trim(), a);
+      }
+    }
+    return map;
+  }, [accountsQuery.data]);
+
+  // Evaluate each account in group: required funds vs free cash
+  const evaluatedAccounts = useMemo(() => {
+    return group.positions.map((p) => {
+      const acc = accountsMap.get(p.accountId) ?? accountsMap.get(p.accountName.toLowerCase().trim()) ?? null;
+      const freeCashMinor = acc?.allocatedCapitalMinor ?? null;
+
+      // Increase calculations
+      const addQty = (Number(p.quantity) * increasePct / 100).toFixed(4);
+      const newTotalQty = (Number(p.quantity) + Number(addQty)).toFixed(4);
+      const reqAddMarginMinor = calcProportionalMinor(p.lockedMarginMinor, increasePct);
+      const isFunded = freeCashMinor !== null && reqAddMarginMinor !== null && BigInt(freeCashMinor) >= BigInt(reqAddMarginMinor);
+
+      // Reduce calculations
+      const reduceQty = (Number(p.quantity) * reducePct / 100).toFixed(4);
+      const remainQty = Math.max(0, Number(p.quantity) - Number(reduceQty)).toFixed(4);
+      const reqReduceMarginMinor = calcProportionalMinor(p.lockedMarginMinor, reducePct);
+
+      return {
+        position: p,
+        account: acc,
+        freeCashMinor,
+        reqAddMarginMinor,
+        isFunded,
+        addQty,
+        newTotalQty,
+        reduceQty,
+        remainQty,
+        reqReduceMarginMinor,
+      };
+    });
+  }, [group.positions, accountsMap, increasePct, reducePct]);
+
+  const fundedAccounts = useMemo(() => evaluatedAccounts.filter((e) => e.isFunded), [evaluatedAccounts]);
+  const skippedAccounts = useMemo(() => evaluatedAccounts.filter((e) => !e.isFunded), [evaluatedAccounts]);
+
+  const totalFundedMarginMinor = useMemo(() => {
+    let sum = 0n;
+    for (const e of fundedAccounts) {
+      if (e.reqAddMarginMinor) sum += BigInt(e.reqAddMarginMinor);
+    }
+    return sum > 0n ? String(sum) : null;
+  }, [fundedAccounts]);
+
+  const totalMarginReleasedMinor = useMemo(() => {
+    let sum = 0n;
+    for (const e of evaluatedAccounts) {
+      if (e.reqReduceMarginMinor) sum += BigInt(e.reqReduceMarginMinor);
+    }
+    return sum > 0n ? String(sum) : null;
+  }, [evaluatedAccounts]);
+
+  const totalFreeCashMinor = useMemo(() => {
+    let sum = 0n;
+    for (const e of evaluatedAccounts) {
+      if (e.freeCashMinor) sum += BigInt(e.freeCashMinor);
+    }
+    return sum > 0n ? String(sum) : null;
+  }, [evaluatedAccounts]);
+
+  const filteredEvaluations = useMemo(() => {
+    if (!modalSearch.trim()) return evaluatedAccounts;
+    const q = modalSearch.toLowerCase().trim();
+    return evaluatedAccounts.filter((e) =>
+      e.position.accountName.toLowerCase().includes(q) ||
+      (e.position.groupName && e.position.groupName.toLowerCase().includes(q)),
+    );
+  }, [evaluatedAccounts, modalSearch]);
+
+  const sideBadgeColor = group.side === 'long' ? 'var(--ok)' : 'var(--danger)';
+  const groupTitle = group.groupNames.length === 1
+    ? group.groupNames[0]
+    : group.groupNames.length > 1
+      ? `${group.groupNames.slice(0, 2).join(', ')}${group.groupNames.length > 2 ? ` (+${group.groupNames.length - 2})` : ''}`
+      : 'Ungrouped';
+
+  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
+  const weightedRoeSum = group.positions.reduce((acc, pos) => {
+    const r = calcRoePct(pos);
+    return r !== null ? acc + r * Number(pos.quantity) : acc;
+  }, 0);
+  const groupRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
+
+  // 1. Group Increase Action (Only on Funded Accounts)
+  const handleExecuteIncrease = async () => {
+    if (fundedAccounts.length === 0 || isExecuting) return;
+    setIsExecuting(true);
+    setExecResult(null);
+    let succeeded = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    const bp = Math.round(increasePct * 100);
+    for (let i = 0; i < fundedAccounts.length; i++) {
+      const item = fundedAccounts[i]!;
+      setProgress({ current: i + 1, total: fundedAccounts.length, accountName: item.position.accountName });
+      try {
+        await adjustFuturesPosition(item.position.venuePositionId, 'increase', bp);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        errors.push(`${item.position.accountName}: ${(err as Error).message}`);
+      }
+    }
+
+    setIsExecuting(false);
+    setProgress(null);
+    onRefreshPositions();
+    await accountsQuery.refetch();
+
+    if (failed === 0) {
+      setExecResult({
+        kind: 'ok',
+        message: `Increased +${increasePct}% on ${succeeded} funded account${succeeded === 1 ? '' : 's'}. ${skippedAccounts.length} underfunded account(s) skipped cleanly.`,
+      });
+    } else {
+      setExecResult({
+        kind: 'err',
+        message: `Completed: ${succeeded} succeeded, ${failed} failed (${errors.slice(0, 2).join('; ')}). ${skippedAccounts.length} skipped.`,
+      });
+    }
+  };
+
+  // 2. Group Partial Exit Action
+  const handleExecuteReduce = async () => {
+    if (group.positions.length === 0 || isExecuting) return;
+    setIsExecuting(true);
+    setExecResult(null);
+    let succeeded = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    const bp = Math.round(reducePct * 100);
+    for (let i = 0; i < group.positions.length; i++) {
+      const pos = group.positions[i]!;
+      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+      try {
+        await adjustFuturesPosition(pos.venuePositionId, 'reduce', bp);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        errors.push(`${pos.accountName}: ${(err as Error).message}`);
+      }
+    }
+
+    setIsExecuting(false);
+    setProgress(null);
+    onRefreshPositions();
+    await accountsQuery.refetch();
+
+    if (failed === 0) {
+      setExecResult({
+        kind: 'ok',
+        message: `Successfully reduced ${reducePct}% across ${succeeded} account${succeeded === 1 ? '' : 's'}.`,
+      });
+    } else {
+      setExecResult({
+        kind: 'err',
+        message: `Reduced ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
+      });
+    }
+  };
+
+  // 3. Group Close Position Action
+  const handleExecuteExit = async () => {
+    if (group.positions.length === 0 || isExecuting) return;
+    setIsExecuting(true);
+    setExecResult(null);
+    let succeeded = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < group.positions.length; i++) {
+      const pos = group.positions[i]!;
+      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+      try {
+        await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        errors.push(`${pos.accountName}: ${(err as Error).message}`);
+      }
+    }
+
+    setIsExecuting(false);
+    setProgress(null);
+    onRefreshPositions();
+    await accountsQuery.refetch();
+
+    if (failed === 0) {
+      setExecResult({
+        kind: 'ok',
+        message: `Successfully closed positions at market across all ${succeeded} account${succeeded === 1 ? '' : 's'}!`,
+      });
+      setTimeout(() => onClose(), 1500);
+    } else {
+      setExecResult({
+        kind: 'err',
+        message: `Closed ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
+      });
+    }
+  };
+
+  // 4. Group Protection Action
+  const handleExecuteProtection = async () => {
+    if (group.positions.length === 0 || isExecuting) return;
+    setIsExecuting(true);
+    setExecResult(null);
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let i = 0; i < group.positions.length; i++) {
+      const pos = group.positions[i]!;
+      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+      try {
+        const refPrice = pos.avgEntryPrice !== null ? Number(pos.avgEntryPrice) : NaN;
+        const sideOk = pos.side === 'long' || pos.side === 'short';
+        const hasRef = Number.isFinite(refPrice) && refPrice > 0;
+
+        const effectiveSl = slPct !== '' && hasRef && sideOk
+          ? pctToTrigger(refPrice, Number(slPct), pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
+          : undefined;
+        const effectiveTp = tpPct !== '' && hasRef && sideOk
+          ? pctToTrigger(refPrice, Number(tpPct), pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
+          : undefined;
+
+        const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
+        if (effectiveSl) body.stopLossPrice = effectiveSl;
+        if (effectiveTp) body.takeProfitPrice = effectiveTp;
+
+        await setFuturesProtection(pos.venuePositionId, body);
+        if (trailing && effectiveSl) {
+          await setTrailingProtection(pos.venuePositionId, {
+            enable: true,
+            currentSlPrice: effectiveSl,
+            stepBp: '100',
+            distanceBp: '100',
+          });
+        }
+        succeeded++;
+      } catch {
+        failed++;
+      }
+    }
+
+    setIsExecuting(false);
+    setProgress(null);
+    onRefreshPositions();
+
+    setExecResult({
+      kind: failed === 0 ? 'ok' : 'err',
+      message: `Protection updated across ${succeeded} account${succeeded === 1 ? '' : 's'}${failed > 0 ? ` (${failed} failed)` : ''}.`,
+    });
+  };
+
+  return (
+    <div className="position-modal-overlay" onClick={onClose}>
+      <div className="position-modal group-manage-modal" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="position-modal-header">
+          <div>
+            <h3 className="position-modal-title">
+              <span>⚡ {group.pair} (Group Actions)</span>
+              <span
+                className="badge"
+                style={{
+                  color: sideBadgeColor,
+                  borderColor: sideBadgeColor,
+                  background: group.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                }}
+              >
+                {group.side}
+              </span>
+              <span style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 400 }}>
+                ({group.marginCurrency})
+              </span>
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <span className="group-badge">
+                📁 {groupTitle}
+              </span>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                Managing {group.positions.length} account{group.positions.length === 1 ? '' : 's'} holding this position
+              </span>
+            </div>
+          </div>
+          <button type="button" className="position-modal-close" onClick={onClose} title="Close (Esc)">
+            ✕
+          </button>
+        </div>
+
+        {/* Live Aggregated Metrics Header Card */}
+        <div className="position-modal-metrics">
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Combined Unrealised PnL</span>
+            <span className={`modal-metric-value ${pnlClass(group.totalPnlMinor)}`} style={{ fontSize: 15 }}>
+              {pnlText(group.totalPnlMinor, group.marginCurrency)}
+              {groupRoe !== null && <span style={{ fontSize: 12, marginLeft: 4 }}>{roeText(groupRoe).trim()}</span>}
+            </span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Total Position Size</span>
+            <span className="modal-metric-value">{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</span>
+          </div>
+
+          <div className="modal-metric-card">
+            <span className="modal-metric-label">Total Margin Invested</span>
+            <span className="modal-metric-value">
+              {group.totalMarginMinor ? fmtMinor(group.totalMarginMinor, group.marginCurrency) : '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Tabs */}
+        <div className="position-modal-tabs">
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'increase' ? 'active' : ''}`}
+            onClick={() => setActiveTab('increase')}
+          >
+            ➕ Add / Increase
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'partial' ? 'active' : ''}`}
+            onClick={() => setActiveTab('partial')}
+          >
+            ✂️ Partial Exit
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'protection' ? 'active' : ''}`}
+            onClick={() => setActiveTab('protection')}
+          >
+            🛡️ SL / TP Protection
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab danger-tab ${activeTab === 'close' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('close'); setConfirmExit(false); }}
+          >
+            🚨 Close Group
+          </button>
+        </div>
+
+        {/* Tab Body */}
+        <div className="position-modal-body">
+          {/* Progress / Status banner if executing */}
+          {progress && (
+            <div
+              style={{
+                padding: '10px 14px',
+                background: 'rgba(124, 107, 255, 0.15)',
+                border: '1px solid rgba(124, 107, 255, 0.4)',
+                borderRadius: 'var(--radius)',
+                marginBottom: 14,
+                fontSize: 13,
+                color: '#c4b5fd',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+              <span>
+                Processing account <strong>{progress.current}</strong> of <strong>{progress.total}</strong> ({progress.accountName})…
+              </span>
+            </div>
+          )}
+
+          {/* Results banner */}
+          {execResult && (
+            <div
+              style={{
+                padding: '10px 14px',
+                background: execResult.kind === 'ok' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(240, 85, 90, 0.15)',
+                border: `1px solid ${execResult.kind === 'ok' ? 'var(--ok)' : 'var(--danger)'}`,
+                borderRadius: 'var(--radius)',
+                marginBottom: 14,
+                fontSize: 13,
+                color: execResult.kind === 'ok' ? 'var(--ok)' : 'var(--danger)',
+                fontWeight: 600,
+              }}
+            >
+              {execResult.message}
+            </div>
+          )}
+
+          {/* ── Tab 1: Add / Increase (Group Fan-out with Eligibility) ── */}
+          {activeTab === 'increase' && (
+            <div>
+              {/* Group Cash Overview & Manual Refresh */}
+              <div
+                style={{
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius)',
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 2 }}>
+                    Combined Available Free Cash (All Accounts)
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <strong style={{ fontSize: 16, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+                      {totalFreeCashMinor ? fmtMinor(totalFreeCashMinor, group.marginCurrency) : '—'}
+                    </strong>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+                      • across {group.positions.length} accounts
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-sm secondary"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '4px 10px',
+                    fontSize: 11.5,
+                  }}
+                  title="Refresh account balances"
+                >
+                  <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>
+                    🔄
+                  </span>
+                  {isRefreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
+
+              {/* Percentage Selection */}
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to add across group:</span>
+                  <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
+                </div>
+
+                {/* Chips + Custom Input */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {INCREASE_PCT_CHIPS.map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: 1,
+                        minWidth: 54,
+                        padding: '6px 0',
+                        fontSize: 12,
+                        background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
+                        color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
+                        borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                        fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
+                      }}
+                      onClick={() => {
+                        setIncreasePct(pct);
+                        setCustomIncreaseInput('');
+                      }}
+                    >
+                      +{pct}%
+                    </button>
+                  ))}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Custom %"
+                      value={customIncreaseInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setCustomIncreaseInput(val);
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num > 0) setIncreasePct(num);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        fontSize: 12,
+                        background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
+                        borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                        color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
+                        fontWeight: isCustomIncrease ? 700 : 400,
+                        textAlign: 'center',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                  </div>
+                </div>
+
+                {/* Eligibility Summary Banner */}
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: skippedAccounts.length === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                    border: `1px solid ${skippedAccounts.length === 0 ? 'var(--ok)' : '#f59e0b'}`,
+                    fontSize: 12.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: skippedAccounts.length === 0 ? 'var(--ok)' : '#f59e0b' }}>
+                      ⚡ {fundedAccounts.length} of {group.positions.length} accounts funded
+                    </strong>
+                    <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>
+                      (Total Margin: {totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : '—'})
+                    </span>
+                  </div>
+                  {skippedAccounts.length > 0 && (
+                    <span style={{ fontSize: 11.5, color: 'var(--danger)', fontWeight: 600 }}>
+                      ⚠️ {skippedAccounts.length} underfunded account(s) will be skipped
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Account Eligibility Breakdown Table (Bounded scrollable container for 100+ accounts) */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-dim)' }}>
+                    Account Sizing & Eligibility Breakdown ({filteredEvaluations.length})
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Filter accounts…"
+                    value={modalSearch}
+                    onChange={(e) => setModalSearch(e.target.value)}
+                    style={{ padding: '3px 8px', fontSize: 11.5, width: 160, borderRadius: 4, background: 'var(--surface-3)', border: '1px solid var(--line)', color: 'var(--text)' }}
+                  />
+                </div>
+
+                <div className="table-scroll-container" style={{ maxHeight: 220 }}>
+                  <table style={{ fontSize: 11.5 }}>
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th style={{ textAlign: 'right' }}>Current</th>
+                        <th style={{ textAlign: 'right' }}>Adding</th>
+                        <th style={{ textAlign: 'right' }}>Margin Needed</th>
+                        <th style={{ textAlign: 'right' }}>Free Cash</th>
+                        <th style={{ textAlign: 'center' }}>Eligibility</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEvaluations.map((item) => (
+                        <tr key={item.position.venuePositionId}>
+                          <td style={{ fontWeight: 600, color: 'var(--text)' }}>
+                            {item.position.accountName}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>{item.position.quantity}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--ok)' }}>+{item.addQty}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                            {item.reqAddMarginMinor ? fmtMinor(item.reqAddMarginMinor, group.marginCurrency) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', color: item.isFunded ? 'var(--text)' : 'var(--danger)' }}>
+                            {item.freeCashMinor ? fmtMinor(item.freeCashMinor, group.marginCurrency) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {item.isFunded ? (
+                              <span className="status-badge-funded">✅ Funded</span>
+                            ) : (
+                              <span className="status-badge-skipped" title="Insufficient free cash — skipped during fan-out">
+                                ⚠️ Skipped
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecuting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
+                  disabled={isExecuting || fundedAccounts.length === 0 || increasePct <= 0}
+                  onClick={handleExecuteIncrease}
+                >
+                  {isExecuting
+                    ? 'Processing Fan-out…'
+                    : `Add +${increasePct}% to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 2: Partial Exit (Reduce for all accounts) ── */}
+          {activeTab === 'partial' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Safely reduce position size by {reducePct}% across all {group.positions.length} accounts holding this trade.
+              </p>
+
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to close:</span>
+                  <strong style={{ fontSize: 14, color: '#f59e0b' }}>−{reducePct}%</strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {REDUCE_PCT_CHIPS.map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: 1,
+                        minWidth: 50,
+                        padding: '6px 0',
+                        fontSize: 12,
+                        background: reducePct === pct && !isCustomReduce ? '#f59e0b' : 'var(--surface-3)',
+                        color: reducePct === pct && !isCustomReduce ? '#000000' : 'var(--text-dim)',
+                        borderColor: reducePct === pct && !isCustomReduce ? '#f59e0b' : 'var(--line)',
+                        fontWeight: reducePct === pct && !isCustomReduce ? 700 : 500,
+                      }}
+                      onClick={() => {
+                        setReducePct(pct);
+                        setCustomReduceInput('');
+                      }}
+                    >
+                      −{pct}%
+                    </button>
+                  ))}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Custom %"
+                      value={customReduceInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setCustomReduceInput(val);
+                        const num = parseFloat(val);
+                        if (!isNaN(num) && num > 0 && num < 100) setReducePct(num);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        fontSize: 12,
+                        background: isCustomReduce ? 'rgba(245, 158, 11, 0.15)' : 'var(--surface-3)',
+                        borderColor: isCustomReduce ? '#f59e0b' : 'var(--line)',
+                        color: isCustomReduce ? '#f59e0b' : 'var(--text)',
+                        fontWeight: isCustomReduce ? 700 : 400,
+                        textAlign: 'center',
+                        borderRadius: 'var(--radius-sm)',
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Est. Margin Released Across Group: </span>
+                    <strong style={{ color: '#f59e0b' }}>
+                      {totalMarginReleasedMinor ? fmtMinor(totalMarginReleasedMinor, group.marginCurrency) : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Accounts Affected: </span>
+                    <strong style={{ color: 'var(--text)' }}>{group.positions.length}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Breakdown */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-dim)' }}>
+                    Per-Account Partial Exit Breakdown
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Filter accounts…"
+                    value={modalSearch}
+                    onChange={(e) => setModalSearch(e.target.value)}
+                    style={{ padding: '3px 8px', fontSize: 11.5, width: 160, borderRadius: 4, background: 'var(--surface-3)', border: '1px solid var(--line)', color: 'var(--text)' }}
+                  />
+                </div>
+
+                <div className="table-scroll-container" style={{ maxHeight: 220 }}>
+                  <table style={{ fontSize: 11.5 }}>
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th style={{ textAlign: 'right' }}>Current Qty</th>
+                        <th style={{ textAlign: 'right' }}>Selling (−{reducePct}%)</th>
+                        <th style={{ textAlign: 'right' }}>Remaining</th>
+                        <th style={{ textAlign: 'right' }}>Margin Released</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEvaluations.map((item) => (
+                        <tr key={item.position.venuePositionId}>
+                          <td style={{ fontWeight: 600 }}>{item.position.accountName}</td>
+                          <td style={{ textAlign: 'right' }}>{item.position.quantity}</td>
+                          <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>−{item.reduceQty}</td>
+                          <td style={{ textAlign: 'right' }}>{item.remainQty}</td>
+                          <td style={{ textAlign: 'right', color: '#f59e0b' }}>
+                            {item.reqReduceMarginMinor ? fmtMinor(item.reqReduceMarginMinor, group.marginCurrency) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecuting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ background: '#f59e0b', color: '#000000', fontWeight: 700, border: 'none' }}
+                  disabled={isExecuting || group.positions.length === 0 || reducePct <= 0 || reducePct >= 100}
+                  onClick={handleExecuteReduce}
+                >
+                  {isExecuting ? 'Executing Group Exit…' : `Close ${reducePct}% Across All ${group.positions.length} Accounts`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 3: SL/TP Protection across Group ── */}
+          {activeTab === 'protection' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Set bracket Stop Loss and Take Profit rules for all {group.positions.length} accounts in this group trade.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="grp-sl" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                    Stop Loss Percentage (%)
+                  </label>
+                  <input
+                    id="grp-sl"
+                    inputMode="decimal"
+                    value={slPct}
+                    placeholder="e.g. 5"
+                    onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
+                    style={{ marginTop: 6 }}
+                  />
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    {SL_PCT_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className="btn btn-sm secondary"
+                        style={{
+                          flex: 1, padding: '3px 0', fontSize: 11,
+                          background: slPct === String(v) ? 'var(--danger)' : 'var(--surface-3)',
+                          color: slPct === String(v) ? '#fff' : 'var(--text-dim)',
+                          borderColor: slPct === String(v) ? 'var(--danger)' : 'var(--line)',
+                        }}
+                        onClick={() => setSlPct(String(v))}
+                      >
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 12, gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      id="grp-trailing"
+                      checked={trailing}
+                      onChange={(e) => setTrailing(e.target.checked)}
+                      style={{ width: 14, height: 14, cursor: 'pointer' }}
+                    />
+                    <label htmlFor="grp-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+                      Auto-Trailing SL (1% step)
+                    </label>
+                  </div>
+                </div>
+
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="grp-tp" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                    Take Profit Percentage (%)
+                  </label>
+                  <input
+                    id="grp-tp"
+                    inputMode="decimal"
+                    value={tpPct}
+                    placeholder="e.g. 10"
+                    onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
+                    style={{ marginTop: 6 }}
+                  />
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    {TP_PCT_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className="btn btn-sm secondary"
+                        style={{
+                          flex: 1, padding: '3px 0', fontSize: 11,
+                          background: tpPct === String(v) ? 'var(--ok)' : 'var(--surface-3)',
+                          color: tpPct === String(v) ? '#000000' : 'var(--text-dim)',
+                          borderColor: tpPct === String(v) ? 'var(--ok)' : 'var(--line)',
+                          fontWeight: tpPct === String(v) ? 700 : 500,
+                        }}
+                        onClick={() => setTpPct(String(v))}
+                      >
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecuting}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={isExecuting || (!slPct && !tpPct)}
+                  onClick={handleExecuteProtection}
+                >
+                  {isExecuting ? 'Updating Protection…' : `Apply Rules to All ${group.positions.length} Accounts`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 4: Close Group Position ── */}
+          {activeTab === 'close' && (
+            <div>
+              <div
+                style={{
+                  border: '1px solid rgba(240, 85, 90, 0.4)',
+                  background: 'rgba(240, 85, 90, 0.08)',
+                  borderRadius: 'var(--radius)',
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <h4 style={{ margin: '0 0 8px', color: 'var(--danger)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>⚠️</span> Full Market Exit Confirmation ({group.positions.length} Accounts)
+                </h4>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                  Closing this group position will immediately execute a market order on CoinDCX for all <strong>{group.positions.length} accounts</strong> (Total Qty: <strong>{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>).
+                </p>
+                <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                  <li>Any attached Stop Loss or Take Profit orders will be cancelled first.</li>
+                  <li>Estimated PnL to be realized: <strong className={pnlClass(group.totalPnlMinor)}>{pnlText(group.totalPnlMinor, group.marginCurrency)}</strong></li>
+                  <li>Total Margin released: <strong>{group.totalMarginMinor ? fmtMinor(group.totalMarginMinor, group.marginCurrency) : '—'}</strong></li>
+                </ul>
+              </div>
+
+              {!confirmExit ? (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecuting}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 600 }}
+                    onClick={() => setConfirmExit(true)}
+                  >
+                    Close Group Position at Market ⚡
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    gap: 12,
+                    padding: 14,
+                    background: 'rgba(240, 85, 90, 0.15)',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid var(--danger)',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)', textAlign: 'right' }}>
+                    🚨 Are you absolutely sure? All {group.positions.length} real money positions will be closed immediately!
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={() => setConfirmExit(false)}
+                      disabled={isExecuting}
+                    >
+                      No, Keep Group Open
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700 }}
+                      disabled={isExecuting}
+                      onClick={handleExecuteExit}
+                    >
+                      {isExecuting ? 'Closing All Positions…' : `YES, CONFIRM MARKET EXIT FOR ALL ${group.positions.length} ACCOUNTS`}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Component ─── */
 
 export function Futures() {
   const qc = useQueryClient();
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
+  const [managingGroup, setManagingGroup] = useState<PositionGroup | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   // By default, cards are EXPANDED so all critical details are visible immediately.
@@ -1371,6 +2404,12 @@ export function Futures() {
     if (managingPosition === null) return null;
     return rows.find((r) => r.venuePositionId === managingPosition.venuePositionId) ?? managingPosition;
   }, [rows, managingPosition]);
+
+  // Keep managingGroup up-to-date with live polling
+  const liveManagingGroup = useMemo(() => {
+    if (managingGroup === null) return null;
+    return groups.find((g) => g.key === managingGroup.key) ?? managingGroup;
+  }, [groups, managingGroup]);
 
   // Compute total PnL across all positions
   const totalPnl = useMemo(() => {
@@ -1545,6 +2584,7 @@ export function Futures() {
               collapsed={collapsedGroups.has(g.key)}
               onToggle={() => toggleGroupCollapse(g.key)}
               onManage={(pos) => { setManagingPosition(pos); setMessage(null); }}
+              onManageGroup={(grp) => { setManagingGroup(grp); setMessage(null); }}
             />
           ))}
         </div>
@@ -1561,6 +2601,15 @@ export function Futures() {
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}
           isProtecting={protMut.isPending}
+        />
+      )}
+
+      {/* ── Group Position Management Modal (Safe Bulk Actions & Account Eligibility Fan-Out) ── */}
+      {liveManagingGroup !== null && (
+        <GroupPositionManageModal
+          group={liveManagingGroup}
+          onClose={() => setManagingGroup(null)}
+          onRefreshPositions={() => qc.invalidateQueries({ queryKey: ['futures-positions'] })}
         />
       )}
     </div>
