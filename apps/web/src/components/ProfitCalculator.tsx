@@ -78,12 +78,9 @@ export function ProfitCalculator() {
     <div className="calc-card">
       <div className="calc-header">
         <div className="calc-header-left">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <div style={{ marginBottom: '8px' }}>
             <span className="calc-badge">
-              ⚡ Interactive ROI Simulator
-            </span>
-            <span className="calc-badge-guarantee">
-              🛡️ 100% Principal Shield
+              Interactive ROI Simulator
             </span>
           </div>
           <h3 style={{ margin: '0 0 6px', fontSize: '24px', fontWeight: 800, color: 'var(--ink)' }}>
@@ -200,7 +197,7 @@ export function ProfitCalculator() {
                     setIsCustomRate(false);
                   }}
                 >
-                  {r.toFixed(1)}% {r === 4.0 ? '★' : ''}
+                  {r.toFixed(1)}%
                 </button>
               ))}
               <button
@@ -208,7 +205,7 @@ export function ProfitCalculator() {
                 className={`calc-chip ${isCustomRate ? 'active' : ''}`}
                 onClick={() => setIsCustomRate(true)}
               >
-                ✏️ Custom %
+                Custom %
               </button>
             </div>
 
@@ -240,16 +237,13 @@ export function ProfitCalculator() {
           </div>
 
           <div className="calc-guarantee-notice">
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-              <div className="calc-shield-ico">🛡️</div>
-              <div>
-                <strong className="calc-shield-title">
-                  100% Principal Protection Guarantee
-                </strong>
-                <p className="calc-shield-desc">
-                  Your capital of <strong>{formatMoney(amount)}</strong> stays exclusively in your personal CoinDCX wallet. Withdrawals are permanently disabled at the exchange permission layer.
-                </p>
-              </div>
+            <div>
+              <strong className="calc-shield-title">
+                100% Principal Protection Guarantee
+              </strong>
+              <p className="calc-shield-desc">
+                Your capital of <strong>{formatMoney(amount)}</strong> stays exclusively in your personal CoinDCX wallet. Withdrawals are permanently disabled at the exchange permission layer.
+              </p>
             </div>
           </div>
         </div>
