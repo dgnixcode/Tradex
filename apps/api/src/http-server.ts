@@ -103,6 +103,7 @@ import type { MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
 import type { SecondFactorVerifier } from './login-service.js';
 import { SignupService } from './signup-service.js';
+import { PasswordResetService } from './password-reset-service.js';
 import { tradingStateFor } from './trading-state-service.js';
 import { TradingStateError } from './trading-state-service.js';
 import { TotpService } from './totp-service.js';
@@ -220,6 +221,9 @@ export interface HttpDeps {
   /** False on local plain-HTTP dev so the cookie is not marked Secure. */
   readonly secureCookies?: boolean | undefined;
   readonly now?: (() => number) | undefined;
+  readonly resendApiKey?: string | undefined;
+  readonly resendFrom?: string | undefined;
+  readonly appUrl?: string | undefined;
 }
 
 /** A parsed request the handlers work with. */
@@ -278,6 +282,13 @@ export function createHttpServer(deps: HttpDeps): Server {
   const signup = new SignupService({
     db: deps.db,
     cookieSecret: deps.cookieSecret,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+  });
+  const passwordReset = new PasswordResetService({
+    db: deps.db,
+    resendApiKey: deps.resendApiKey,
+    resendFrom: deps.resendFrom,
+    appUrl: deps.appUrl,
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   });
   const secure = deps.secureCookies ?? true;
@@ -598,6 +609,35 @@ export function createHttpServer(deps: HttpDeps): Server {
       sendJson(ctx.res, 201,
         { role: result.principal.role, expiresAtMs: result.expiresAtMs },
         { 'set-cookie': buildSetCookie(result.cookieValue, maxAge, { secure }) });
+      return;
+    }
+
+    // ---- POST /api/auth/forgot-password — public password reset request ----
+    if (method === 'POST' && path === '/api/auth/forgot-password') {
+      const body = (ctx.body ?? {}) as { email?: string };
+      if (typeof body.email !== 'string' || !body.email.trim()) {
+        throw new HttpError(400, 'email is required');
+      }
+      const host = (ctx.req.headers['x-forwarded-host'] as string | undefined) ?? ctx.req.headers['host'];
+      const proto = (ctx.req.headers['x-forwarded-proto'] as string | undefined) ?? (deps.secureCookies ? 'https' : 'http');
+      const requestHost = host ? `${proto}://${host}` : undefined;
+      const result = await passwordReset.requestReset(body.email, requestHost);
+      sendJson(ctx.res, 200, result);
+      return;
+    }
+
+    // ---- POST /api/auth/reset-password — public password reset submission ----
+    if (method === 'POST' && path === '/api/auth/reset-password') {
+      const body = (ctx.body ?? {}) as { token?: string; newPassword?: string };
+      if (typeof body.token !== 'string' || typeof body.newPassword !== 'string') {
+        throw new HttpError(400, 'token and newPassword are required');
+      }
+      const result = await passwordReset.resetPassword(body.token, body.newPassword);
+      if (!result.ok) {
+        sendJson(ctx.res, 400, result);
+        return;
+      }
+      sendJson(ctx.res, 200, result);
       return;
     }
 

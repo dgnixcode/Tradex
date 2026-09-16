@@ -18,3 +18,4 @@ export * from './futures/place-protocol.js';
 export * from './futures/positions.js';
 export * from './futures/exit-service.js';
 export * from './futures/adjust-service.js';
+export * from './password-reset-service.js';

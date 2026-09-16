@@ -886,6 +886,9 @@ const server = createHttpServer({
   // Local dev is plain HTTP, so the cookie must not be marked Secure or the
   // browser will drop it. Set TRADEX_SECURE_COOKIES=1 behind TLS.
   secureCookies: process.env['TRADEX_SECURE_COOKIES'] === '1',
+  resendApiKey: process.env['RESEND_API_KEY'],
+  resendFrom: process.env['RESEND_FROM'],
+  appUrl: process.env['APP_URL'],
   ...enginePorts,
 });
 

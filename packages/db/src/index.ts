@@ -20,3 +20,4 @@ export * from './tenant-repo.js';
 export * from './futures-lock-repo.js';
 export * from './futures-position-repo.js';
 export * from './trailing-sl-repo.js';
+export * from './password-reset-repo.js';

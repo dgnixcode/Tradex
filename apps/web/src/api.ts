@@ -125,6 +125,56 @@ export async function logout(): Promise<void> {
   await fetch('/api/logout', { method: 'POST' });
 }
 
+export interface ForgotPasswordResponse {
+  readonly ok: boolean;
+  readonly message: string;
+}
+
+export interface ResetPasswordResponse {
+  readonly ok: boolean;
+  readonly message: string;
+}
+
+/** Request a password reset email for an operator account. */
+export async function requestPasswordReset(email: string): Promise<ForgotPasswordResponse> {
+  const res = await fetch('/api/auth/forgot-password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    let message = 'Failed to request password reset';
+    let code: string | undefined;
+    try {
+      const body = (await res.json()) as { message?: string; code?: string };
+      if (typeof body.message === 'string') message = body.message;
+      if (typeof body.code === 'string') code = body.code;
+    } catch { /* keep default */ }
+    throw new ApiError(res.status, message, code);
+  }
+  return (await res.json()) as ForgotPasswordResponse;
+}
+
+/** Submit a new password with a reset token. */
+export async function completePasswordReset(token: string, newPassword: string): Promise<ResetPasswordResponse> {
+  const res = await fetch('/api/auth/reset-password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  if (!res.ok) {
+    let message = 'Failed to reset password';
+    let code: string | undefined;
+    try {
+      const body = (await res.json()) as { message?: string; code?: string };
+      if (typeof body.message === 'string') message = body.message;
+      if (typeof body.code === 'string') code = body.code;
+    } catch { /* keep default */ }
+    throw new ApiError(res.status, message, code);
+  }
+  return (await res.json()) as ResetPasswordResponse;
+}
+
 /** The groups a customer can trade, for the picker (T04.7). */
 export const fetchGroups = (): Promise<readonly GroupSummary[]> =>
   request<readonly GroupSummary[]>('/groups');

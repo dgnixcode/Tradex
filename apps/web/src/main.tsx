@@ -8,6 +8,8 @@ import { App } from './App.tsx';
 import { Landing } from './routes/Landing.tsx';
 import { Login } from './routes/Login.tsx';
 import { Signup } from './routes/Signup.tsx';
+import { ForgotPassword } from './routes/ForgotPassword.tsx';
+import { ResetPassword } from './routes/ResetPassword.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
 import { Confirmation } from './routes/Confirmation.tsx';
 import { Execution } from './routes/Execution.tsx';
@@ -56,6 +58,8 @@ const router = createBrowserRouter([
       { path: '/', element: <Landing /> },
       { path: '/login', element: <Login /> },
       { path: '/signup', element: <Signup /> },
+      { path: '/forgot-password', element: <ForgotPassword /> },
+      { path: '/reset-password', element: <ResetPassword /> },
       {
         path: '/app',
         element: <RequireAuth><App /></RequireAuth>,
