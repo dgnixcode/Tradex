@@ -81,26 +81,28 @@ export function FaqPage() {
   };
 
   return (
-    <div className="landing landing-light">
+    <div className="landing landing-dark">
       <MarketingHeader />
 
-      <section className="mk-section mk-block" style={{ paddingTop: '60px', paddingBottom: '30px' }}>
-        <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-          <span className="kicker">{branding.name} Knowledge Base</span>
-          <h1 style={{ fontSize: '42px', fontWeight: 800, margin: '14px 0 20px', letterSpacing: '-0.03em' }}>
-            Frequently Asked <span className="wm-grad">Questions</span>
-          </h1>
-          <p style={{ fontSize: '17px', lineHeight: 1.6, color: 'var(--text-dim)' }}>
-            Transparent answers about our non-custodial crypto wealth management, capital protection covenants, and client onboarding.
-          </p>
-        </div>
-      </section>
+      <div className="wm-subpage-hero-wrap">
+        <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
+          <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
+            <span className="kicker">{branding.name} Knowledge Base</span>
+            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+              Frequently Asked <span className="wm-grad">Questions</span>
+            </h1>
+            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+              Transparent answers about our non-custodial crypto wealth management, capital protection covenants, and client onboarding.
+            </p>
+          </div>
+        </section>
+      </div>
 
-      <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
+      <section className="mk-section mk-block" style={{ paddingTop: '40px' }}>
         <div style={{ maxWidth: '880px', margin: '0 auto' }}>
           {FAQ_SECTIONS.map((sec, secIdx) => (
             <div key={sec.category} style={{ marginBottom: '40px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid var(--line)' }}>
+              <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#ffffff', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
                 {sec.category}
               </h2>
 
@@ -132,11 +134,11 @@ export function FaqPage() {
           ))}
 
           {/* Need more help */}
-          <div className="wm-final-cta" style={{ marginTop: '50px' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: 800, margin: '0 0 14px' }}>
+          <div className="wm-final-cta-wrap" style={{ marginTop: '50px' }}>
+            <h2 style={{ fontSize: '32px', fontWeight: 850, margin: '0 0 14px' }}>
               Have a Specific Question for Our Desk?
             </h2>
-            <p style={{ color: 'var(--text-dim)', marginBottom: '24px', fontSize: '15px' }}>
+            <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>
               Our senior portfolio advisors are available for one-on-one portfolio discussions.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>

@@ -8,29 +8,31 @@ export function Model() {
   const { branding } = useBranding();
 
   return (
-    <div className="landing landing-light">
+    <div className="landing landing-dark">
       <MarketingHeader />
 
-      <section className="mk-section mk-block" style={{ paddingTop: '60px', paddingBottom: '30px' }}>
-        <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
-          <span className="kicker">Quantitative Methodology</span>
-          <h1 style={{ fontSize: '42px', fontWeight: 800, margin: '14px 0 20px', letterSpacing: '-0.03em' }}>
-            The <span className="wm-grad">3%–5% Monthly</span> Growth &amp; Protection Architecture
-          </h1>
-          <p style={{ fontSize: '17px', lineHeight: 1.6, color: 'var(--text-dim)' }}>
-            Discover how {branding.name} combines systematic algorithmic execution, non-custodial risk containment, and capital preservation guarantees to generate consistent returns across all market conditions.
-          </p>
-        </div>
-      </section>
+      <div className="wm-subpage-hero-wrap">
+        <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
+          <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
+            <span className="kicker">Quantitative Methodology</span>
+            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+              The <span className="wm-grad">3%–5% Monthly</span> Growth &amp; Protection Architecture
+            </h1>
+            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+              Discover how {branding.name} combines systematic algorithmic execution, non-custodial risk containment, and capital preservation guarantees to generate consistent returns across all market conditions.
+            </p>
+          </div>
+        </section>
+      </div>
 
-      <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
+      <section className="mk-section mk-block" style={{ paddingTop: '40px' }}>
         <div style={{ maxWidth: '1040px', margin: '0 auto' }}>
 
-          <div style={{ borderRadius: '16px', overflow: 'hidden', marginBottom: '36px', border: '1px solid rgba(16, 185, 129, 0.25)', boxShadow: '0 16px 36px rgba(0,0,0,0.1)' }}>
+          <div style={{ borderRadius: '18px', overflow: 'hidden', marginBottom: '40px', border: '1px solid rgba(16, 185, 129, 0.35)', boxShadow: '0 20px 45px rgba(0,0,0,0.5)' }}>
             <img
               src="/images/algo_trading_desk.jpg"
               alt="Aza WealthKare Quantitative Algorithmic Execution Infrastructure"
-              style={{ width: '100%', maxHeight: '420px', objectFit: 'cover', display: 'block' }}
+              style={{ width: '100%', maxHeight: '440px', objectFit: 'cover', display: 'block' }}
             />
           </div>
           
@@ -86,14 +88,14 @@ export function Model() {
           </div>
 
           {/* Guarantee Deep Dive */}
-          <div className="wm-pillar-card" style={{ padding: '36px', marginTop: '40px', background: 'linear-gradient(180deg, #ffffff 0%, var(--bg-2) 100%)' }}>
+          <div className="wm-pillar-card" style={{ padding: '36px', marginTop: '40px' }}>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
               <span style={{ fontSize: '32px' }}>🛡️</span>
-              <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: 'var(--ink)' }}>
+              <h2 style={{ fontSize: '26px', fontWeight: 850, margin: 0, color: '#ffffff' }}>
                 How the 100% Capital Guarantee Operates
               </h2>
             </div>
-            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: 'var(--text-dim)', marginBottom: '16px' }}>
+            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
               We enforce a strict capital preservation covenant: our multi-tiered risk architecture ensures that your initial principal is never exposed to catastrophic liquidation or runaway drawdowns.
             </p>
             <div className="wm-steps-grid" style={{ marginTop: '20px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
@@ -116,11 +118,11 @@ export function Model() {
           </div>
 
           {/* CTA */}
-          <div className="wm-final-cta" style={{ marginTop: '50px' }}>
-            <h2 style={{ fontSize: '30px', fontWeight: 800, margin: '0 0 14px' }}>
+          <div className="wm-final-cta-wrap" style={{ marginTop: '50px' }}>
+            <h2 style={{ fontSize: '32px', fontWeight: 850, margin: '0 0 14px' }}>
               Ready to Implement Institutional Management?
             </h2>
-            <p style={{ color: 'var(--text-dim)', marginBottom: '24px', fontSize: '15px' }}>
+            <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>
               Speak directly with our senior investment desk to discuss custom allocation and account setup.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>

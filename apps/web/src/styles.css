@@ -2995,22 +2995,167 @@ body:has(.panel-dark)::before {
 /* =========================================================================
    CRYPTO & BULLISH MEDIA SECTIONS
    ========================================================================= */
+/* =========================================================================
+   DARK THEME & IMMERSIVE BACKGROUND SECTIONS (.landing-dark)
+   ========================================================================= */
+.landing-dark {
+  --bg: #070a13;
+  --bg-2: #0b0f19;
+  --panel: #0f172a;
+  --panel-2: #1e293b;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ffffff;
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --muted: #64748b;
+  background: #070a13;
+  color: #f1f5f9;
+  min-height: 100vh;
+}
+
+.landing-dark .mk-header {
+  background: rgba(7, 10, 19, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.landing-dark .mk-header.scrolled {
+  background: rgba(7, 10, 19, 0.95);
+  border-bottom-color: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.landing-dark .mk-nav a {
+  color: #94a3b8;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.landing-dark .mk-nav a:hover {
+  color: #34d399;
+}
+
+.landing-dark .mk-mobile-menu {
+  background: rgba(7, 10, 19, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.landing-dark .mk-footer {
+  background: #04060c;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+/* Hero Section with Full-Width Crypto Market Backdrop */
+.wm-hero-wrap {
+  position: relative;
+  width: 100%;
+  background: 
+    radial-gradient(circle at 75% 35%, rgba(16, 185, 129, 0.18), transparent 50%),
+    radial-gradient(circle at 15% 60%, rgba(56, 189, 248, 0.1), transparent 45%),
+    linear-gradient(180deg, rgba(7, 10, 19, 0.85) 0%, rgba(7, 10, 19, 0.96) 100%),
+    url('/images/crypto_market_bg.jpg') center top / cover no-repeat;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.landing-dark .wm-hero {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 100px 32px 90px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 56px;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+
+.landing-dark .wm-hero-title {
+  font-size: 50px;
+  line-height: 1.14;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin: 0 0 24px;
+}
+
+.landing-dark .wm-hero-sub {
+  font-size: 17px;
+  line-height: 1.65;
+  color: #94a3b8;
+  max-width: 600px;
+  margin: 0 0 36px;
+}
+
+.landing-dark .wm-hero-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 18px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+.landing-dark .wm-trust-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 18px 24px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+}
+
+.landing-dark .wm-trust-val {
+  font-size: 20px;
+  font-weight: 850;
+  color: #ffffff;
+  font-family: var(--mono);
+}
+
+.landing-dark .wm-trust-lbl {
+  font-size: 11.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+  display: block;
+}
+
+.landing-dark .wm-trust-divider {
+  width: 1px;
+  height: 34px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Hero Media Visual */
 .wm-hero-media-wrap {
   position: relative;
   width: 100%;
-  border-radius: 20px;
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(16, 185, 129, 0.35);
   background: #0b0f19;
 }
 
 .wm-hero-img {
   width: 100%;
-  height: 100%;
-  max-height: 480px;
+  height: auto;
+  max-height: 560px;
   object-fit: cover;
   display: block;
-  transition: transform 0.4s ease;
+  transition: transform 0.5s ease;
 }
 
 .wm-hero-media-wrap:hover .wm-hero-img {
@@ -3019,54 +3164,50 @@ body:has(.panel-dark)::before {
 
 .wm-hero-overlay-card {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
-  right: 16px;
-  background: rgba(11, 15, 25, 0.88);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 16px 20px;
-  color: #f9fafb;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  background: rgba(7, 10, 19, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 18px 22px;
+  color: #f8fafc;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 
 .wm-hero-badge-live {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 750;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  padding: 3px 10px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  padding: 4px 12px;
   border-radius: 20px;
 }
 
 .wm-hero-live-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   background-color: #34d399;
   border-radius: 50%;
-  box-shadow: 0 0 8px #34d399;
+  box-shadow: 0 0 10px #34d399;
   animation: pulse-dot 1.8s infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
 }
 
 .wm-hero-stats-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .wm-hero-stat-box {
@@ -3075,8 +3216,8 @@ body:has(.panel-dark)::before {
 }
 
 .wm-hero-stat-val {
-  font-size: 15.5px;
-  font-weight: 800;
+  font-size: 17px;
+  font-weight: 850;
   color: #ffffff;
   font-family: var(--mono);
 }
@@ -3086,73 +3227,323 @@ body:has(.panel-dark)::before {
 }
 
 .wm-hero-stat-lbl {
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: 11.5px;
+  color: #94a3b8;
   margin-top: 2px;
 }
 
-/* Vault Feature Card */
+/* Vault / Capital Protection Section with Full-Width Background */
+.wm-vault-section-wrap {
+  position: relative;
+  width: 100%;
+  background: 
+    linear-gradient(180deg, rgba(7, 10, 19, 0.94) 0%, rgba(7, 10, 19, 0.84) 50%, rgba(7, 10, 19, 0.96) 100%),
+    url('/images/crypto_vault_shield.jpg') center / cover no-repeat;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 90px 24px;
+}
+
 .wm-vault-feature {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 44px;
   align-items: center;
-  background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
-  border: 1px solid #e5e7eb;
-  border-radius: 20px;
-  padding: 32px;
-  margin-top: 40px;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  padding: 40px;
+  margin-top: 48px;
+  box-shadow: 0 25px 50px -10px rgba(0, 0, 0, 0.5);
+  color: #f1f5f9;
 }
 
 .wm-vault-img-wrap {
-  border-radius: 14px;
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 16px 36px rgba(0,0,0,0.12);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .wm-vault-img-wrap img {
   width: 100%;
   height: auto;
   display: block;
-  transition: transform 0.4s ease;
+  transition: transform 0.5s ease;
 }
 
 .wm-vault-img-wrap:hover img {
   transform: scale(1.02);
 }
 
-/* Algo Trading Showcase */
+/* Algo Trading Showcase with Full-Width Background */
+.wm-algo-section-wrap {
+  position: relative;
+  width: 100%;
+  background: 
+    linear-gradient(180deg, rgba(7, 10, 19, 0.93) 0%, rgba(7, 10, 19, 0.85) 50%, rgba(7, 10, 19, 0.96) 100%),
+    url('/images/algo_trading_desk.jpg') center / cover no-repeat;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 90px 24px;
+}
+
 .wm-algo-showcase {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 36px;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 44px;
   align-items: center;
-  background: #0d1322;
-  color: #f9fafb;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 36px;
-  margin-top: 36px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  background: rgba(11, 15, 25, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f8fafc;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 24px;
+  padding: 40px;
+  margin-top: 48px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
 }
 
 .wm-algo-img-wrap {
-  border-radius: 14px;
+  border-radius: 18px;
   overflow: hidden;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.2);
 }
 
 .wm-algo-img-wrap img {
   width: 100%;
   height: auto;
   display: block;
-  transition: transform 0.4s ease;
+  transition: transform 0.5s ease;
 }
 
 .wm-algo-img-wrap:hover img {
   transform: scale(1.02);
 }
+
+/* Closing CTA with Background Image */
+.wm-final-cta-wrap {
+  position: relative;
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.24), transparent 70%),
+    linear-gradient(180deg, rgba(7, 10, 19, 0.88) 0%, rgba(7, 10, 19, 0.96) 100%),
+    url('/images/crypto_market_bg.jpg') center / cover no-repeat;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 24px;
+  padding: 72px 32px;
+  max-width: 1120px;
+  margin: 0 auto;
+  box-shadow: 0 30px 60px -10px rgba(0, 0, 0, 0.7);
+  text-align: center;
+  color: #ffffff;
+}
+
+/* Dark Styling Overrides for Landing Components */
+.landing-dark .section-head h2 { color: #ffffff; }
+.landing-dark .section-head p { color: #94a3b8; }
+.landing-dark .kicker { color: #34d399; }
+
+.landing-dark .wm-pillar-card {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  color: #f1f5f9;
+}
+
+.landing-dark .wm-pillar-card:hover {
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 15px 35px -5px rgba(16, 185, 129, 0.15);
+}
+
+.landing-dark .wm-pillar-card h3 { color: #ffffff; }
+.landing-dark .wm-pillar-card p { color: #94a3b8; }
+
+.landing-dark .wm-step-card {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: #f1f5f9;
+}
+
+.landing-dark .wm-step-card h3 { color: #ffffff; }
+.landing-dark .wm-step-card p { color: #94a3b8; }
+.landing-dark .wm-step-num { color: #34d399; }
+
+.landing-dark .calc-card {
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  color: #f1f5f9;
+}
+
+.landing-dark .calc-header { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.landing-dark .calc-title { color: #ffffff; }
+.landing-dark .calc-sub { color: #94a3b8; }
+.landing-dark .calc-input-wrap {
+  background: rgba(7, 10, 19, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+.landing-dark .calc-amount-input { color: #ffffff !important; }
+.landing-dark .calc-summary-card {
+  background: rgba(7, 10, 19, 0.75);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.landing-dark .calc-rate-chip {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+.landing-dark .calc-rate-chip.active {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #34d399;
+  color: #34d399;
+}
+
+.landing-dark .wm-comp-table {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.landing-dark .wm-comp-table th {
+  background: rgba(7, 10, 19, 0.95);
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.landing-dark .wm-comp-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+}
+
+.landing-dark .wm-faq-item {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+.landing-dark .wm-faq-question { color: #ffffff; }
+.landing-dark .wm-faq-answer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.landing-dark .feature {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+.landing-dark .feature h3 { color: #ffffff; }
+.landing-dark .feature p { color: #94a3b8; }
+
+/* Subpage Hero Section with Dark Market Background */
+.wm-subpage-hero-wrap {
+  position: relative;
+  width: 100%;
+  background: 
+    radial-gradient(circle at 50% 20%, rgba(16, 185, 129, 0.15), transparent 60%),
+    linear-gradient(180deg, rgba(7, 10, 19, 0.9) 0%, rgba(7, 10, 19, 0.98) 100%),
+    url('/images/crypto_market_bg.jpg') center top / cover no-repeat;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 80px 24px 60px;
+}
+
+/* Track summary in dark mode */
+.landing-dark .wm-track-summary {
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+.landing-dark .wm-summary-stat .num { color: #34d399; }
+.landing-dark .wm-summary-stat .lbl { color: #94a3b8; }
+
+/* Market Regime Cards in Dark Mode */
+.wm-regime-wrap {
+  margin-top: 36px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+}
+.wm-regime-card {
+  border-radius: 14px;
+  padding: 20px;
+}
+.wm-regime-card.bull {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.wm-regime-card.bear {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.wm-regime-card.chop {
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+/* Vault Mini Stat Box */
+.wm-vault-mini-stat {
+  padding: 14px;
+  background: rgba(7, 10, 19, 0.7);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.wm-vault-mini-stat.highlight {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* Form Controls in Landing Dark */
+.landing-dark input[type="text"],
+.landing-dark input[type="email"],
+.landing-dark input[type="tel"],
+.landing-dark input[type="number"],
+.landing-dark select,
+.landing-dark textarea {
+  background: rgba(15, 23, 42, 0.9) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+}
+.landing-dark select option {
+  background: #0f172a;
+  color: #ffffff;
+}
+.landing-dark .field label {
+  color: #cbd5e1;
+}
+
+/* Secondary Button on Dark Background */
+.landing-dark .btn.secondary,
+.landing-dark .wm-btn-secondary {
+  background: rgba(15, 23, 42, 0.8) !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+.landing-dark .btn.secondary:hover,
+.landing-dark .wm-btn-secondary:hover {
+  background: rgba(30, 41, 59, 0.9) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  color: #34d399 !important;
+}
+
+
 

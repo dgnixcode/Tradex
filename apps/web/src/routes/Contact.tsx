@@ -57,22 +57,24 @@ export function Contact() {
   };
 
   return (
-    <div className="landing landing-light">
+    <div className="landing landing-dark">
       <MarketingHeader />
 
-      <section className="mk-section mk-block" style={{ paddingTop: '60px', paddingBottom: '30px' }}>
-        <div className="section-head" style={{ maxWidth: '780px', margin: '0 auto', textAlign: 'center' }}>
-          <span className="kicker">Private Client Advisory</span>
-          <h1 style={{ fontSize: '42px', fontWeight: 800, margin: '14px 0 20px', letterSpacing: '-0.03em' }}>
-            Schedule Your <span className="wm-grad">Wealth Consultation</span>
-          </h1>
-          <p style={{ fontSize: '17px', lineHeight: 1.6, color: 'var(--text-dim)' }}>
-            Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure CoinDCX onboarding.
-          </p>
-        </div>
-      </section>
+      <div className="wm-subpage-hero-wrap">
+        <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
+          <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
+            <span className="kicker">Private Client Advisory</span>
+            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+              Schedule Your <span className="wm-grad">Wealth Consultation</span>
+            </h1>
+            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+              Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure CoinDCX onboarding.
+            </p>
+          </div>
+        </section>
+      </div>
 
-      <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
+      <section className="mk-section mk-block" style={{ paddingTop: '40px' }}>
         <div style={{ maxWidth: '1040px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '40px' }} className="wm-contact-grid">
           
           {/* Form Card */}
@@ -80,13 +82,13 @@ export function Contact() {
             {submitted ? (
               <div style={{ textAlign: 'center', padding: '30px 10px' }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
-                <h3 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '12px', color: 'var(--ink)' }}>
+                <h3 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '12px', color: '#ffffff' }}>
                   Consultation Request Received
                 </h3>
-                <p style={{ fontSize: '15px', color: 'var(--text-dim)', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 24px' }}>
+                <p style={{ fontSize: '15px', color: '#94a3b8', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 24px' }}>
                   Thank you, <strong>{name}</strong>. A senior portfolio manager from {branding.name} will reach out to you via <strong>{method}</strong> at <strong>{phone}</strong> within 2 hours.
                 </p>
-                <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(22, 163, 74, 0.08)', border: '1px solid rgba(22, 163, 74, 0.25)', fontSize: '13px', color: '#15803d', textAlign: 'left' }}>
+                <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '13px', color: '#34d399', textAlign: 'left' }}>
                   <strong>🔒 Security Reminder:</strong> Our advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal CoinDCX account.
                 </div>
                 <button
@@ -100,7 +102,7 @@ export function Contact() {
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
-                <h3 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 20px', color: 'var(--ink)' }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 20px', color: '#ffffff' }}>
                   Investor Information
                 </h3>
 
@@ -150,10 +152,7 @@ export function Contact() {
                       width: '100%',
                       padding: '10px 14px',
                       borderRadius: '8px',
-                      border: '1px solid var(--line-strong)',
                       fontSize: '14px',
-                      background: '#fff',
-                      color: 'var(--ink)',
                     }}
                   >
                     <option value="₹1,00,000 – ₹5,00,000">₹1,00,000 – ₹5,00,000 ($1,500 – $6,000)</option>
@@ -174,10 +173,7 @@ export function Contact() {
                       width: '100%',
                       padding: '10px 14px',
                       borderRadius: '8px',
-                      border: '1px solid var(--line-strong)',
                       fontSize: '14px',
-                      background: '#fff',
-                      color: 'var(--ink)',
                     }}
                   >
                     <option value="CoinDCX">CoinDCX (Recommended INR &amp; USDT)</option>
@@ -217,16 +213,14 @@ export function Contact() {
                       width: '100%',
                       padding: '10px 14px',
                       borderRadius: '8px',
-                      border: '1px solid var(--line-strong)',
                       fontSize: '14px',
-                      background: '#fff',
                       fontFamily: 'inherit',
                     }}
                   />
                 </div>
 
                 {error && (
-                  <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#b91c1c', fontSize: '13.5px', marginBottom: '14px' }}>
+                  <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#f87171', fontSize: '13.5px', marginBottom: '14px' }}>
                     ⚠️ {error}
                   </div>
                 )}
@@ -246,38 +240,38 @@ export function Contact() {
           {/* Contact Details & Guarantees Column */}
           <div>
             <div className="wm-pillar-card" style={{ padding: '32px', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px', color: 'var(--ink)' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px', color: '#ffffff' }}>
                 Direct Advisory Channels
               </h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '14px' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>💬</span>
                   <div>
-                    <strong>WhatsApp Priority Desk:</strong>
-                    <div style={{ color: 'var(--text-dim)', marginTop: '2px' }}>Direct advisory line for clients</div>
+                    <strong style={{ color: '#ffffff' }}>WhatsApp Priority Desk:</strong>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>Direct advisory line for clients</div>
                   </div>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>✉️</span>
                   <div>
-                    <strong>Advisory Email:</strong>
-                    <div style={{ color: 'var(--text-dim)', marginTop: '2px' }}>support@azawealthkare.com</div>
+                    <strong style={{ color: '#ffffff' }}>Advisory Email:</strong>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>support@azawealthkare.com</div>
                   </div>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>🕒</span>
                   <div>
-                    <strong>Operating Hours:</strong>
-                    <div style={{ color: 'var(--text-dim)', marginTop: '2px' }}>Monday – Saturday: 9:00 AM – 8:00 PM IST</div>
+                    <strong style={{ color: '#ffffff' }}>Operating Hours:</strong>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>Monday – Saturday: 9:00 AM – 8:00 PM IST</div>
                   </div>
                 </li>
               </ul>
             </div>
 
-            <div className="wm-pillar-card" style={{ padding: '28px', background: 'rgba(22, 163, 74, 0.05)', borderColor: 'rgba(22, 163, 74, 0.25)' }}>
+            <div className="wm-pillar-card" style={{ padding: '28px', background: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontSize: '24px' }}>🛡️</span>
-                <strong style={{ fontSize: '16px', color: '#15803d' }}>
+                <strong style={{ fontSize: '16.5px', color: '#34d399' }}>
                   Our Ironclad Investor Guarantees
                 </strong>
               </div>
