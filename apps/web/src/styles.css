@@ -2924,7 +2924,7 @@ body:has(.panel-dark)::before {
 .aza-wordmark-wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   text-decoration: none;
   user-select: none;
   vertical-align: middle;
@@ -2933,12 +2933,12 @@ body:has(.panel-dark)::before {
 .aza-monogram {
   flex-shrink: 0;
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
-  filter: drop-shadow(0 2px 8px rgba(16, 185, 129, 0.25));
+  filter: drop-shadow(0 2px 10px rgba(16, 185, 129, 0.3));
 }
 
 .aza-wordmark-wrapper:hover .aza-monogram {
-  transform: scale(1.05);
-  filter: drop-shadow(0 3px 12px rgba(16, 185, 129, 0.45));
+  transform: scale(1.06);
+  filter: drop-shadow(0 4px 14px rgba(16, 185, 129, 0.5));
 }
 
 .aza-wordmark-text {
@@ -2949,10 +2949,10 @@ body:has(.panel-dark)::before {
 }
 
 .aza-brand-primary {
-  font-size: 19px;
-  font-weight: 850;
-  letter-spacing: 0.04em;
-  background: linear-gradient(135deg, #111827 0%, #1f2937 60%, #059669 100%);
+  font-size: 23px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #059669 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   font-family: var(--mono);
@@ -2961,18 +2961,18 @@ body:has(.panel-dark)::before {
 .dark .aza-brand-primary,
 .app-header .aza-brand-primary,
 .app-sidebar .aza-brand-primary {
-  background: linear-gradient(135deg, #f9fafb 0%, #e5e7eb 50%, #34d399 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #34d399 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .aza-brand-secondary {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.26em;
   color: #059669;
   text-transform: uppercase;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .dark .aza-brand-secondary,
@@ -2981,16 +2981,16 @@ body:has(.panel-dark)::before {
 }
 
 .aza-brand-custom {
-  font-size: 16.5px;
-  font-weight: 750;
+  font-size: 19px;
+  font-weight: 800;
   letter-spacing: -0.01em;
   color: var(--text);
 }
 
-.aza-wordmark-sm .aza-brand-primary { font-size: 15px; }
-.aza-wordmark-sm .aza-brand-secondary { font-size: 7px; letter-spacing: 0.2em; }
-.aza-wordmark-lg .aza-brand-primary { font-size: 26px; }
-.aza-wordmark-lg .aza-brand-secondary { font-size: 11px; letter-spacing: 0.26em; }
+.aza-wordmark-sm .aza-brand-primary { font-size: 17px; }
+.aza-wordmark-sm .aza-brand-secondary { font-size: 8px; letter-spacing: 0.22em; }
+.aza-wordmark-lg .aza-brand-primary { font-size: 32px; }
+.aza-wordmark-lg .aza-brand-secondary { font-size: 13px; letter-spacing: 0.28em; }
 
 /* =========================================================================
    CRYPTO & BULLISH MEDIA SECTIONS

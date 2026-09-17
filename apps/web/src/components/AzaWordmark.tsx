@@ -7,62 +7,43 @@ export interface AzaWordmarkProps {
 
 /**
  * Institutional SVG Monogram for Aza WealthKare.
- * Geometric faceted 'A' chevron symbolizing compounding alpha, upward growth, and capital security.
+ * Pure geometric faceted 'A' chevron with golden ascending delta trajectory.
+ * Clean transparent background with no dark cubes or dots.
  */
-export function AzaMonogram({ size = 28, className = '' }: { readonly size?: number; readonly className?: string }) {
+export function AzaMonogram({ size = 36, className = '' }: { readonly size?: number; readonly className?: string }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 36 36"
+      viewBox="0 0 40 40"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={`aza-monogram ${className}`.trim()}
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="aza-gem-grad" x1="2" y1="2" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+        <linearGradient id="aza-gem-grad" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#34d399" />
           <stop offset="50%" stopColor="#10b981" />
           <stop offset="100%" stopColor="#059669" />
         </linearGradient>
-        <linearGradient id="aza-gold-grad" x1="10" y1="6" x2="26" y2="30" gradientUnits="userSpaceOnUse">
+        <linearGradient id="aza-gold-grad" x1="12" y1="18" x2="28" y2="28" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#fef08a" />
           <stop offset="50%" stopColor="#f59e0b" />
           <stop offset="100%" stopColor="#d97706" />
         </linearGradient>
-        <linearGradient id="aza-shield-bg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#064e3b" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#022c22" stopOpacity="0.8" />
-        </linearGradient>
       </defs>
 
-      {/* Hexagonal Shield Background */}
-      <polygon
-        points="18,3 32,9 32,27 18,33 4,27 4,9"
-        fill="url(#aza-shield-bg)"
-        stroke="url(#aza-gem-grad)"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-
-      {/* Upward Delta Alpha Core (Faceted Stylized A) */}
+      {/* Stylized Ascending Geometric 'A' Wings */}
       <path
-        d="M18 7L27 24H21.5L18 16L14.5 24H9L18 7Z"
+        d="M20 4L5 35H12L20 18L28 35H35L20 4Z"
         fill="url(#aza-gem-grad)"
       />
 
-      {/* Golden Ascending Chevron Crossbar */}
+      {/* Dynamic Golden Ascending Delta Crossbar */}
       <path
-        d="M14.5 20.5L18 14.5L21.5 20.5L18 18.5L14.5 20.5Z"
+        d="M13 26L20 17.5L27 26L20 23.5L13 26Z"
         fill="url(#aza-gold-grad)"
-      />
-
-      {/* Central Growth Diamond */}
-      <polygon
-        points="18,22 20.5,25.5 18,27.5 15.5,25.5"
-        fill="#ffffff"
-        opacity="0.9"
       />
     </svg>
   );
@@ -77,7 +58,8 @@ export function AzaWordmark({
   customName,
   className = '',
 }: AzaWordmarkProps) {
-  const iconSize = size === 'sm' ? 22 : size === 'lg' ? 36 : 28;
+  // Bigger, more prominent icon sizing
+  const iconSize = size === 'sm' ? 28 : size === 'lg' ? 48 : 36;
   const nameToRender = customName ?? 'Aza WealthKare';
 
   // Check if name is the default or contains Aza
