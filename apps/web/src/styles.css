@@ -2914,4 +2914,245 @@ body:has(.panel-dark)::before {
 
 @media (max-width: 860px) {
   .wm-contact-grid { grid-template-columns: 1fr !important; gap: 28px !important; }
+  .wm-vault-feature { grid-template-columns: 1fr; gap: 24px; }
+  .wm-algo-showcase { grid-template-columns: 1fr; gap: 24px; padding: 24px; }
 }
+
+/* =========================================================================
+   AZA WEALTHKARE WORDMARK & MONOGRAM STYLES
+   ========================================================================= */
+.aza-wordmark-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  user-select: none;
+  vertical-align: middle;
+}
+
+.aza-monogram {
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+  filter: drop-shadow(0 2px 8px rgba(16, 185, 129, 0.25));
+}
+
+.aza-wordmark-wrapper:hover .aza-monogram {
+  transform: scale(1.05);
+  filter: drop-shadow(0 3px 12px rgba(16, 185, 129, 0.45));
+}
+
+.aza-wordmark-text {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.aza-brand-primary {
+  font-size: 19px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, #111827 0%, #1f2937 60%, #059669 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: var(--mono);
+}
+
+.dark .aza-brand-primary,
+.app-header .aza-brand-primary,
+.app-sidebar .aza-brand-primary {
+  background: linear-gradient(135deg, #f9fafb 0%, #e5e7eb 50%, #34d399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.aza-brand-secondary {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: #059669;
+  text-transform: uppercase;
+  margin-top: 1px;
+}
+
+.dark .aza-brand-secondary,
+.app-header .aza-brand-secondary {
+  color: #34d399;
+}
+
+.aza-brand-custom {
+  font-size: 16.5px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.aza-wordmark-sm .aza-brand-primary { font-size: 15px; }
+.aza-wordmark-sm .aza-brand-secondary { font-size: 7px; letter-spacing: 0.2em; }
+.aza-wordmark-lg .aza-brand-primary { font-size: 26px; }
+.aza-wordmark-lg .aza-brand-secondary { font-size: 11px; letter-spacing: 0.26em; }
+
+/* =========================================================================
+   CRYPTO & BULLISH MEDIA SECTIONS
+   ========================================================================= */
+.wm-hero-media-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.2);
+  background: #0b0f19;
+}
+
+.wm-hero-img {
+  width: 100%;
+  height: 100%;
+  max-height: 480px;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.4s ease;
+}
+
+.wm-hero-media-wrap:hover .wm-hero-img {
+  transform: scale(1.02);
+}
+
+.wm-hero-overlay-card {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  background: rgba(11, 15, 25, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 16px 20px;
+  color: #f9fafb;
+}
+
+.wm-hero-badge-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.wm-hero-live-dot {
+  width: 7px;
+  height: 7px;
+  background-color: #34d399;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #34d399;
+  animation: pulse-dot 1.8s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.wm-hero-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wm-hero-stat-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.wm-hero-stat-val {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: #ffffff;
+  font-family: var(--mono);
+}
+
+.wm-hero-stat-val.green {
+  color: #34d399;
+}
+
+.wm-hero-stat-lbl {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+/* Vault Feature Card */
+.wm-vault-feature {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 36px;
+  align-items: center;
+  background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  padding: 32px;
+  margin-top: 40px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+}
+
+.wm-vault-img-wrap {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.wm-vault-img-wrap img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.4s ease;
+}
+
+.wm-vault-img-wrap:hover img {
+  transform: scale(1.02);
+}
+
+/* Algo Trading Showcase */
+.wm-algo-showcase {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 36px;
+  align-items: center;
+  background: #0d1322;
+  color: #f9fafb;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 36px;
+  margin-top: 36px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.wm-algo-img-wrap {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.15);
+}
+
+.wm-algo-img-wrap img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.4s ease;
+}
+
+.wm-algo-img-wrap:hover img {
+  transform: scale(1.02);
+}
+

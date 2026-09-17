@@ -102,71 +102,40 @@ export function Landing() {
           </div>
         </div>
 
-        {/* Hero Visual: Client Portfolio Card */}
+        {/* Hero Visual: Cinematic Crypto Bull & Real-Time Telemetry Terminal */}
         <div className="wm-hero-visual">
-          <div className="wm-portfolio-card">
-            <div className="wm-card-top">
-              <div className="wm-card-account">
-                <span className="wm-dot active" />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>
-                    CoinDCX Managed Portfolio
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    Client Self-Custody · Real-Time Execution
-                  </div>
+          <div className="wm-hero-media-wrap">
+            <img
+              src="/images/crypto_bull_hero.jpg"
+              alt="Aza WealthKare Institutional Crypto Bull and Trading Command"
+              className="wm-hero-img"
+              loading="eager"
+            />
+            <div className="wm-hero-overlay-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="wm-hero-badge-live">
+                  <span className="wm-hero-live-dot" />
+                  Live Execution Desk
+                </span>
+                <span style={{ fontSize: '11px', color: '#9ca3af', fontFamily: 'var(--mono)' }}>
+                  CoinDCX Verified Venue
+                </span>
+              </div>
+
+              <div className="wm-hero-stats-strip">
+                <div className="wm-hero-stat-box">
+                  <span className="wm-hero-stat-val green">+3% – +5%</span>
+                  <span className="wm-hero-stat-lbl">Monthly Target</span>
+                </div>
+                <div className="wm-hero-stat-box">
+                  <span className="wm-hero-stat-val">100%</span>
+                  <span className="wm-hero-stat-lbl">Capital Shield</span>
+                </div>
+                <div className="wm-hero-stat-box">
+                  <span className="wm-hero-stat-val">Zero</span>
+                  <span className="wm-hero-stat-lbl">Custody Risk</span>
                 </div>
               </div>
-              <span className="pill ok" style={{ fontSize: '11px', padding: '3px 8px' }}>
-                PROTECTED
-              </span>
-            </div>
-
-            <div className="wm-card-balance-block">
-              <span className="wm-card-subhead">Monthly Performance Target</span>
-              <div className="wm-card-balance" style={{ color: '#16a34a' }}>+3.0% – +5.0%</div>
-              <div className="wm-card-pnl">
-                <span className="wm-pnl-green">Steady Compounded Growth</span>
-                <span className="wm-pnl-label">deposited to your exchange</span>
-              </div>
-            </div>
-
-            <div className="wm-card-metrics">
-              <div className="wm-card-metric-box">
-                <span className="m-label">Capital Guarantee</span>
-                <span className="m-val" style={{ color: '#16a34a' }}>100% Shielded</span>
-              </div>
-              <div className="wm-card-metric-box">
-                <span className="m-label">Custody Location</span>
-                <span className="m-val">Your Personal Account</span>
-              </div>
-            </div>
-
-            {/* Systematic positions snapshot */}
-            <div className="wm-card-trades">
-              <div className="wm-card-trades-head">
-                <span>Systematic Strategies Active</span>
-                <span>CoinDCX Venue</span>
-              </div>
-              <div className="wm-trade-row">
-                <span className="t-pair">BTC-USDT Market Spread</span>
-                <span className="t-side buy">ACTIVE</span>
-                <span className="t-pnl">+1.84%</span>
-              </div>
-              <div className="wm-trade-row">
-                <span className="t-pair">ETH-INR Trend Discipline</span>
-                <span className="t-side buy">ACTIVE</span>
-                <span className="t-pnl">+1.15%</span>
-              </div>
-              <div className="wm-trade-row">
-                <span className="t-pair">SOL-USDT Momentum</span>
-                <span className="t-side sell">HEDGED</span>
-                <span className="t-pnl">+1.24%</span>
-              </div>
-            </div>
-
-            <div className="wm-card-footer">
-              <span>🔒 Zero Third-Party Deposit · 24/7 Liquidity in Your Bank</span>
             </div>
           </div>
         </div>
@@ -389,6 +358,37 @@ export function Landing() {
           </div>
         </div>
 
+        {/* Cryptographic Vault Feature Showcase */}
+        <div className="wm-vault-feature">
+          <div className="wm-vault-img-wrap">
+            <img
+              src="/images/crypto_vault_shield.jpg"
+              alt="Aza WealthKare Institutional Cryptographic Vault Shield"
+              loading="lazy"
+            />
+          </div>
+          <div>
+            <span className="kicker">Cryptographic Architecture</span>
+            <h3 style={{ fontSize: '24px', fontWeight: 800, margin: '8px 0 14px', color: 'var(--ink)' }}>
+              The 100% Principal Protection Guarantee
+            </h3>
+            <p style={{ color: 'var(--text-dim)', fontSize: '14.5px', lineHeight: 1.6, marginBottom: '18px' }}>
+              Our trading infrastructure connects to your personal CoinDCX account with strict trade-only delegation.
+              Withdrawal permissions are permanently disabled. No matter how wild crypto markets swing, your capital remains permanently isolated in your verified account.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <strong style={{ display: 'block', fontSize: '13.5px', color: '#0f172a', marginBottom: '2px' }}>Zero Third-Party Risk</strong>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>No pooling, zero commingling, zero transfer</span>
+              </div>
+              <div style={{ padding: '14px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                <strong style={{ display: 'block', fontSize: '13.5px', color: '#15803d', marginBottom: '2px' }}>Automated Risk Fences</strong>
+                <span style={{ fontSize: '12px', color: '#166534' }}>Sub-millisecond drawdown circuit breakers</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Market Regime Resilience Card */}
         <div style={{ marginTop: '32px', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 16px rgba(0,0,0,0.04)' }}>
           <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 24px' }}>
@@ -431,6 +431,40 @@ export function Landing() {
                 Mean-reversion micro-scalping within strict bracket corridors. Captures intraday spreads while hard risk fences prevent runaway losses.
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Quantitative Algorithmic Execution Showcase */}
+        <div className="wm-algo-showcase">
+          <div>
+            <span className="kicker" style={{ color: '#34d399' }}>24/7 Systematic Alpha</span>
+            <h3 style={{ fontSize: '26px', fontWeight: 800, margin: '8px 0 14px', color: '#ffffff' }}>
+              Quantitative Execution Desk in Real Time
+            </h3>
+            <p style={{ color: '#9ca3af', fontSize: '14.5px', lineHeight: 1.6, marginBottom: '22px' }}>
+              While retail traders struggle with emotional fatigue and volatility whipsaws, our proprietary quantitative algorithms execute disciplined market-making and basis spreads around the clock.
+            </p>
+            <div style={{ display: 'flex', gap: '28px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#34d399', fontFamily: 'var(--mono)' }}>&lt; 2.5%</div>
+                <div style={{ fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' }}>Max Monitored Drawdown</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#ffffff', fontFamily: 'var(--mono)' }}>24/7/365</div>
+                <div style={{ fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' }}>Algorithmic Surveillance</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#34d399', fontFamily: 'var(--mono)' }}>100%</div>
+                <div style={{ fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' }}>Personal CoinDCX Settlement</div>
+              </div>
+            </div>
+          </div>
+          <div className="wm-algo-img-wrap">
+            <img
+              src="/images/algo_trading_desk.jpg"
+              alt="Aza WealthKare Quantitative Algorithmic Execution Command Desk"
+              loading="lazy"
+            />
           </div>
         </div>
       </section>

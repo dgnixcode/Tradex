@@ -25,6 +25,14 @@ export function Model() {
 
       <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
         <div style={{ maxWidth: '1040px', margin: '0 auto' }}>
+
+          <div style={{ borderRadius: '16px', overflow: 'hidden', marginBottom: '36px', border: '1px solid rgba(16, 185, 129, 0.25)', boxShadow: '0 16px 36px rgba(0,0,0,0.1)' }}>
+            <img
+              src="/images/algo_trading_desk.jpg"
+              alt="Aza WealthKare Quantitative Algorithmic Execution Infrastructure"
+              style={{ width: '100%', maxHeight: '420px', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
           
           {/* Detailed breakdown grid */}
           <div className="wm-pillars-grid" style={{ marginTop: 0, marginBottom: '40px' }}>

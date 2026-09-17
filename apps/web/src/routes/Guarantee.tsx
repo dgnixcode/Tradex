@@ -24,6 +24,14 @@ export function Guarantee() {
 
       <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
         <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+
+          <div style={{ borderRadius: '16px', overflow: 'hidden', marginBottom: '32px', border: '1px solid rgba(16, 185, 129, 0.25)', boxShadow: '0 16px 36px rgba(0,0,0,0.1)' }}>
+            <img
+              src="/images/crypto_vault_shield.jpg"
+              alt="Aza WealthKare 100% Capital Protection Cryptographic Shield"
+              style={{ width: '100%', maxHeight: '420px', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
           
           <div className="wm-pillar-card" style={{ padding: '36px', marginBottom: '32px' }}>
             <h2 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '14px', color: 'var(--ink)' }}>

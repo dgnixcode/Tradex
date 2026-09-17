@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useBranding, determineLogoType } from '../branding.tsx';
+import { AzaWordmark } from './AzaWordmark.tsx';
 
 interface BrandProps {
   readonly to?: string;
@@ -31,9 +32,9 @@ export function Brand({
   const sizeClass = size === 'sm' ? 'brand-sm' : size === 'lg' ? 'brand-lg' : '';
   const classes = `brand ${hasCustomLogo ? 'has-custom-logo' : ''} ${sizeClass} ${className}`.trim();
 
-  const content = (
+  const content = hasCustomLogo ? (
     <>
-      {hasCustomLogo && logoType === 'image' && (
+      {logoType === 'image' && (
         <img
           src={logo!}
           alt={`${name} logo`}
@@ -44,13 +45,15 @@ export function Brand({
           }}
         />
       )}
-      {hasCustomLogo && logoType === 'icon' && (
+      {logoType === 'icon' && (
         <span className="brand-logo-icon" aria-hidden="true">
           {logo}
         </span>
       )}
       {showName && <span className="brand-name">{name}</span>}
     </>
+  ) : (
+    <AzaWordmark size={size} showName={showName} customName={name} />
   );
 
   if (to) {

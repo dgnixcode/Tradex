@@ -25,6 +25,15 @@ export function About() {
       {/* Story & Philosophy */}
       <section className="mk-section mk-block" style={{ paddingTop: '10px' }}>
         <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+
+          <div style={{ borderRadius: '16px', overflow: 'hidden', marginBottom: '36px', border: '1px solid rgba(16, 185, 129, 0.25)', boxShadow: '0 16px 36px rgba(0,0,0,0.1)' }}>
+            <img
+              src="/images/crypto_bull_hero.jpg"
+              alt="Aza WealthKare Institutional Crypto Bullish Wealth Management"
+              style={{ width: '100%', maxHeight: '420px', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+
           <div className="wm-pillar-card" style={{ padding: '40px', marginBottom: '36px' }}>
             <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '16px', color: 'var(--ink)' }}>
               Our Core Philosophy: Non-Custodial Wealth
