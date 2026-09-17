@@ -407,8 +407,8 @@ export function AccountDetail() {
                   </div>
                 </div>
 
-                {/* Positions Table */}
-                <div className="table-scroll-container">
+                {/* Positions Table (Desktop > 768px) */}
+                <div className="table-scroll-container desktop-pos-table">
                   <table style={{ width: '100%' }}>
                     <thead>
                       <tr>
@@ -449,8 +449,8 @@ export function AccountDetail() {
                                 style={{
                                   color: sideBadgeColor,
                                   borderColor: sideBadgeColor,
-                                  background: p.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
-                                  fontSize: 10.5,
+                                  background: p.side === 'long' ? 'rgba(75,181,99,0.1)' : p.side === 'short' ? 'rgba(240,85,90,0.1)' : 'transparent',
+                                  fontSize: 11,
                                   fontWeight: 700,
                                   textTransform: 'uppercase',
                                 }}
@@ -458,13 +458,13 @@ export function AccountDetail() {
                                 {p.side} {p.leverage ? `${p.leverage}×` : ''}
                               </span>
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
+                            <td className="mono" style={{ textAlign: 'right' }}>
                               {p.quantity}
                             </td>
                             <td className="mono" style={{ textAlign: 'right' }}>
                               {p.avgEntryPrice ?? '—'}
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', fontWeight: 500 }}>
+                            <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>
                               {p.markPrice ?? '—'}
                             </td>
                             <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
@@ -524,6 +524,96 @@ export function AccountDetail() {
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile Position Cards (<= 768px) */}
+                <div className="mobile-pos-cards">
+                  {accountPositions.map((p) => {
+                    const roe = calcRoePct(p);
+                    const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
+                    const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
+                    const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+                    return (
+                      <div key={`mobile-${p.venuePositionId}`} className="pos-mobile-card">
+                        <div className="pos-mobile-card-top">
+                          <div>
+                            <div className="pos-mobile-acc-name">{p.pair} ({p.marginCurrency})</div>
+                            {p.groupName && <div className="pos-mobile-grp-badge">📁 {p.groupName}</div>}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div className={`pos-mobile-pnl ${pnlClass(p.unrealisedPnlMinor)}`}>
+                              {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
+                            </div>
+                            {roe !== null && (
+                              <span className="pos-mobile-roe-pill" style={{ color: roe >= 0 ? 'var(--ok)' : 'var(--danger)' }}>
+                                {roeText(roe).trim()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="pos-mobile-grid">
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Side / Lev</span>
+                            <span className="pos-mobile-val" style={{ color: sideColor, fontWeight: 700 }}>
+                              {p.side.toUpperCase()} {p.leverage ? `${p.leverage}×` : ''}
+                            </span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Margin</span>
+                            <span className="pos-mobile-val mono">
+                              {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : '—'}
+                            </span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Size</span>
+                            <span className="pos-mobile-val mono">{p.quantity}</span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Entry</span>
+                            <span className="pos-mobile-val mono">{p.avgEntryPrice ?? '—'}</span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Mark</span>
+                            <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{p.markPrice ?? '—'}</span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Liq Buffer</span>
+                            <span className="pos-mobile-val mono" style={{ color: bufferColor(p.liqBufferBp) }}>
+                              {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : (p.liquidationPrice ?? '—')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="pos-mobile-card-foot">
+                          <div className="pos-mobile-prot">
+                            <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 4 }}>Protection:</span>
+                            {!hasSl && !hasTp ? (
+                              <span className="muted" style={{ fontSize: 11 }}>None</span>
+                            ) : (
+                              <div style={{ display: 'inline-flex', gap: 4 }}>
+                                {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
+                                {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            className="btn btn-sm secondary"
+                            style={{ width: '100%', marginTop: 8, padding: '8px', fontSize: 12.5, fontWeight: 700, borderRadius: 8 }}
+                            onClick={() => {
+                              setManagingPosition(p);
+                              setOpError(null);
+                              setSyncNote(null);
+                            }}
+                          >
+                            ⚙ Manage Position
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}

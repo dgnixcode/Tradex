@@ -28,8 +28,8 @@ export function GroupDetailReport() {
   const nameOf = (id: string): string => names.get(id) ?? id.slice(0, 8);
 
   return (
-    <div className="panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div className="panel full-width-page">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
         <Link to="/app/activity" className="btn secondary btn-sm">← Activity</Link>
         <h2 style={{ margin: 0, fontSize: 18 }}>Group trade {groupTradeId.slice(0, 8)}</h2>
         {report.data !== undefined && (
@@ -39,7 +39,7 @@ export function GroupDetailReport() {
           </span>
         )}
       </div>
-      <p className="sub muted" style={{ marginTop: -6, marginBottom: 18 }}>
+      <p className="sub muted" style={{ marginTop: -2, marginBottom: 16 }}>
         The permanent record of what happened on this trade — identical to what the live progress
         screen shows, from our own records.
       </p>
@@ -49,11 +49,11 @@ export function GroupDetailReport() {
 
       {report.isSuccess && report.data !== undefined && (
         <>
-          <div style={{ marginBottom: 16 }}>
-            <span style={{ marginRight: 18 }}>Placed <strong>{report.data.report.placed}</strong></span>
-            <span style={{ marginRight: 18 }}>Skipped <strong>{report.data.report.skipped}</strong></span>
-            <span style={{ marginRight: 18 }}>Rejected <strong>{report.data.report.rejected}</strong></span>
-            <span>Needs review <strong>{report.data.report.needsReview}</strong></span>
+          <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 14, background: 'rgba(0,0,0,0.2)', padding: '10px 14px', borderRadius: 8 }}>
+            <span>Placed: <strong style={{ color: 'var(--ok)' }}>{report.data.report.placed}</strong></span>
+            <span>Skipped: <strong style={{ color: 'var(--warn)' }}>{report.data.report.skipped}</strong></span>
+            <span>Rejected: <strong style={{ color: 'var(--danger)' }}>{report.data.report.rejected}</strong></span>
+            <span>Needs review: <strong>{report.data.report.needsReview}</strong></span>
           </div>
 
           {/* A partial failure is the case that confuses most: the trade "worked"
@@ -71,7 +71,8 @@ export function GroupDetailReport() {
             </div>
           )}
 
-          <table>
+          <div className="table-scroll-container">
+            <table>
             <thead>
               <tr>
                 <th>Account</th><th>State</th><th>Market</th>
@@ -99,6 +100,7 @@ export function GroupDetailReport() {
               ))}
             </tbody>
           </table>
+          </div>
 
           {report.data.report.groupedCauses.length > 0 && (
             <div style={{ marginTop: 16, fontSize: 13 }}>

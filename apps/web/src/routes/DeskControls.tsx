@@ -138,14 +138,16 @@ export function DeskControls() {
             {data.restrictedMarkets.length > 0 ? (
               <>
                 <div className="desk-k" style={{ marginTop: 14 }}>Restricted markets</div>
-                <table style={{ marginTop: 8 }}>
-                  <thead><tr><th>Market</th><th>Mode</th><th>Reason</th></tr></thead>
-                  <tbody>
-                    {data.restrictedMarkets.map((m) => (
-                      <tr key={m.market}><td>{m.market}</td><td><span className="badge skipped">{m.mode}</span></td><td className="muted">{m.reason ?? '—'}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-scroll-container" style={{ marginTop: 8 }}>
+                  <table>
+                    <thead><tr><th>Market</th><th>Mode</th><th>Reason</th></tr></thead>
+                    <tbody>
+                      {data.restrictedMarkets.map((m) => (
+                        <tr key={m.market}><td>{m.market}</td><td><span className="badge skipped">{m.mode}</span></td><td className="muted">{m.reason ?? '—'}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             ) : (
               <p className="muted" style={{ marginBottom: 0 }}>No markets are restricted.</p>

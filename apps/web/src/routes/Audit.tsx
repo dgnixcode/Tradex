@@ -40,7 +40,7 @@ export function Audit() {
   const audit = useQuery({ queryKey: ['audit'], queryFn: fetchAudit });
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <h2>Audit trail</h2>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         Every change to a switch, a limit or a mode — who did it and what moved.
@@ -56,26 +56,28 @@ export function Audit() {
       )}
 
       {audit.isSuccess && audit.data.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Action</th>
-              <th>Detail</th>
-              <th>Via</th>
-            </tr>
-          </thead>
-          <tbody>
-            {audit.data.map((r) => (
-              <tr key={r.id}>
-                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtTime(r.occurredAt)}</td>
-                <td>{ACTION_LABEL[r.action] ?? r.action}</td>
-                <td className="muted">{changeSummary(r)}</td>
-                <td>{r.actorProcess}</td>
+        <div className="table-scroll-container">
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Action</th>
+                <th>Detail</th>
+                <th>Via</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {audit.data.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtTime(r.occurredAt)}</td>
+                  <td>{ACTION_LABEL[r.action] ?? r.action}</td>
+                  <td className="muted">{changeSummary(r)}</td>
+                  <td>{r.actorProcess}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

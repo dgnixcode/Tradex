@@ -60,44 +60,89 @@ export function Confirmation() {
   const canConfirm = !expired && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
 
   return (
-    <div className="panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
-        <span style={{ marginLeft: 'auto' }}>
+    <div className="panel full-width-page">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
+        <div>
           {!confirmed && <Countdown expiresAtMs={result.previewExpiresAtMs} onExpire={onExpire} />}
-        </span>
+        </div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Account</th>
-            <th>Status</th>
-            <th>Market</th>
-            <th className="mono">Quantity</th>
-            <th className="mono">Price</th>
-            <th className="mono">Est. cost</th>
-            <th>Basis / reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.rows.map((row: PreviewRow) => (
-            <tr key={row.childOrderId} className={row.state === 'skipped' ? 'skipped' : ''}>
-              <td>{row.accountName}</td>
-              <td><span className={`badge ${row.state}`}>{row.state}</span></td>
-              <td>{row.market ?? '—'}</td>
-              <td className="mono">{row.finalQuantity ?? '—'}</td>
-              <td className="mono">{row.priceUsed ?? '—'}</td>
-              <td className="mono">{formatCost(row.notionalMinor, row.quoteCurrency)}</td>
-              <td>
-                {row.state === 'planned'
-                  ? <span className="muted">{describeBasis(row.basisUsed, row.currencyChoiceReason)}</span>
-                  : <span>{row.refusalDetail ?? row.refusalCode ?? 'skipped'}</span>}
-              </td>
+      {/* Desktop Table View (> 768px) */}
+      <div className="table-scroll-container desktop-pos-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Status</th>
+              <th>Market</th>
+              <th className="mono">Quantity</th>
+              <th className="mono">Price</th>
+              <th className="mono">Est. cost</th>
+              <th>Basis / reason</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {result.rows.map((row: PreviewRow) => (
+              <tr key={row.childOrderId} className={row.state === 'skipped' ? 'skipped' : ''}>
+                <td>{row.accountName}</td>
+                <td><span className={`badge ${row.state}`}>{row.state}</span></td>
+                <td>{row.market ?? '—'}</td>
+                <td className="mono">{row.finalQuantity ?? '—'}</td>
+                <td className="mono">{row.priceUsed ?? '—'}</td>
+                <td className="mono">{formatCost(row.notionalMinor, row.quoteCurrency)}</td>
+                <td>
+                  {row.state === 'planned'
+                    ? <span className="muted">{describeBasis(row.basisUsed, row.currencyChoiceReason)}</span>
+                    : <span>{row.refusalDetail ?? row.refusalCode ?? 'skipped'}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile Preview Cards (<= 768px) */}
+      <div className="mobile-pos-cards">
+        {result.rows.map((row: PreviewRow) => (
+          <div
+            key={`mobile-${row.childOrderId}`}
+            className="pos-mobile-card"
+            style={{ opacity: row.state === 'skipped' ? 0.7 : 1 }}
+          >
+            <div className="pos-mobile-card-top">
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{row.accountName}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Market: {row.market ?? '—'}</div>
+              </div>
+              <div>
+                <span className={`badge ${row.state}`}>{row.state}</span>
+              </div>
+            </div>
+
+            <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <div className="pos-mobile-cell">
+                <span className="pos-mobile-label">Qty</span>
+                <span className="pos-mobile-val mono">{row.finalQuantity ?? '—'}</span>
+              </div>
+              <div className="pos-mobile-cell">
+                <span className="pos-mobile-label">Price</span>
+                <span className="pos-mobile-val mono">{row.priceUsed ?? '—'}</span>
+              </div>
+              <div className="pos-mobile-cell">
+                <span className="pos-mobile-label">Est. Cost</span>
+                <span className="pos-mobile-val mono">{formatCost(row.notionalMinor, row.quoteCurrency)}</span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+              {row.state === 'planned'
+                ? describeBasis(row.basisUsed, row.currencyChoiceReason)
+                : <span style={{ color: 'var(--warn)' }}>{row.refusalDetail ?? row.refusalCode ?? 'skipped'}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
 
       {hasSkips && !confirmed && (
         // The acknowledgement only appears when something was skipped — so the

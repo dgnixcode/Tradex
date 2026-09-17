@@ -241,6 +241,98 @@ function AccountRow({
   );
 }
 
+/* ─── per-account mobile position card (<= 768px) ─── */
+
+function AccountMobileCard({
+  p,
+  onManage,
+}: {
+  readonly p: FuturesPositionRow;
+  readonly onManage: (position: FuturesPositionRow) => void;
+}) {
+  const roe = calcRoePct(p);
+  const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
+  const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+  const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+
+  return (
+    <div className="pos-mobile-card">
+      <div className="pos-mobile-card-top">
+        <div>
+          <div className="pos-mobile-acc-name">{p.accountName}</div>
+          <div className="pos-mobile-grp-badge">📁 {p.groupName || 'Ungrouped'}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className={`pos-mobile-pnl ${pnlClass(p.unrealisedPnlMinor)}`}>
+            {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
+          </div>
+          {roe !== null && (
+            <span className="pos-mobile-roe-pill" style={{ color: roe >= 0 ? 'var(--ok)' : 'var(--danger)' }}>
+              {roeText(roe).trim()}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="pos-mobile-grid">
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Side / Lev</span>
+          <span className="pos-mobile-val" style={{ color: sideColor, fontWeight: 700 }}>
+            {p.side.toUpperCase()} {p.leverage ? `${p.leverage}×` : ''}
+          </span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Margin</span>
+          <span className="pos-mobile-val mono">
+            {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : '—'}
+          </span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Qty</span>
+          <span className="pos-mobile-val mono">{p.quantity}</span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Entry</span>
+          <span className="pos-mobile-val mono">{p.avgEntryPrice ?? '—'}</span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Mark</span>
+          <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{p.markPrice ?? '—'}</span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Liq. Buffer</span>
+          <span className="pos-mobile-val mono" style={{ color: bufferColor(p.liqBufferBp) }}>
+            {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : (p.liquidationPrice ?? '—')}
+          </span>
+        </div>
+      </div>
+
+      <div className="pos-mobile-card-foot">
+        <div className="pos-mobile-prot">
+          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 4 }}>Protection:</span>
+          {!hasSl && !hasTp ? (
+            <span className="muted" style={{ fontSize: 11 }}>None</span>
+          ) : (
+            <div style={{ display: 'inline-flex', gap: 4 }}>
+              {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
+              {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-sm secondary"
+          style={{ width: '100%', marginTop: 8, padding: '8px', fontSize: 12.5, fontWeight: 700, borderRadius: 8 }}
+          onClick={() => onManage(p)}
+        >
+          ⚙ Manage Position
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── group card with high-scale account handling ─── */
 
 function GroupCard({
@@ -406,7 +498,8 @@ function GroupCard({
             </div>
           </div>
 
-          <div className="table-scroll-container">
+          {/* Desktop Table View (> 768px) */}
+          <div className="table-scroll-container desktop-pos-table">
             <table>
               <thead>
                 <tr>
@@ -432,6 +525,17 @@ function GroupCard({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Position Cards (<= 768px) */}
+          <div className="mobile-pos-cards">
+            {filteredPositions.map((p) => (
+              <AccountMobileCard
+                key={`mobile-${p.accountId}-${p.pair}-${p.marginCurrency}`}
+                p={p}
+                onManage={onManage}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -2461,49 +2565,52 @@ export function Futures() {
   return (
     <div className="panel full-width-page">
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>Positions</h2>
-        <span
-          className="badge"
-          style={{
-            background: 'rgba(75,181,99,0.12)',
-            color: 'var(--ok)',
-            border: '1px solid var(--ok)',
-            fontSize: 11,
-            fontWeight: 600,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '2px 8px',
-          }}
-        >
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
-          Live (3s)
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0 }}>Positions</h2>
+          <span
+            className="badge"
+            style={{
+              background: 'rgba(75,181,99,0.12)',
+              color: 'var(--ok)',
+              border: '1px solid var(--ok)',
+              fontSize: 11,
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '2px 8px',
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
+            Live (3s)
+          </span>
 
-        {groups.length > 1 && (
+          {groups.length > 1 && (
+            <button
+              type="button"
+              className="btn btn-sm secondary"
+              style={{ fontSize: 11.5, padding: '3px 10px' }}
+              onClick={allCollapsed ? expandAll : collapseAll}
+            >
+              {allCollapsed ? 'Expand All' : 'Collapse All'}
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
-            className="btn btn-sm secondary"
-            style={{ fontSize: 11.5, padding: '3px 10px' }}
-            onClick={allCollapsed ? expandAll : collapseAll}
+            className="btn secondary btn-sm"
+            disabled={refreshMut.isPending}
+            onClick={() => refreshMut.mutate()}
           >
-            {allCollapsed ? 'Expand All' : 'Collapse All'}
+            {refreshMut.isPending ? 'Reading…' : '🔄 Sync'}
           </button>
-        )}
-
-        <button
-          type="button"
-          className="btn secondary btn-sm"
-          style={{ marginLeft: 'auto' }}
-          disabled={refreshMut.isPending}
-          onClick={() => refreshMut.mutate()}
-        >
-          {refreshMut.isPending ? 'Reading the exchange…' : 'Sync from exchange'}
-        </button>
-        <span className="muted" style={{ fontSize: 12.5 }}>
-          {positions.data === undefined ? '' : `updated ${new Date(positions.data.at).toLocaleTimeString('en-IN')}`}
-        </span>
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            {positions.data === undefined ? '' : new Date(positions.data.at).toLocaleTimeString('en-IN')}
+          </span>
+        </div>
       </div>
 
       {/* ── Summary ── */}

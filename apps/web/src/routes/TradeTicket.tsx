@@ -173,9 +173,10 @@ export function TradeTicket() {
   const [side, setSide] = useState<Side>(() => draft.side || 'buy');
   const [orderType, setOrderType] = useState<OrderType>(() => draft.orderType || 'market');
   const [limitPrice, setLimitPrice] = useState<string>(() => draft.limitPrice || '');
-  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'watchlist'>(() => {
+  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'chart' | 'watchlist'>(() => {
     try {
-      return (localStorage.getItem('tradex_active_tab') as 'trade' | 'watchlist') || 'trade';
+      const saved = localStorage.getItem('tradex_active_tab');
+      return (saved === 'chart' || saved === 'watchlist') ? saved : 'trade';
     } catch {
       return 'trade';
     }
@@ -506,17 +507,28 @@ export function TradeTicket() {
   return (
     <div className="trading-terminal-layout">
       {/* Left Column: Full-View TradingView Advanced Live Chart */}
-      <div className="trading-chart-col">
+      <div className={`trading-chart-col ${rightPanelTab === 'chart' ? 'mobile-chart-active' : 'mobile-chart-hidden'}`}>
         <TradingViewChart
           asset={asset || 'BTC'}
           quoteCurrency={quoteCurrency}
           theme="dark"
           height="100%"
         />
+        {/* Mobile floating quick switch to order form */}
+        <div className="mobile-chart-cta">
+          <button
+            type="button"
+            className="btn"
+            style={{ width: '100%', padding: '12px 16px', fontWeight: 700, fontSize: 13.5, borderRadius: 10 }}
+            onClick={() => setRightPanelTab('trade')}
+          >
+            ⚡ Place Order for {asset}/{quoteCurrency}
+          </button>
+        </div>
       </div>
 
-      {/* Right Column: Switcher Tabs + Panel (Trade Order vs Watchlist) */}
-      <div className="trading-right-panel">
+      {/* Right Column: Switcher Tabs + Panel (Trade Order vs Chart vs Watchlist) */}
+      <div className={`trading-right-panel ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}>
         {/* Switcher Bar */}
         <div className="panel-tab-switcher">
           <button
@@ -525,8 +537,16 @@ export function TradeTicket() {
             onClick={() => setRightPanelTab('trade')}
           >
             <span style={{ fontSize: 13 }}>⚡</span>
-            <span>Trade Order</span>
+            <span>Order</span>
             <span className="panel-tab-asset-pill">{asset}/{quoteCurrency}</span>
+          </button>
+          <button
+            type="button"
+            className={`panel-tab-btn mobile-only-tab ${rightPanelTab === 'chart' ? 'active' : ''}`}
+            onClick={() => setRightPanelTab('chart')}
+          >
+            <span style={{ fontSize: 13 }}>📈</span>
+            <span>Chart</span>
           </button>
           <button
             type="button"

@@ -37,13 +37,26 @@ export function AppSidebar({ role, open, onClose, onLogout }: Props) {
     <>
       {open && <div className="app-sidebar-scrim" onClick={onClose} />}
       <aside className={`app-sidebar thin-sidebar${open ? ' open' : ''}`}>
-        {/* Brand Icon */}
-        <div className="sidebar-brand-wrapper" style={{ padding: '8px 0 16px', display: 'flex', justifyContent: 'center' }}>
+        {/* Mobile Drawer Header (<= 860px) */}
+        <div className="sidebar-drawer-header">
+          <Brand to="/app" onClick={onClose} size="sm" />
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={onClose}
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Desktop Brand Icon (> 860px) */}
+        <div className="sidebar-brand-wrapper desktop-only" style={{ padding: '8px 0 16px', display: 'flex', justifyContent: 'center' }}>
           <Brand to="/app" onClick={onClose} showName={false} size="sm" />
         </div>
 
         {/* Navigation Items */}
-        <nav className="thin-nav" style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', alignItems: 'center' }}>
+        <nav className="thin-nav">
           {NAV_ITEMS.map((item) => {
             if (item.to !== undefined) {
               const active = item.match?.(pathname) ?? pathname === item.to;
@@ -75,15 +88,22 @@ export function AppSidebar({ role, open, onClose, onLogout }: Props) {
         </nav>
 
         {/* Footer Logout */}
-        <div className="thin-sidebar-foot" style={{ marginTop: 'auto', padding: '12px 0 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: '100%' }}>
+        <div className="thin-sidebar-foot">
+          <div className="drawer-role-badge">
+            <span className="drawer-role-label">Role</span>
+            <span className="drawer-role-value">{role || 'Authorized'}</span>
+          </div>
           <button
             type="button"
             className="thin-logout-btn"
             title={`Signed in as ${role} · Click to Log out`}
-            onClick={onLogout}
+            onClick={() => {
+              onClose();
+              onLogout();
+            }}
           >
             <span style={{ fontSize: 16 }}>🚪</span>
-            <span style={{ fontSize: 9.5, fontWeight: 600 }}>Exit</span>
+            <span className="logout-text">Exit</span>
           </button>
         </div>
       </aside>

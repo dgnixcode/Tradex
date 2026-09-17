@@ -112,20 +112,22 @@ export function ConnectAccount() {
           <summary className="muted" style={{ cursor: 'pointer', fontSize: 12.5 }}>
             Balances read from the exchange ({reconcile.balances.length})
           </summary>
-          <table style={{ marginTop: 8 }}>
-            <thead>
-              <tr><th>Currency</th><th>Free</th><th>Locked</th></tr>
-            </thead>
-            <tbody>
-              {reconcile.balances.map((b) => (
-                <tr key={b.currency}>
-                  <td>{b.currency}</td>
-                  <td className="mono">{formatMinor(b.freeMinor, b.scale, b.currency)}</td>
-                  <td className="mono">{formatMinor(b.lockedMinor, b.scale, b.currency)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll-container" style={{ marginTop: 8 }}>
+            <table>
+              <thead>
+                <tr><th>Currency</th><th>Free</th><th>Locked</th></tr>
+              </thead>
+              <tbody>
+                {reconcile.balances.map((b) => (
+                  <tr key={b.currency}>
+                    <td>{b.currency}</td>
+                    <td className="mono">{formatMinor(b.freeMinor, b.scale, b.currency)}</td>
+                    <td className="mono">{formatMinor(b.lockedMinor, b.scale, b.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </details>
 
         {formError !== null && <div className="error">{formError}</div>}

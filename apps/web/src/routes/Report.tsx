@@ -89,10 +89,10 @@ export function Report() {
   };
 
   return (
-    <div className="panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div className="panel full-width-page">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Report</h2>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <select className="btn btn-sm" value={groupId} onChange={(e) => setGroupId(e.target.value)} aria-label="Scope">
             <option value="">All accounts</option>
             {(groups.data ?? []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -106,7 +106,7 @@ export function Report() {
           </button>
         </div>
       </div>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+      <p className="sub muted" style={{ marginTop: -4, marginBottom: 16 }}>
         What actually happened, from our records: {q.data === undefined ? '…' : q.data.window.label}
         {q.data?.approximate === true && <span className="badge skipped" style={{ marginLeft: 8 }}>contains unclassified adjustments</span>}
       </p>
@@ -117,38 +117,42 @@ export function Report() {
       {q.isSuccess && q.data !== undefined && (
         <>
           <h3 style={{ marginTop: 0 }}>Realised P&amp;L, fees and TDS</h3>
-          <table style={{ marginBottom: 22 }}>
-            <thead>
-              <tr>
-                <th>Currency</th>
-                <th style={{ textAlign: 'right' }}>Realised</th>
-                <th style={{ textAlign: 'right' }}>Fee drag</th>
-                <th style={{ textAlign: 'right' }}>TDS withheld (est.)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {q.data.totals.filter((t) => t.realised !== '0' || t.feeDrag !== '0' || t.tds !== '0').map((t) => (
-                <tr key={t.quoteAsset}>
-                  <td><span className="badge planned">{t.quoteAsset}</span></td>
-                  <td className="mono" style={{ textAlign: 'right', color: BigInt(t.realised) >= 0n ? 'var(--ok)' : 'var(--danger)' }}>
-                    {fmtSigned(t.realised, t.quoteAsset)}
-                  </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtMinor(t.feeDrag, t.quoteAsset)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtMinor(t.tds, t.quoteAsset)}</td>
+          <div className="table-scroll-container" style={{ marginBottom: 22 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Currency</th>
+                  <th style={{ textAlign: 'right' }}>Realised</th>
+                  <th style={{ textAlign: 'right' }}>Fee drag</th>
+                  <th style={{ textAlign: 'right' }}>TDS withheld (est.)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {q.data.totals.filter((t) => t.realised !== '0' || t.feeDrag !== '0' || t.tds !== '0').map((t) => (
+                  <tr key={t.quoteAsset}>
+                    <td><span className="badge planned">{t.quoteAsset}</span></td>
+                    <td className="mono" style={{ textAlign: 'right', color: BigInt(t.realised) >= 0n ? 'var(--ok)' : 'var(--danger)' }}>
+                      {fmtSigned(t.realised, t.quoteAsset)}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtMinor(t.feeDrag, t.quoteAsset)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtMinor(t.tds, t.quoteAsset)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <h3 style={{ marginTop: 0 }}>Metrics</h3>
-          <table>
-            <thead>
-              <tr><th>Metric</th><th style={{ textAlign: 'right' }}>Value</th><th>Note</th></tr>
-            </thead>
-            <tbody>
-              {q.data.metrics.map((m) => <MetricRow key={`${m.metricId}-${m.quoteAsset ?? 'x'}`} m={m} />)}
-            </tbody>
-          </table>
+          <div className="table-scroll-container">
+            <table>
+              <thead>
+                <tr><th>Metric</th><th style={{ textAlign: 'right' }}>Value</th><th>Note</th></tr>
+              </thead>
+              <tbody>
+                {q.data.metrics.map((m) => <MetricRow key={`${m.metricId}-${m.quoteAsset ?? 'x'}`} m={m} />)}
+              </tbody>
+            </table>
+          </div>
           <p className="sub muted" style={{ marginTop: 12 }}>
             TDS is always estimated until confirmed on your exchange statement. Win/loss, fill rate and other
             per-order figures show “not captured” until fills are linked to their orders.

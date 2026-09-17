@@ -40,9 +40,9 @@ export function Accounts() {
 
   return (
     <div className="panel full-width-page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Accounts</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             className="btn secondary btn-sm"
             onClick={() => {
@@ -61,7 +61,7 @@ export function Accounts() {
           )}
         </div>
       </div>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+      <p className="sub muted" style={{ marginTop: -4, marginBottom: 16 }}>
         The exchange accounts connected to this workspace. One account, one set of keys.
         Open an account to deactivate, reactivate or remove it.
       </p>
@@ -81,34 +81,97 @@ export function Accounts() {
       )}
 
       {accounts.isSuccess && accounts.data.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Account</th>
-              <th>Status</th>
-              <th>Allocated</th>
-              <th>Funding</th>
-              <th>Connected</th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          {/* Desktop Table View (> 768px) */}
+          <div className="table-scroll-container desktop-pos-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Status</th>
+                  <th>Allocated</th>
+                  <th>Funding</th>
+                  <th>Connected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.data.map((a) => (
+                  <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
+                    <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
+                    <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
+                    <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
+                    <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
+                    <td>
+                      {a.confirmedAgainstMinor === null ? (
+                        <span className="muted">not activated</span>
+                      ) : (
+                        <span style={{ color: 'var(--ok)' }}>from the exchange</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Account Cards (<= 768px) */}
+          <div className="mobile-pos-cards">
             {accounts.data.map((a) => (
-              <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
-                <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
-                <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
-                <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
-                <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
-                <td>
-                  {a.confirmedAgainstMinor === null ? (
-                    <span className="muted">not activated</span>
-                  ) : (
-                    <span style={{ color: 'var(--ok)' }}>from the exchange</span>
-                  )}
-                </td>
-              </tr>
+              <div
+                key={`mobile-${a.id}`}
+                className="pos-mobile-card"
+                style={{
+                  opacity: a.status === 'disconnected' || a.status === 'suspended' ? 0.75 : 1,
+                }}
+              >
+                <div className="pos-mobile-card-top">
+                  <div>
+                    <Link
+                      to={`/app/accounts/${a.id}`}
+                      style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}
+                    >
+                      {a.name} →
+                    </Link>
+                    <div style={{ marginTop: 4 }}>
+                      <span className={`badge ${statusBadgeClass(a.status)}`}>
+                        {STATUS_LABEL[a.status] ?? a.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--muted)', display: 'block' }}>Allocated</span>
+                    <span className="mono" style={{ fontSize: 13.5, fontWeight: 700 }}>
+                      {capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div className="pos-mobile-cell">
+                    <span className="pos-mobile-label">Funding Currencies</span>
+                    <span className="pos-mobile-val">
+                      {a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : 'None'}
+                    </span>
+                  </div>
+                  <div className="pos-mobile-cell">
+                    <span className="pos-mobile-label">Exchange Status</span>
+                    <span className="pos-mobile-val" style={{ color: a.confirmedAgainstMinor ? 'var(--ok)' : 'var(--muted)' }}>
+                      {a.confirmedAgainstMinor !== null ? '✓ Activated' : 'Not activated'}
+                    </span>
+                  </div>
+                </div>
+
+                <Link
+                  to={`/app/accounts/${a.id}`}
+                  className="btn btn-sm secondary"
+                  style={{ width: '100%', padding: '8px', fontSize: 12.5, fontWeight: 600, textAlign: 'center', boxSizing: 'border-box' }}
+                >
+                  View Details &amp; Positions →
+                </Link>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
     </div>
   );

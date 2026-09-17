@@ -149,45 +149,93 @@ export function GroupDetail() {
             <p className="muted">No accounts yet — add one below to include it in group trades.</p>
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Status</th>
-                <th>Allocated</th>
-                <th>In trades</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Desktop Table View (> 768px) */}
+            <div className="table-scroll-container desktop-pos-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Status</th>
+                    <th>Allocated</th>
+                    <th>In trades</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.members.map((m) => (
+                    <tr key={m.accountId} className={m.enabled ? '' : 'skipped'}>
+                      <td>{m.accountName}</td>
+                      <td><span className={`badge ${m.status === 'active' ? 'planned' : 'skipped'}`}>{m.status}</span></td>
+                      <td className="mono">{capitalLabel(m.allocatedCapitalMinor, m.allocatedCurrency)}</td>
+                      <td>
+                        <span className={`badge ${m.enabled ? 'planned' : 'skipped'}`}>{m.enabled ? 'enabled' : 'disabled'}</span>
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button
+                          className="btn ghost btn-sm"
+                          disabled={toggleEnabled.isPending}
+                          onClick={() => toggleEnabled.mutate({ accountId: m.accountId, enabled: !m.enabled })}
+                        >
+                          {m.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button
+                          className="btn ghost btn-sm danger-text"
+                          disabled={removeMember.isPending}
+                          onClick={() => removeMember.mutate(m.accountId)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Member Cards (<= 768px) */}
+            <div className="mobile-pos-cards">
               {detail.members.map((m) => (
-                <tr key={m.accountId} className={m.enabled ? '' : 'skipped'}>
-                  <td>{m.accountName}</td>
-                  <td><span className={`badge ${m.status === 'active' ? 'planned' : 'skipped'}`}>{m.status}</span></td>
-                  <td className="mono">{capitalLabel(m.allocatedCapitalMinor, m.allocatedCurrency)}</td>
-                  <td>
-                    <span className={`badge ${m.enabled ? 'planned' : 'skipped'}`}>{m.enabled ? 'enabled' : 'disabled'}</span>
-                  </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <div key={`mobile-${m.accountId}`} className="pos-mobile-card">
+                  <div className="pos-mobile-card-top">
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{m.accountName}</div>
+                      <div style={{ marginTop: 4 }}>
+                        <span className={`badge ${m.status === 'active' ? 'planned' : 'skipped'}`}>{m.status}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className={`badge ${m.enabled ? 'planned' : 'skipped'}`}>{m.enabled ? 'in trades' : 'disabled'}</span>
+                      <div className="mono" style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                        {capitalLabel(m.allocatedCapitalMinor, m.allocatedCurrency)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <button
-                      className="btn ghost btn-sm"
+                      type="button"
+                      className="btn secondary btn-sm"
+                      style={{ padding: '8px', fontSize: 12 }}
                       disabled={toggleEnabled.isPending}
                       onClick={() => toggleEnabled.mutate({ accountId: m.accountId, enabled: !m.enabled })}
                     >
-                      {m.enabled ? 'Disable' : 'Enable'}
+                      {m.enabled ? 'Disable Trade' : 'Enable Trade'}
                     </button>
                     <button
+                      type="button"
                       className="btn ghost btn-sm danger-text"
+                      style={{ padding: '8px', fontSize: 12, border: '1px solid rgba(239,68,68,0.3)' }}
                       disabled={removeMember.isPending}
                       onClick={() => removeMember.mutate(m.accountId)}
                     >
                       Remove
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
 
         {/* add member */}

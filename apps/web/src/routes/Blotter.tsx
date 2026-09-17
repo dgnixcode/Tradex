@@ -66,6 +66,51 @@ function Row({ r }: { readonly r: BlotterChildRow }) {
   );
 }
 
+function MobileBlotterCard({ r }: { readonly r: BlotterChildRow }) {
+  return (
+    <div className="pos-mobile-card">
+      <div className="pos-mobile-card-top">
+        <div>
+          <Link
+            to={`/app/activity/groups/${r.groupTradeId}`}
+            style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}
+          >
+            {r.accountName} →
+          </Link>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{fmtWhen(r.createdAtMs)}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <span className={`badge ${badgeFor(r.state)}`}>{STATE_LABEL[r.state] ?? r.state}</span>
+        </div>
+      </div>
+
+      <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Market</span>
+          <span className="pos-mobile-val mono" style={{ fontWeight: 700 }}>{r.market}</span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Order</span>
+          <span className="pos-mobile-val" style={{ textTransform: 'uppercase', color: r.side === 'buy' ? 'var(--ok)' : 'var(--danger)', fontWeight: 700 }}>
+            {r.side} {r.orderType}
+          </span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Qty</span>
+          <span className="pos-mobile-val mono">{r.finalQuantity === null ? '—' : fmtQty(r.finalQuantity)}</span>
+        </div>
+      </div>
+
+      {(r.refusalDetail !== null || r.refusalCode !== null || r.exchangeOrderId !== null) && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+          {r.refusalCode && <span className="mono" style={{ color: 'var(--danger)', marginRight: 6 }}>{r.refusalCode}</span>}
+          {r.refusalDetail ?? (r.exchangeOrderId ? `Venue ID: ${r.exchangeOrderId}` : '')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Blotter() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccountList });
   const [accountId, setAccountId] = useState('');
@@ -92,10 +137,10 @@ export function Blotter() {
   };
 
   return (
-    <div className="panel">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div className="panel full-width-page">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Activity</h2>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <select className="btn btn-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Filter by account">
             <option value="">All accounts</option>
             {(accounts.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -106,11 +151,11 @@ export function Blotter() {
           <input
             className="btn btn-sm" placeholder="Market (BTCINR)" value={market}
             onChange={(e) => setMarket(e.target.value)}
-            style={{ width: 150 }}
+            style={{ width: 130 }}
           />
         </div>
       </div>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+      <p className="sub muted" style={{ marginTop: -4, marginBottom: 16 }}>
         Every order this workspace has placed, from our own records. Fill prices are not captured until an
         order&apos;s fills are linked to it — never shown as zero.
       </p>
@@ -128,17 +173,26 @@ export function Blotter() {
 
       {rows.length > 0 && (
         <>
-          <table>
-            <thead>
-              <tr>
-                <th>Account</th><th>Order</th><th>Market</th>
-                <th style={{ textAlign: 'right' }}>Qty</th><th>Outcome</th><th>Detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => <Row key={r.id} r={r} />)}
-            </tbody>
-          </table>
+          {/* Desktop Table View (> 768px) */}
+          <div className="table-scroll-container desktop-pos-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th><th>Order</th><th>Market</th>
+                  <th style={{ textAlign: 'right' }}>Qty</th><th>Outcome</th><th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => <Row key={r.id} r={r} />)}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Order Cards (<= 768px) */}
+          <div className="mobile-pos-cards">
+            {rows.map((r) => <MobileBlotterCard key={`mobile-${r.id}`} r={r} />)}
+          </div>
+
           {next !== null && (
             <div style={{ marginTop: 14, textAlign: 'center' }}>
               <button className="btn secondary btn-sm" onClick={() => { void loadMore(); }}>Load older</button>

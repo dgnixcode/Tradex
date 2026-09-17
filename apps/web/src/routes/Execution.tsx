@@ -204,33 +204,77 @@ export function Execution() {
         {failed > 0 && <span style={{ color: 'var(--danger)' }}>{failed} failed</span>}
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Account</th>
-            <th>Status</th>
-            <th>Market</th>
-            <th className="mono">Quantity</th>
-            <th className="mono">Exchange order</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {plan.rows.map((row) => {
-            const s = rowState(row);
-            return (
-              <tr key={row.accountId} className={RETRYABLE.has(s.state) ? 'skipped' : ''}>
-                <td>{row.accountName}</td>
-                <td><span className={`badge ${s.state}`}>{s.state}</span></td>
-                <td>{row.market ?? '—'}</td>
-                <td className="mono">{row.finalQuantity ?? '—'}</td>
-                <td className="mono">{s.exchangeOrderId ?? '—'}</td>
-                <td>{s.refusalDetail ?? s.refusalCode ?? (s.state === 'planned' ? describeBasis(row) : '')}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="table-scroll-container desktop-pos-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Status</th>
+              <th>Market</th>
+              <th className="mono">Quantity</th>
+              <th className="mono">Exchange order</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.rows.map((row) => {
+              const s = rowState(row);
+              return (
+                <tr key={row.accountId} className={RETRYABLE.has(s.state) ? 'skipped' : ''}>
+                  <td>{row.accountName}</td>
+                  <td><span className={`badge ${s.state}`}>{s.state}</span></td>
+                  <td>{row.market ?? '—'}</td>
+                  <td className="mono">{row.finalQuantity ?? '—'}</td>
+                  <td className="mono">{s.exchangeOrderId ?? '—'}</td>
+                  <td>{s.refusalDetail ?? s.refusalCode ?? (s.state === 'planned' ? describeBasis(row) : '')}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile Execution Cards (<= 768px) */}
+      <div className="mobile-pos-cards">
+        {plan.rows.map((row) => {
+          const s = rowState(row);
+          return (
+            <div
+              key={`mobile-${row.accountId}`}
+              className="pos-mobile-card"
+              style={{ opacity: RETRYABLE.has(s.state) ? 0.75 : 1 }}
+            >
+              <div className="pos-mobile-card-top">
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{row.accountName}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Market: {row.market ?? '—'}</div>
+                </div>
+                <div>
+                  <span className={`badge ${s.state}`}>{s.state}</span>
+                </div>
+              </div>
+
+              <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="pos-mobile-cell">
+                  <span className="pos-mobile-label">Qty</span>
+                  <span className="pos-mobile-val mono">{row.finalQuantity ?? '—'}</span>
+                </div>
+                <div className="pos-mobile-cell">
+                  <span className="pos-mobile-label">Venue Order</span>
+                  <span className="pos-mobile-val mono">{s.exchangeOrderId ?? '—'}</span>
+                </div>
+              </div>
+
+              {(s.refusalDetail || s.refusalCode || s.state === 'planned') && (
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+                  {s.refusalCode && <span className="mono" style={{ color: 'var(--danger)', marginRight: 6 }}>{s.refusalCode}</span>}
+                  {s.refusalDetail ?? (s.state === 'planned' ? describeBasis(row) : '')}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* A live log region: screen readers announce each newly appended terminal
           transition, and the operator sees the account-by-account trail. Names

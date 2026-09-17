@@ -81,9 +81,9 @@ export function Inquiries() {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}>
+    <div className="full-width-page" style={{ maxWidth: '1280px', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 800 }}>Client Inquiries</h1>
@@ -109,36 +109,36 @@ export function Inquiries() {
       </div>
 
       {/* Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        <div className="panel" style={{ padding: '16px 20px', marginBottom: 0 }}>
-          <span className="muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Inquiries</span>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: 'var(--text)' }}>{totalCount}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+        <div className="panel" style={{ padding: '14px 16px', marginBottom: 0 }}>
+          <span className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Inquiries</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '2px', color: 'var(--text)' }}>{totalCount}</div>
         </div>
-        <div className="panel" style={{ padding: '16px 20px', marginBottom: 0, borderColor: newCount > 0 ? 'rgba(59, 130, 246, 0.4)' : undefined }}>
-          <span className="muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>New / Pending</span>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: '#3b82f6' }}>{newCount}</div>
+        <div className="panel" style={{ padding: '14px 16px', marginBottom: 0, borderColor: newCount > 0 ? 'rgba(59, 130, 246, 0.4)' : undefined }}>
+          <span className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>New / Pending</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '2px', color: '#3b82f6' }}>{newCount}</div>
         </div>
-        <div className="panel" style={{ padding: '16px 20px', marginBottom: 0 }}>
-          <span className="muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>In Discussion</span>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: '#eab308' }}>{contactedCount}</div>
+        <div className="panel" style={{ padding: '14px 16px', marginBottom: 0 }}>
+          <span className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>In Discussion</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '2px', color: '#eab308' }}>{contactedCount}</div>
         </div>
-        <div className="panel" style={{ padding: '16px 20px', marginBottom: 0 }}>
-          <span className="muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Onboarded</span>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: 'var(--ok)' }}>{onboardedCount}</div>
+        <div className="panel" style={{ padding: '14px 16px', marginBottom: 0 }}>
+          <span className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Onboarded</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '2px', color: 'var(--ok)' }}>{onboardedCount}</div>
         </div>
       </div>
 
       {/* Search and Tabs Bar */}
-      <div className="panel" style={{ padding: '16px 20px', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
-          <div className="account-nav-tabs" style={{ margin: 0, borderBottom: 'none' }}>
+      <div className="panel" style={{ padding: '14px 16px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div className="account-nav-tabs" style={{ margin: 0, borderBottom: 'none', overflowX: 'auto', flexWrap: 'nowrap' }}>
             {(['all', 'new', 'contacted', 'onboarded', 'archived'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 className={`account-nav-tab ${selectedStatus === tab ? 'active' : ''}`}
                 onClick={() => setSelectedStatus(tab)}
-                style={{ padding: '6px 14px', fontSize: '13px', textTransform: 'capitalize' }}
+                style={{ padding: '6px 12px', fontSize: '12.5px', textTransform: 'capitalize', whiteSpace: 'nowrap' }}
               >
                 {tab === 'all' ? `All (${totalCount})` : tab}
                 {tab === 'new' && newCount > 0 && (
@@ -150,20 +150,20 @@ export function Inquiries() {
             ))}
           </div>
 
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: '280px' }}>
             <input
               type="text"
-              placeholder="Search leads by name, phone..."
+              placeholder="🔍 Search name, phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="card-account-search"
-              style={{ width: '240px', padding: '7px 12px', fontSize: '13px' }}
+              style={{ width: '100%', padding: '7px 12px', fontSize: '13px', boxSizing: 'border-box' }}
             />
           </div>
         </div>
       </div>
 
-      {/* Table Container */}
+      {/* Table & Mobile Cards Container */}
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
         {isLoading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--muted)' }}>
@@ -181,137 +181,267 @@ export function Inquiries() {
             </p>
           </div>
         ) : (
-          <div className="table-scroll-container" style={{ maxHeight: 'calc(100vh - 360px)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '14px 18px' }}>Date</th>
-                  <th style={{ padding: '14px 18px' }}>Investor</th>
-                  <th style={{ padding: '14px 18px' }}>Contact Details</th>
-                  <th style={{ padding: '14px 18px' }}>Capital &amp; Venue</th>
-                  <th style={{ padding: '14px 18px' }}>Channel / Notes</th>
-                  <th style={{ padding: '14px 18px' }}>Status</th>
-                  <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item: InquiryItem) => {
-                  const waNumber = cleanPhoneForWa(item.phone);
-                  const waText = encodeURIComponent(`Hello ${item.name}, I am reaching out regarding your wealth consultation request on Aza WealthKare.`);
-                  const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
+          <>
+            {/* Desktop Table View (> 768px) */}
+            <div className="table-scroll-container desktop-pos-table" style={{ maxHeight: 'calc(100vh - 360px)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <th style={{ padding: '14px 18px' }}>Date</th>
+                    <th style={{ padding: '14px 18px' }}>Investor</th>
+                    <th style={{ padding: '14px 18px' }}>Contact Details</th>
+                    <th style={{ padding: '14px 18px' }}>Capital &amp; Venue</th>
+                    <th style={{ padding: '14px 18px' }}>Channel / Notes</th>
+                    <th style={{ padding: '14px 18px' }}>Status</th>
+                    <th style={{ padding: '14px 18px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((item: InquiryItem) => {
+                    const waNumber = cleanPhoneForWa(item.phone);
+                    const waText = encodeURIComponent(`Hello ${item.name}, I am reaching out regarding your wealth consultation request on Aza WealthKare.`);
+                    const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
 
-                  return (
-                    <tr key={item.id} style={{ borderBottom: '1px solid var(--line)', verticalAlign: 'top' }}>
-                      <td style={{ padding: '14px 18px', whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: '12px' }}>
-                        {formatDate(item.createdAt)}
-                      </td>
+                    return (
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--line)', verticalAlign: 'top' }}>
+                        <td style={{ padding: '14px 18px', whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: '12px' }}>
+                          {formatDate(item.createdAt)}
+                        </td>
 
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)' }}>{item.name}</div>
-                      </td>
+                        <td style={{ padding: '14px 18px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--text)' }}>{item.name}</div>
+                        </td>
 
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.phone}</span>
+                        <td style={{ padding: '14px 18px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.phone}</span>
+                              <a
+                                href={waUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-sm"
+                                style={{
+                                  padding: '2px 8px',
+                                  fontSize: '11px',
+                                  background: '#25D366',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  textDecoration: 'none',
+                                }}
+                                title="Chat on WhatsApp"
+                              >
+                                <span>💬</span> WhatsApp
+                              </a>
+                            </div>
                             <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-sm"
-                              style={{
-                                padding: '2px 8px',
-                                fontSize: '11px',
-                                background: '#25D366',
-                                color: '#ffffff',
-                                border: 'none',
-                                borderRadius: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                textDecoration: 'none',
-                              }}
-                              title="Chat on WhatsApp"
+                              href={`mailto:${item.email}`}
+                              style={{ color: 'var(--accent)', fontSize: '12px' }}
                             >
-                              <span>💬</span> WhatsApp
+                              {item.email}
                             </a>
                           </div>
-                          <a
-                            href={`mailto:${item.email}`}
-                            style={{ color: 'var(--accent)', fontSize: '12px' }}
-                          >
-                            {item.email}
-                          </a>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td style={{ padding: '14px 18px' }}>
-                        <div style={{ fontWeight: 600 }}>{item.capital}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                          🏛️ {item.exchange}
-                        </div>
-                      </td>
-
-                      <td style={{ padding: '14px 18px', maxWidth: '280px' }}>
-                        <span className="pill" style={{ fontSize: '11px', marginBottom: '4px', display: 'inline-block' }}>
-                          {item.method}
-                        </span>
-                        {item.notes ? (
-                          <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.4, marginTop: '4px', background: 'rgba(255,255,255,0.03)', padding: '6px 8px', borderRadius: '6px' }}>
-                            "{item.notes}"
+                        <td style={{ padding: '14px 18px' }}>
+                          <div style={{ fontWeight: 600 }}>{item.capital}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
+                            🏛️ {item.exchange}
                           </div>
-                        ) : (
-                          <span style={{ fontSize: '12px', color: 'var(--faint)', display: 'block', marginTop: '4px' }}>No notes provided</span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td style={{ padding: '14px 18px' }}>
+                        <td style={{ padding: '14px 18px', maxWidth: '280px' }}>
+                          <span className="pill" style={{ fontSize: '11px', marginBottom: '4px', display: 'inline-block' }}>
+                            {item.method}
+                          </span>
+                          {item.notes ? (
+                            <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.4, marginTop: '4px', background: 'rgba(255,255,255,0.03)', padding: '6px 8px', borderRadius: '6px' }}>
+                              "{item.notes}"
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--faint)', display: 'block', marginTop: '4px' }}>No notes provided</span>
+                          )}
+                        </td>
+
+                        <td style={{ padding: '14px 18px' }}>
+                          {getStatusBadge(item.status)}
+                        </td>
+
+                        <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            {item.status !== 'contacted' && item.status !== 'onboarded' && (
+                              <button
+                                type="button"
+                                onClick={() => updateMutation.mutate({ id: item.id, status: 'contacted' })}
+                                disabled={updateMutation.isPending}
+                                className="btn secondary btn-sm"
+                                style={{ fontSize: '11.5px', padding: '4px 8px' }}
+                              >
+                                Mark Contacted
+                              </button>
+                            )}
+                            {item.status !== 'onboarded' && (
+                              <button
+                                type="button"
+                                onClick={() => updateMutation.mutate({ id: item.id, status: 'onboarded' })}
+                                disabled={updateMutation.isPending}
+                                className="btn btn-sm"
+                                style={{ fontSize: '11.5px', padding: '4px 8px', background: '#16a34a', color: '#fff', borderColor: '#16a34a' }}
+                              >
+                                Onboard
+                              </button>
+                            )}
+                            {item.status !== 'archived' && (
+                              <button
+                                type="button"
+                                onClick={() => updateMutation.mutate({ id: item.id, status: 'archived' })}
+                                disabled={updateMutation.isPending}
+                                className="btn secondary btn-sm"
+                                style={{ fontSize: '11.5px', padding: '4px 8px', opacity: 0.6 }}
+                              >
+                                Archive
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Inquiry Cards (<= 768px) */}
+            <div className="mobile-pos-cards">
+              {filtered.map((item: InquiryItem) => {
+                const waNumber = cleanPhoneForWa(item.phone);
+                const waText = encodeURIComponent(`Hello ${item.name}, I am reaching out regarding your wealth consultation request on Aza WealthKare.`);
+                const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
+
+                return (
+                  <div key={`mobile-${item.id}`} className="pos-mobile-card">
+                    <div className="pos-mobile-card-top">
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{item.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{formatDate(item.createdAt)}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
                         {getStatusBadge(item.status)}
-                      </td>
+                      </div>
+                    </div>
 
-                      <td style={{ padding: '14px 18px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          {item.status !== 'contacted' && item.status !== 'onboarded' && (
-                            <button
-                              type="button"
-                              onClick={() => updateMutation.mutate({ id: item.id, status: 'contacted' })}
-                              disabled={updateMutation.isPending}
-                              className="btn secondary btn-sm"
-                              style={{ fontSize: '11.5px', padding: '4px 8px' }}
-                            >
-                              Mark Contacted
-                            </button>
-                          )}
-                          {item.status !== 'onboarded' && (
-                            <button
-                              type="button"
-                              onClick={() => updateMutation.mutate({ id: item.id, status: 'onboarded' })}
-                              disabled={updateMutation.isPending}
-                              className="btn btn-sm"
-                              style={{ fontSize: '11.5px', padding: '4px 8px', background: '#16a34a', color: '#fff', borderColor: '#16a34a' }}
-                            >
-                              Onboard
-                            </button>
-                          )}
-                          {item.status !== 'archived' && (
-                            <button
-                              type="button"
-                              onClick={() => updateMutation.mutate({ id: item.id, status: 'archived' })}
-                              disabled={updateMutation.isPending}
-                              className="btn secondary btn-sm"
-                              style={{ fontSize: '11.5px', padding: '4px 8px', opacity: 0.6 }}
-                            >
-                              Archive
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                      <div className="pos-mobile-cell">
+                        <span className="pos-mobile-label">Capital</span>
+                        <span className="pos-mobile-val" style={{ fontWeight: 700 }}>{item.capital}</span>
+                      </div>
+                      <div className="pos-mobile-cell">
+                        <span className="pos-mobile-label">Exchange</span>
+                        <span className="pos-mobile-val">🏛️ {item.exchange}</span>
+                      </div>
+                    </div>
+
+                    {item.notes && (
+                      <div style={{ fontSize: 12, color: 'var(--text-dim)', background: 'rgba(255,255,255,0.03)', padding: '8px 10px', borderRadius: 6, fontStyle: 'italic' }}>
+                        "{item.notes}"
+                      </div>
+                    )}
+
+                    {/* 1-Tap Touch Contact Buttons */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-sm"
+                        style={{
+                          background: '#25D366',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          fontWeight: 700,
+                          fontSize: 12.5,
+                          textDecoration: 'none',
+                        }}
+                      >
+                        <span>💬</span> WhatsApp
+                      </a>
+                      <a
+                        href={`tel:${item.phone}`}
+                        className="btn btn-sm secondary"
+                        style={{
+                          borderRadius: 8,
+                          padding: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          fontWeight: 700,
+                          fontSize: 12.5,
+                          textDecoration: 'none',
+                        }}
+                      >
+                        <span>📞</span> Call
+                      </a>
+                    </div>
+
+                    <a
+                      href={`mailto:${item.email}`}
+                      style={{ fontSize: 12, color: 'var(--accent)', textAlign: 'center', textDecoration: 'none', display: 'block' }}
+                    >
+                      ✉️ {item.email}
+                    </a>
+
+                    {/* Status Action Buttons */}
+                    <div style={{ display: 'flex', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                      {item.status !== 'contacted' && item.status !== 'onboarded' && (
+                        <button
+                          type="button"
+                          onClick={() => updateMutation.mutate({ id: item.id, status: 'contacted' })}
+                          disabled={updateMutation.isPending}
+                          className="btn secondary btn-sm"
+                          style={{ flex: 1, fontSize: 11.5, padding: '6px' }}
+                        >
+                          Mark Contacted
+                        </button>
+                      )}
+                      {item.status !== 'onboarded' && (
+                        <button
+                          type="button"
+                          onClick={() => updateMutation.mutate({ id: item.id, status: 'onboarded' })}
+                          disabled={updateMutation.isPending}
+                          className="btn btn-sm"
+                          style={{ flex: 1, fontSize: 11.5, padding: '6px', background: '#16a34a', color: '#fff', borderColor: '#16a34a' }}
+                        >
+                          ✓ Onboard
+                        </button>
+                      )}
+                      {item.status !== 'archived' && (
+                        <button
+                          type="button"
+                          onClick={() => updateMutation.mutate({ id: item.id, status: 'archived' })}
+                          disabled={updateMutation.isPending}
+                          className="btn secondary btn-sm"
+                          style={{ fontSize: 11.5, padding: '6px 10px', opacity: 0.6 }}
+                        >
+                          Archive
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>
