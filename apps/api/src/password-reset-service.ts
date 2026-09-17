@@ -127,9 +127,35 @@ export class PasswordResetService {
       if (!res.ok) {
         const errText = await res.text();
         console.error(`[PasswordResetService] Resend API error (${res.status}): ${errText}`);
+
+        // If custom domain is not yet verified on Resend, gracefully fallback to onboarding@resend.dev
+        if (!this.resendFrom.includes('onboarding@resend.dev') && (res.status === 403 || errText.includes('not verified'))) {
+          console.warn('[PasswordResetService] Domain pending verification on Resend; retrying with onboarding@resend.dev fallback...');
+          const fallbackRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.resendApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: `${brandName} <onboarding@resend.dev>`,
+              to: [toEmail],
+              subject: `Reset your ${brandName} password`,
+              html,
+            }),
+          });
+
+          if (fallbackRes.ok) {
+            console.log(`[PasswordResetService] Password reset email successfully dispatched via fallback onboarding@resend.dev to ${toEmail}`);
+            return;
+          }
+          const fallbackErr = await fallbackRes.text();
+          console.error(`[PasswordResetService] Fallback dispatch failed (${fallbackRes.status}): ${fallbackErr}`);
+        }
+
         console.warn(`[PasswordResetService] Fallback reset link for ${toEmail}: ${resetLink}`);
       } else {
-        console.log(`[PasswordResetService] Password reset email successfully dispatched to ${toEmail} via Resend`);
+        console.log(`[PasswordResetService] Password reset email successfully dispatched to ${toEmail} via Resend (${this.resendFrom})`);
       }
     } catch (err) {
       console.error('[PasswordResetService] Failed to send email via Resend:', err);
