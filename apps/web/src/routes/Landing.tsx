@@ -58,8 +58,8 @@ export function Landing() {
             </div>
 
             <h1 className="wm-hero-title">
-              Grow Your Crypto Wealth. <br />
-              <span className="wm-grad">Keep 100% Custody</span> in Your Own Account.
+              Grow Your Wealth. <br />
+              <span className="wm-grad">Keep 100% Custody</span> in Your Own Trading Account.
             </h1>
 
             <p className="wm-hero-sub">
@@ -106,7 +106,7 @@ export function Landing() {
             <div className="wm-hero-media-wrap">
               <img
                 src="/images/crypto_bull_hero.jpg"
-                alt="Aza WealthKare Institutional Crypto Bull and Trading Command"
+                alt="Aza WealthKare Institutional Bull and Trading Command"
                 className="wm-hero-img"
                 loading="eager"
               />
