@@ -3236,13 +3236,44 @@ body:has(.panel-dark)::before {
   color: #94a3b8;
 }
 
-/* Hero Section Container with Full-Width Live Algorithmic Trading Backdrop */
+/* Hero Section Container with Clean Luxury Fintech Aesthetic */
 .wm-hero-wrap {
   position: relative;
   width: 100%;
-  background-color: #050811;
+  background: 
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(16, 185, 129, 0.14) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 50% at 85% 60%, rgba(56, 189, 248, 0.07) 0%, transparent 60%),
+    linear-gradient(180deg, #090e1b 0%, #060913 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
+}
+
+/* Subtle modern dot-matrix mesh with soft radial vignette */
+.wm-hero-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 35%, black 20%, transparent 85%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 35%, black 20%, transparent 85%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Luminous top horizon beam */
+.wm-hero-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 700px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.65), transparent);
+  box-shadow: 0 0 25px rgba(52, 211, 153, 0.5);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .landing-dark .wm-hero {
@@ -3469,127 +3500,8 @@ body:has(.panel-dark)::before {
 }
 
 /* =========================================================================
-   EXTRAORDINARY LIVE TRADING CHART BACKGROUND & HERO VISUAL
+   PIXEL-PERFECT INSTITUTIONAL WEALTH COMMAND CARD (.hero-command-card)
    ========================================================================= */
-.hero-chart-bg-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
-  background: 
-    radial-gradient(ellipse 65% 55% at 75% 45%, rgba(16, 185, 129, 0.16) 0%, transparent 70%),
-    radial-gradient(circle at 20% 70%, rgba(14, 165, 233, 0.08) 0%, transparent 50%),
-    linear-gradient(180deg, #050811 0%, #070b16 100%);
-}
-
-.hero-chart-ticker-ribbon {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 38px;
-  background: rgba(6, 9, 19, 0.75);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 28px;
-  z-index: 3;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.ticker-ribbon-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-family: var(--mono, monospace);
-  letter-spacing: 0.04em;
-}
-
-.ticker-live-beacon {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #34d399;
-  box-shadow: 0 0 10px #34d399;
-  animation: waPulse 1.4s infinite;
-}
-
-.ticker-text-primary {
-  font-weight: 800;
-  color: #34d399;
-  text-transform: uppercase;
-}
-
-.ticker-ribbon-sep {
-  color: rgba(255, 255, 255, 0.15);
-  font-size: 12px;
-}
-
-.ticker-muted {
-  color: #64748b;
-  font-weight: 600;
-}
-
-.ticker-val {
-  font-weight: 750;
-  color: #f1f5f9;
-}
-
-.ticker-val.text-green {
-  color: #34d399;
-}
-
-.ticker-val.text-red {
-  color: #f87171;
-}
-
-.ticker-val.text-cyan {
-  color: #38bdf8;
-}
-
-.ticker-delta {
-  font-weight: 700;
-  font-size: 10.5px;
-}
-
-.hero-chart-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  z-index: 2;
-  opacity: 0.88;
-}
-
-.hero-chart-vignette-left {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(5, 8, 17, 0.88) 0%, rgba(5, 8, 17, 0.62) 46%, rgba(5, 8, 17, 0.15) 100%);
-  pointer-events: none;
-  z-index: 3;
-}
-
-.hero-chart-vignette-bottom {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 90px;
-  background: linear-gradient(180deg, transparent 0%, #050811 100%);
-  pointer-events: none;
-  z-index: 3;
-}
-
-/* Institutional Bull Visual & Real-Time Telemetry Terminal */
 .landing-dark .wm-hero-visual {
   position: relative;
   display: flex;
@@ -3598,438 +3510,288 @@ body:has(.panel-dark)::before {
   width: 100%;
 }
 
-.wm-hero-media-wrap {
-  position: relative;
+.hero-command-card {
+  width: 100%;
+  max-width: 580px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.88) 0%, rgba(9, 13, 24, 0.96) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(52, 211, 153, 0.32);
   border-radius: 22px;
-  overflow: hidden;
-  box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.85),
-              0 0 50px rgba(16, 185, 129, 0.22),
-              0 0 0 1px rgba(52, 211, 153, 0.45);
-  background: #0d1322;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.wm-hero-media-wrap:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 32px 75px -10px rgba(0, 0, 0, 0.95),
-              0 0 65px rgba(16, 185, 129, 0.32),
-              0 0 0 1px rgba(52, 211, 153, 0.65);
-}
-
-.wm-hero-img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 10.5;
-  object-fit: cover;
-  display: block;
-  filter: contrast(1.06) brightness(1.03);
-  transition: transform 0.5s ease;
-}
-
-.wm-hero-media-wrap:hover .wm-hero-img {
-  transform: scale(1.03);
-}
-
-.wm-hero-overlay-card {
-  position: absolute;
-  bottom: 16px;
-  left: 16px;
-  right: 16px;
-  background: rgba(7, 11, 22, 0.9);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  padding: 14px 18px;
-  color: #f8fafc;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-}
-
-.wm-hero-overlay-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.wm-hero-badge-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 750;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.18);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  padding: 4px 10px;
-  border-radius: 20px;
-}
-
-.wm-hero-live-dot {
-  width: 7px;
-  height: 7px;
-  background-color: #34d399;
-  border-radius: 50%;
-  box-shadow: 0 0 8px #34d399;
-  animation: waPulse 1.8s infinite;
-}
-
-.wm-hero-venue-tag {
-  font-size: 11px;
-  color: #94a3b8;
-  font-family: var(--mono);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.wm-hero-stats-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.wm-hero-stat-box {
-  display: flex;
-  flex-direction: column;
-}
-
-.wm-hero-stat-val {
-  font-size: 16px;
-  font-weight: 850;
-  color: #ffffff;
-  font-family: var(--mono);
-}
-
-.wm-hero-stat-val.green {
-  color: #34d399;
-  text-shadow: 0 0 12px rgba(52, 211, 153, 0.4);
-}
-
-.wm-hero-stat-val.blue {
-  color: #38bdf8;
-}
-
-.wm-hero-stat-lbl {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 2px;
-}
-
-.hero-live-terminal {
-  width: 100%;
-  max-width: 600px;
-  background: radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.12), transparent 45%),
-              linear-gradient(180deg, #0d1322 0%, #080c18 100%);
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  border-radius: 20px;
-  box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.85),
-              0 0 50px rgba(16, 185, 129, 0.2),
+  box-shadow: 0 25px 65px -10px rgba(0, 0, 0, 0.85),
+              0 0 45px rgba(16, 185, 129, 0.15),
               inset 0 1px 0 rgba(255, 255, 255, 0.12);
   overflow: hidden;
   position: relative;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
-.hero-live-terminal:hover {
+.hero-command-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 32px 75px -10px rgba(0, 0, 0, 0.95),
-              0 0 65px rgba(16, 185, 129, 0.3),
+  border-color: rgba(52, 211, 153, 0.55);
+  box-shadow: 0 35px 80px -10px rgba(0, 0, 0, 0.95),
+              0 0 60px rgba(16, 185, 129, 0.25),
               inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-.terminal-header {
+/* Header Bar */
+.hero-command-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 13px 18px;
-  background: rgba(15, 23, 42, 0.6);
+  padding: 12px 18px;
+  background: rgba(10, 15, 28, 0.85);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.terminal-header-left {
+.command-topbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 7px;
 }
 
-.terminal-status-pill {
+.command-window-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.command-window-dot.dot-red {
+  background: #f87171;
+  opacity: 0.85;
+}
+
+.command-window-dot.dot-amber {
+  background: #fbbf24;
+  opacity: 0.85;
+}
+
+.command-window-dot.dot-green {
+  background: #34d399;
+  opacity: 0.85;
+}
+
+.command-title {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 750;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  font-family: var(--mono, monospace);
+  text-transform: uppercase;
+}
+
+.command-topbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.command-status-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(52, 211, 153, 0.4);
   border-radius: 999px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: #34d399;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-family: var(--mono, monospace);
+  letter-spacing: 0.06em;
 }
 
-.terminal-pulse-dot {
-  width: 7px;
-  height: 7px;
+.command-live-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #34d399;
-  box-shadow: 0 0 10px #34d399;
+  box-shadow: 0 0 8px #34d399;
   animation: waPulse 1.6s infinite;
 }
 
-.terminal-status-text {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #34d399;
-  text-transform: uppercase;
+/* Media Showcase with Floating Trust Chips */
+.hero-command-media {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: #070b15;
 }
 
-.terminal-pair-tag {
+.hero-command-img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10.2;
+  object-fit: cover;
+  display: block;
+  filter: contrast(1.06) brightness(1.02);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hero-command-card:hover .hero-command-img {
+  transform: scale(1.03);
+}
+
+.hero-command-glare {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6, 9, 19, 0.15) 0%, rgba(6, 9, 19, 0.65) 100%);
+  pointer-events: none;
+}
+
+/* Floating Glass Chips on Media */
+.hero-float-chip {
+  position: absolute;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(8, 13, 25, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  transition: transform 0.3s ease;
 }
 
-.pair-symbol {
-  font-size: 13.5px;
-  font-weight: 750;
+.hero-float-chip.chip-vault {
+  top: 16px;
+  left: 16px;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+.hero-float-chip.chip-alpha {
+  bottom: 16px;
+  right: 16px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+.float-chip-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.float-chip-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.float-chip-title {
+  font-size: 12px;
+  font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.01em;
 }
 
-.pair-venue {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgba(56, 189, 248, 0.14);
+.chip-vault .float-chip-title {
+  color: #34d399;
+}
+
+.chip-alpha .float-chip-title {
   color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  font-family: var(--mono);
 }
 
-.terminal-tf-selector {
-  display: flex;
-  gap: 4px;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 3px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.terminal-tf-btn {
-  background: none;
-  border: none;
-  color: #94a3b8;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.terminal-tf-btn:hover {
-  color: #ffffff;
-}
-
-.terminal-tf-btn.active {
-  background: #17233d;
-  color: #34d399;
-  font-weight: 700;
-}
-
-.terminal-price-strip {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 13px 20px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.terminal-price-main {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.terminal-big-price {
-  font-size: 26px;
-  font-weight: 900;
-  font-family: var(--mono);
-  color: #ffffff;
-  letter-spacing: -0.02em;
-  transition: color 0.2s ease;
-}
-
-.terminal-big-price.tick-up {
-  color: #34d399;
-  text-shadow: 0 0 16px rgba(52, 211, 153, 0.4);
-}
-
-.terminal-big-price.tick-down {
-  color: #f87171;
-}
-
-.terminal-price-delta {
-  font-size: 13px;
-  font-weight: 750;
-  font-family: var(--mono);
-}
-
-.terminal-price-delta.positive {
-  color: #34d399;
-}
-
-.terminal-market-metrics {
-  display: flex;
-  gap: 16px;
-}
-
-.metric-col {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.metric-lbl {
+.float-chip-sub {
   font-size: 10px;
-  font-weight: 600;
-  color: #64748b;
-  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 1px;
 }
 
-.metric-val {
-  font-size: 12px;
-  font-weight: 700;
-  color: #e2e8f0;
-  font-family: var(--mono);
-}
-
-.metric-val.text-green {
-  color: #34d399;
-}
-
-.terminal-chart-container {
-  position: relative;
-  width: 100%;
-  height: 260px;
-  padding: 8px 12px;
-  box-sizing: border-box;
-}
-
-.terminal-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.chart-execution-tag {
-  position: absolute;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10.5px;
-  font-weight: 750;
-  font-family: var(--mono);
-  padding: 4px 10px;
-  border-radius: 6px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-}
-
-.chart-execution-tag.buy {
-  top: 16px;
-  left: 18px;
-  background: rgba(6, 78, 59, 0.9);
-  border: 1px solid #10b981;
-  color: #a7f3d0;
-}
-
-.chart-execution-tag.shield {
-  top: 54px;
-  left: 18px;
-  background: rgba(12, 74, 110, 0.9);
-  border: 1px solid #0284c7;
-  color: #bae6fd;
-}
-
-.chart-execution-tag.target {
-  top: 16px;
-  right: 18px;
-  background: rgba(19, 78, 74, 0.9);
-  border: 1px solid #14b8a6;
-  color: #99f6e4;
-}
-
-.chart-live-price-badge {
-  position: absolute;
-  right: 12px;
-  transform: translateY(-50%);
-  background: #10b981;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  font-family: var(--mono);
-  padding: 2px 7px;
-  border-radius: 4px;
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
-  z-index: 5;
-  pointer-events: none;
-}
-
-.beacon-ring {
-  animation: waPulse 1.4s infinite ease-out;
-}
-
-.terminal-footer {
+/* Institutional Telemetry Strip */
+.hero-command-telemetry {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 12px 18px;
-  background: rgba(10, 14, 26, 0.85);
+  gap: 12px;
+  padding: 16px 20px;
+  background: rgba(10, 15, 28, 0.95);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.terminal-telemetry-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.telemetry-icon {
-  font-size: 18px;
-}
-
-.telemetry-meta {
+.command-telemetry-col {
   display: flex;
   flex-direction: column;
+  padding: 0 4px;
 }
 
-.telemetry-label {
-  font-size: 9.5px;
-  font-weight: 700;
+.telemetry-col-label {
+  font-size: 10px;
+  font-weight: 750;
   color: #64748b;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  margin-bottom: 4px;
 }
 
-.telemetry-val {
-  font-size: 11.5px;
-  font-weight: 700;
+.telemetry-col-value {
+  font-size: 14.5px;
+  font-weight: 850;
   letter-spacing: -0.01em;
+  font-family: var(--mono, monospace);
+  white-space: nowrap;
 }
 
-.telemetry-val.text-green {
+.telemetry-col-value.text-emerald {
   color: #34d399;
+  text-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
 }
 
-.telemetry-val.text-cyan {
+.telemetry-col-value.text-coral {
+  color: #f87171;
+}
+
+.telemetry-col-value.text-cyan {
   color: #38bdf8;
 }
 
-.telemetry-val.text-white {
-  color: #ffffff;
+.telemetry-col-sub {
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+/* Verification Guarantee Footer Bar */
+.hero-command-footer {
+  padding: 11px 18px;
+  background: rgba(7, 10, 20, 0.98);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.command-footer-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  font-size: 10.5px;
+  font-weight: 850;
+  flex-shrink: 0;
+}
+
+.footer-badge-text {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.footer-badge-text strong {
+  color: #e2e8f0;
+  font-weight: 700;
 }
 
 /* Vault / Capital Protection Section with Full-Width Background */
@@ -4721,46 +4483,27 @@ body:has(.panel-dark)::before {
   .landing-dark .wm-trust-lbl {
     font-size: 11px;
   }
-  /* Hero Media Overlay Card Mobile */
-  .wm-hero-overlay-card {
-    position: static;
-    margin: 12px 0 0;
-    border-radius: 14px;
-    padding: 14px 16px;
-  }
-  .wm-hero-stats-strip {
-    gap: 8px;
-    padding-top: 10px;
-    margin-top: 10px;
-  }
-  .wm-hero-stat-val {
-    font-size: 15px;
-  }
-  .wm-hero-stat-lbl {
-    font-size: 10.5px;
-  }
-  /* Hero Live Terminal Mobile Responsive */
-  .hero-live-terminal {
+  /* Hero Command Card Mobile */
+  .hero-command-card {
     max-width: 100%;
   }
-  .terminal-price-strip {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px 10px;
+  .hero-command-telemetry {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
   }
-  .terminal-market-metrics {
-    width: 100%;
-    justify-content: space-between;
+  .command-telemetry-col {
+    padding: 0;
   }
-  .chart-execution-tag.shield,
-  .chart-execution-tag.target {
-    display: none;
+  .hero-float-chip {
+    padding: 7px 10px;
+    gap: 7px;
   }
-  .terminal-footer {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    padding: 12px 14px;
+  .float-chip-title {
+    font-size: 11px;
+  }
+  .float-chip-sub {
+    font-size: 9px;
   }
   /* Vault & Algorithm Sections */
   .wm-vault-section-wrap,

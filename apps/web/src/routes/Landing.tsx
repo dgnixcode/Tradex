@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { ProfitCalculator } from '../components/ProfitCalculator.tsx';
-import { HeroTradingChartBackground } from '../components/HeroTradingChartBackground.tsx';
+import { HeroVisualCard } from '../components/HeroVisualCard.tsx';
 
 interface FaqItem {
   readonly q: string;
@@ -58,9 +58,6 @@ export function Landing() {
 
       {/* -------------------------------------------------- HERO SECTION */}
       <div className="wm-hero-wrap">
-        {/* Extraordinary Full-Bleed Live Quantitative Trading Chart Background */}
-        <HeroTradingChartBackground />
-
         <section className="wm-hero">
           <div className="wm-hero-content">
             <div className="wm-badge-row">
@@ -116,42 +113,9 @@ export function Landing() {
             </div>
           </div>
 
-          {/* Hero Visual: Institutional Bull Media Wrap & Real-Time Telemetry Terminal */}
+          {/* Hero Visual: Institutional Wealth Command Card */}
           <div className="wm-hero-visual">
-            <div className="wm-hero-media-wrap">
-              <img
-                src="/images/crypto_bull_hero.jpg"
-                alt="Aza WealthKare Institutional Bull and Trading Command"
-                className="wm-hero-img"
-                loading="eager"
-              />
-              <div className="wm-hero-overlay-card">
-                <div className="wm-hero-overlay-head">
-                  <span className="wm-hero-badge-live">
-                    <span className="wm-hero-live-dot" />
-                    Aza WealthKare Execution Desk
-                  </span>
-                  <span className="wm-hero-venue-tag">
-                    Institutional Venue
-                  </span>
-                </div>
-
-                <div className="wm-hero-stats-strip">
-                  <div className="wm-hero-stat-box">
-                    <span className="wm-hero-stat-val green">+3% – +5%</span>
-                    <span className="wm-hero-stat-lbl">Monthly Target</span>
-                  </div>
-                  <div className="wm-hero-stat-box">
-                    <span className="wm-hero-stat-val">100%</span>
-                    <span className="wm-hero-stat-lbl">Capital Shield</span>
-                  </div>
-                  <div className="wm-hero-stat-box">
-                    <span className="wm-hero-stat-val blue">Zero</span>
-                    <span className="wm-hero-stat-lbl">Custody Risk</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <HeroVisualCard />
           </div>
         </section>
       </div>
