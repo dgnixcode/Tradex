@@ -5305,12 +5305,13 @@ body:has(.panel-dark)::before {
 }
 
 /* =========================================================================
-   FLOATING WHATSAPP CHAT WIDGET (Bottom Left)
+   FLOATING WHATSAPP CHAT WIDGET (Bottom Right)
    ========================================================================= */
 .wa-floating-btn {
   position: fixed;
   bottom: 24px;
-  left: 24px;
+  right: 24px;
+  left: auto;
   z-index: 9999;
   display: inline-flex;
   align-items: center;
@@ -5379,11 +5380,13 @@ body:has(.panel-dark)::before {
 @media (max-width: 860px) {
   .wa-floating-btn.in-app {
     bottom: 76px;
-    left: 16px;
+    right: 16px;
+    left: auto;
   }
   .wa-floating-btn {
     bottom: 20px;
-    left: 16px;
+    right: 16px;
+    left: auto;
     padding: 10px 14px 10px 10px;
     font-size: 13px;
   }
@@ -5416,27 +5419,71 @@ body:has(.panel-dark)::before {
 }
 
 /* =========================================================================
-   SETTINGS CONTACT & CHANNELS STYLING
+   SETTINGS CONTACT & CHANNELS STYLING (High Contrast, Institutional)
    ========================================================================= */
 .settings-section-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 24px;
+  background: #0f1523;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 26px 28px;
   margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.settings-section-card h3 {
+  color: #ffffff;
+}
+
+.settings-section-card label {
+  color: #f1f5f9 !important;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.settings-section-card input,
+.settings-section-card textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: 1px solid #28354d !important;
+  background: #171f33 !important;
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.settings-section-card input::placeholder,
+.settings-section-card textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1;
+}
+
+.settings-section-card input:focus,
+.settings-section-card textarea:focus {
+  outline: none;
+  border-color: #34d399 !important;
+  background: #1c263e !important;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.22) !important;
+  color: #ffffff !important;
 }
 
 .settings-contact-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin-top: 14px;
+  gap: 20px;
+  margin-top: 16px;
 }
 
 @media (max-width: 768px) {
+  .settings-section-card {
+    padding: 20px 16px;
+  }
   .settings-contact-grid {
     grid-template-columns: 1fr;
-    gap: 14px;
+    gap: 16px;
   }
 }
 
@@ -5449,31 +5496,59 @@ body:has(.panel-dark)::before {
 .settings-input-icon {
   position: absolute;
   left: 12px;
-  color: var(--muted);
+  color: #94a3b8;
   display: flex;
   align-items: center;
   pointer-events: none;
   font-size: 15px;
+  z-index: 2;
 }
 
 .settings-input-group input,
 .settings-input-group textarea {
-  width: 100%;
-  padding: 10px 14px 10px 38px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: rgba(15, 23, 42, 0.6);
-  color: var(--ink);
-  font-size: 13.5px;
-  font-family: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
+  padding-left: 38px !important;
 }
 
-.settings-input-group input:focus,
-.settings-input-group textarea:focus {
-  outline: none;
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+.settings-preview-box {
+  margin-top: 22px;
+  padding: 16px 20px;
+  background: rgba(10, 14, 26, 0.85);
+  border-radius: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
 }
+
+.settings-preview-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #34d399;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+.settings-preview-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  font-size: 13px;
+  align-items: center;
+}
+
+.settings-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #e2e8f0;
+}
+
+.settings-preview-label {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.settings-preview-val {
+  color: #ffffff;
+  font-weight: 600;
+}
+
 

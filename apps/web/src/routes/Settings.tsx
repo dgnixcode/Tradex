@@ -265,6 +265,7 @@ export function Settings() {
             </label>
             <input
               id="brand-name"
+              type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Aza WealthKare"
@@ -425,7 +426,7 @@ export function Settings() {
             <div>
               <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Company &amp; Direct Contact Channels</h3>
               <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-                These contact details automatically sync across the website footer, the Contact page, and the bottom-left WhatsApp chat widget.
+                These contact details automatically sync across the website footer, the Contact page, and the floating WhatsApp chat widget.
               </p>
             </div>
           </div>
@@ -434,7 +435,7 @@ export function Settings() {
             {/* WhatsApp Chat Number */}
             <div>
               <label htmlFor="settings-whatsapp" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-                WhatsApp Chat Number <span style={{ color: '#25D366' }}>(Floating Widget)</span>
+                WhatsApp Chat Number <span style={{ color: '#25D366' }}>(Bottom-Right Widget)</span>
               </label>
               <div className="settings-input-group">
                 <span className="settings-input-icon" style={{ color: '#25D366' }}>💬</span>
@@ -449,7 +450,7 @@ export function Settings() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
                 <span className="muted" style={{ fontSize: 11.5 }}>
-                  Powers the floating WhatsApp button in bottom-left.
+                  Powers the floating WhatsApp button in bottom-right.
                 </span>
                 <a
                   href={whatsappTestUrl}
@@ -548,30 +549,30 @@ export function Settings() {
           </div>
 
           {/* Live Contact Preview */}
-          <div style={{ marginTop: 20, padding: '16px', background: 'rgba(15, 23, 42, 0.5)', borderRadius: 10, border: '1px solid var(--line)' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          <div className="settings-preview-box">
+            <div className="settings-preview-title">
               Live Website Preview (Footer &amp; Channels)
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: 13, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="settings-preview-items">
+              <div className="settings-preview-item">
                 <span style={{ color: '#25D366' }}>💬</span>
-                <span className="muted">WhatsApp:</span>
-                <strong style={{ color: '#34d399' }}>{whatsapp || DEFAULT_WHATSAPP}</strong>
+                <span className="settings-preview-label">WhatsApp:</span>
+                <span className="settings-preview-val" style={{ color: '#34d399' }}>{whatsapp || DEFAULT_WHATSAPP}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="settings-preview-item">
                 <span>📞</span>
-                <span className="muted">Phone:</span>
-                <strong>{phone || DEFAULT_PHONE}</strong>
+                <span className="settings-preview-label">Phone:</span>
+                <span className="settings-preview-val">{phone || DEFAULT_PHONE}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="settings-preview-item">
                 <span>✉️</span>
-                <span className="muted">Email:</span>
-                <strong>{email || DEFAULT_EMAIL}</strong>
+                <span className="settings-preview-label">Email:</span>
+                <span className="settings-preview-val">{email || DEFAULT_EMAIL}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="settings-preview-item">
                 <span>🏢</span>
-                <span className="muted">Address:</span>
-                <span style={{ opacity: 0.9 }}>{address || DEFAULT_ADDRESS}</span>
+                <span className="settings-preview-label">Address:</span>
+                <span className="settings-preview-val" style={{ opacity: 0.9 }}>{address || DEFAULT_ADDRESS}</span>
               </div>
             </div>
           </div>
@@ -589,7 +590,7 @@ export function Settings() {
               onChange={(e) => setCode(e.target.value)}
               placeholder="6-digit authentication code"
               aria-label="Verification code"
-              style={{ width: 180 }}
+              style={{ width: 180, background: '#171f33', color: '#ffffff', border: '1px solid #28354d', padding: '8px 12px', borderRadius: 6 }}
             />
           </div>
         )}
