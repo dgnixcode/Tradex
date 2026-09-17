@@ -450,7 +450,7 @@ export function Settings() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
                 <span className="muted" style={{ fontSize: 11.5 }}>
-                  Powers the floating WhatsApp button in bottom-right.
+                  Powers the floating WhatsApp button in bottom-right on the public website.
                 </span>
                 <a
                   href={whatsappTestUrl}

@@ -5,6 +5,11 @@ export function WhatsAppWidget() {
   const { branding } = useBranding();
   const location = useLocation();
 
+  // Strictly for the frontend public website — never render inside the /app trading desk/backend panel
+  if (location.pathname.startsWith('/app')) {
+    return null;
+  }
+
   const rawPhone = branding.whatsapp || '';
   const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
 
@@ -14,15 +19,13 @@ export function WhatsAppWidget() {
   const message = `Hello ${brandName}, I would like to inquire about your wealth management services.`;
   const href = `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
 
-  const isAppPanel = location.pathname.startsWith('/app');
-
   return (
     <aside aria-label="WhatsApp Support">
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className={`wa-floating-btn ${isAppPanel ? 'in-app' : ''}`}
+        className="wa-floating-btn"
         title={`Chat with ${brandName} on WhatsApp`}
         aria-label={`Chat with ${brandName} on WhatsApp`}
       >

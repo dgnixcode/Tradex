@@ -5472,11 +5472,6 @@ body:has(.panel-dark)::before {
 }
 
 @media (max-width: 860px) {
-  .wa-floating-btn.in-app {
-    bottom: 76px;
-    right: 16px;
-    left: auto;
-  }
   .wa-floating-btn {
     bottom: 20px;
     right: 16px;
