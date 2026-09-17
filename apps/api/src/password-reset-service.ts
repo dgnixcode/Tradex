@@ -28,7 +28,7 @@ export class PasswordResetService {
   constructor(deps: PasswordResetDeps) {
     this.db = deps.db;
     this.resendApiKey = deps.resendApiKey;
-    this.resendFrom = deps.resendFrom ?? 'Tradex <onboarding@resend.dev>';
+    this.resendFrom = deps.resendFrom ?? 'Aza WealthKare <onboarding@resend.dev>';
     this.appUrl = deps.appUrl;
     this.now = deps.now ?? (() => Date.now());
   }
@@ -71,6 +71,8 @@ export class PasswordResetService {
       return;
     }
 
+    const brandName = this.resendFrom.includes('<') ? this.resendFrom.split('<')[0]!.trim() : 'Aza WealthKare';
+
     const html = `
 <!DOCTYPE html>
 <html>
@@ -81,11 +83,11 @@ export class PasswordResetService {
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #f3f4f6;">
   <div style="max-width: 520px; margin: 40px auto; padding: 32px 24px; background-color: #111827; border: 1px solid #1f2937; border-radius: 12px;">
     <div style="margin-bottom: 24px;">
-      <h2 style="margin: 0 0 8px 0; font-size: 20px; color: #60a5fa; font-weight: 700; letter-spacing: -0.02em;">Tradex</h2>
+      <h2 style="margin: 0 0 8px 0; font-size: 20px; color: #60a5fa; font-weight: 700; letter-spacing: -0.02em;">${brandName}</h2>
       <h1 style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">Password Reset Request</h1>
     </div>
     <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; color: #9ca3af;">
-      We received a request to reset the password for your Tradex operator account (<span style="color: #e5e7eb;">${toEmail}</span>).
+      We received a request to reset the password for your ${brandName} operator account (<span style="color: #e5e7eb;">${toEmail}</span>).
     </p>
     <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #9ca3af;">
       Click the button below to set a new password. This link is valid for <strong>15 minutes</strong>.
@@ -117,7 +119,7 @@ export class PasswordResetService {
         body: JSON.stringify({
           from: this.resendFrom,
           to: [toEmail],
-          subject: 'Reset your Tradex password',
+          subject: `Reset your ${brandName} password`,
           html,
         }),
       });
