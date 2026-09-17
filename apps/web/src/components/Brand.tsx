@@ -30,7 +30,7 @@ export function Brand({
   const hasCustomLogo = logoType !== 'default' && logo !== null && logo !== '';
 
   const sizeClass = size === 'sm' ? 'brand-sm' : size === 'lg' ? 'brand-lg' : '';
-  const classes = `brand ${hasCustomLogo ? 'has-custom-logo' : ''} ${sizeClass} ${className}`.trim();
+  const classes = `brand has-custom-logo ${sizeClass} ${className}`.trim();
 
   const content = hasCustomLogo ? (
     <>

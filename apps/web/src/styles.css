@@ -155,16 +155,10 @@ h1, h2, h3 { letter-spacing: -0.02em; }
   align-items: center;
   gap: 9px;
 }
-.brand::before {
-  content: "";
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: var(--grad);
-  box-shadow: 0 2px 10px rgba(124, 107, 255, 0.5);
-}
-.brand.has-custom-logo::before {
-  display: none;
+.brand::before,
+.brand::after {
+  display: none !important;
+  content: none !important;
 }
 .brand-logo-img {
   width: 22px;
@@ -682,9 +676,8 @@ tr.skipped td { color: var(--muted); }
 .landing-light .mk-mobile-menu { background: rgba(245, 241, 232, 0.98); }
 .landing-light .mk-mobile-menu a:last-child { color: var(--accent); }
 
-/* The brand mark's square becomes solid black on light. */
+/* The brand typography on light. */
 .landing-light .brand { color: var(--ink); }
-.landing-light .brand::before { background: var(--ink); box-shadow: none; }
 
 /* Gradient text + step numbers stay legible on cream. */
 .landing-light .hero h1 .grad,
@@ -720,7 +713,6 @@ tr.skipped td { color: var(--muted); }
 }
 .auth-light .auth-aside > * { position: relative; z-index: 1; }
 .auth-light .auth-aside .brand { color: #fff; }
-.auth-light .auth-aside .brand::before { background: #fff; }
 .auth-light .auth-aside-quote .grad { -webkit-text-fill-color: initial; color: #1a1204; background: none; }
 .auth-light .auth-aside-points li { color: rgba(255,255,255,0.92); }
 .auth-light .auth-aside-points li::before { color: #1a1204; }
@@ -1187,13 +1179,6 @@ tr.skipped td { color: var(--muted); }
 }
 .branding-preview-card.light .brand {
   color: #111;
-}
-.branding-preview-card.light .brand.has-custom-logo::before {
-  display: none;
-}
-.branding-preview-card.light .brand::before {
-  background: #111;
-  box-shadow: none;
 }
 .branding-preview-label {
   font-size: 11px;
