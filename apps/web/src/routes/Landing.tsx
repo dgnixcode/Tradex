@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { ProfitCalculator } from '../components/ProfitCalculator.tsx';
-import { HeroLiveTradingChart } from '../components/HeroLiveTradingChart.tsx';
+import { HeroTradingChartBackground } from '../components/HeroTradingChartBackground.tsx';
 
 interface FaqItem {
   readonly q: string;
@@ -24,12 +24,20 @@ const FAQS: readonly FaqItem[] = [
     a: 'Aza WealthKare operates under an ironclad capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps (< 2.5%). Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
   },
   {
-    q: 'Can I withdraw my funds or profits whenever I want?',
-    a: 'Yes, 100% at any time. Because your money never leaves your personal trading account, you have complete liquidity. You can withdraw your profits directly to your linked bank account or pause Aza WealthKare management at any second directly from your exchange app.',
+    q: 'How does Aza WealthKare guarantee 100% capital protection?',
+    a: 'Aza WealthKare operates entirely non-custodially. Your funds remain in your personal exchange account at all times. Aza WealthKare trades via restricted API keys with trade-only permissions — withdrawal capabilities are completely disabled. Furthermore, our quantitative algorithms utilize algorithmic hard stops and dynamic risk controls on every position to ensure principal safety.',
   },
   {
-    q: 'Which exchanges and currencies does Aza WealthKare support?',
-    a: 'Aza WealthKare supports leading registered exchange trading accounts for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios, including CoinDCX, Binance, and other tier-1 exchange venues.',
+    q: 'Can Aza WealthKare withdraw or transfer my funds?',
+    a: 'Never. Our system architecture enforces absolute zero withdrawal capability. When you delegate API permissions to Aza WealthKare, you explicitly deselect withdrawal rights. Your capital stays 100% under your ownership and control.',
+  },
+  {
+    q: 'What is the target monthly return and how is it achieved?',
+    a: 'We target 3% to 5% monthly profit through disciplined quantitative momentum and mean-reversion strategies in high-liquidity crypto markets. We focus on consistent capital preservation and risk-adjusted alpha rather than unhedged speculation.',
+  },
+  {
+    q: 'Which exchanges and trading venues are supported?',
+    a: 'We support leading institutional-grade exchanges including Binance, OKX, Bybit, and Kraken. You simply connect your API credentials with trading permissions enabled.',
   },
   {
     q: 'How do I get started with Aza WealthKare?',
@@ -50,6 +58,9 @@ export function Landing() {
 
       {/* -------------------------------------------------- HERO SECTION */}
       <div className="wm-hero-wrap">
+        {/* Extraordinary Full-Bleed Live Quantitative Trading Chart Background */}
+        <HeroTradingChartBackground />
+
         <section className="wm-hero">
           <div className="wm-hero-content">
             <div className="wm-badge-row">
@@ -105,9 +116,42 @@ export function Landing() {
             </div>
           </div>
 
-          {/* Hero Visual: Extraordinary Live Algorithmic Trading Desk Terminal */}
+          {/* Hero Visual: Institutional Bull Media Wrap & Real-Time Telemetry Terminal */}
           <div className="wm-hero-visual">
-            <HeroLiveTradingChart />
+            <div className="wm-hero-media-wrap">
+              <img
+                src="/images/crypto_bull_hero.jpg"
+                alt="Aza WealthKare Institutional Bull and Trading Command"
+                className="wm-hero-img"
+                loading="eager"
+              />
+              <div className="wm-hero-overlay-card">
+                <div className="wm-hero-overlay-head">
+                  <span className="wm-hero-badge-live">
+                    <span className="wm-hero-live-dot" />
+                    Aza WealthKare Execution Desk
+                  </span>
+                  <span className="wm-hero-venue-tag">
+                    Institutional Venue
+                  </span>
+                </div>
+
+                <div className="wm-hero-stats-strip">
+                  <div className="wm-hero-stat-box">
+                    <span className="wm-hero-stat-val green">+3% – +5%</span>
+                    <span className="wm-hero-stat-lbl">Monthly Target</span>
+                  </div>
+                  <div className="wm-hero-stat-box">
+                    <span className="wm-hero-stat-val">100%</span>
+                    <span className="wm-hero-stat-lbl">Capital Shield</span>
+                  </div>
+                  <div className="wm-hero-stat-box">
+                    <span className="wm-hero-stat-val blue">Zero</span>
+                    <span className="wm-hero-stat-lbl">Custody Risk</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
