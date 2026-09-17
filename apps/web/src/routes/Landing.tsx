@@ -12,7 +12,7 @@ interface FaqItem {
 
 const FAQS: readonly FaqItem[] = [
   {
-    q: 'Can anyone withdraw or transfer money from my CoinDCX account?',
+    q: 'Can anyone withdraw or transfer money from my trading account?',
     a: 'No, never. Management access is strictly trade-only, with withdrawal permissions permanently disabled. It is technically and cryptographically impossible for anyone to move or withdraw funds from your account. You remain the sole custodian of your assets with full 24/7 access.',
   },
   {
@@ -25,11 +25,11 @@ const FAQS: readonly FaqItem[] = [
   },
   {
     q: 'Can I withdraw my funds or profits whenever I want?',
-    a: 'Yes, 100% at any time. Because your money never leaves your personal CoinDCX wallet, you have complete liquidity. You can withdraw your profits to your linked bank account or stop management at any second directly from your exchange app.',
+    a: 'Yes, 100% at any time. Because your money never leaves your personal trading account, you have complete liquidity. You can withdraw your profits to your linked bank account or stop management at any second directly from your exchange app.',
   },
   {
     q: 'Which exchanges and currencies are supported?',
-    a: 'We natively support CoinDCX for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios. Support for Binance and global exchange venues is also provided for bespoke client allocations.',
+    a: 'We support leading registered exchange trading accounts for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios, including CoinDCX, Binance, and other tier-1 exchange venues.',
   },
   {
     q: 'How do I get started with Aza WealthKare?',
@@ -65,7 +65,7 @@ export function Landing() {
             </h1>
 
             <p className="wm-hero-sub">
-              We professionally manage institutional trading directly inside your personal <strong>CoinDCX</strong> exchange account.
+              We professionally manage institutional trading directly inside your personal <strong>trading account</strong>.
               Targeting <strong>3% to 5% monthly profit</strong> with an ironclad <strong>100% capital protection guarantee</strong>.
               Zero third-party deposits — your money never leaves your hands.
             </p>
@@ -88,7 +88,7 @@ export function Landing() {
               <div className="wm-trust-divider" />
               <div className="wm-trust-item">
                 <span className="wm-trust-val">100%</span>
-                <span className="wm-trust-lbl">Self-Custody on CoinDCX</span>
+                <span className="wm-trust-lbl">Self-Custody in Your Account</span>
               </div>
               <div className="wm-trust-divider" />
               <div className="wm-trust-item">
@@ -119,7 +119,7 @@ export function Landing() {
                     Live Execution Desk
                   </span>
                   <span style={{ fontSize: '11px', color: '#9ca3af', fontFamily: 'var(--mono)' }}>
-                    CoinDCX Verified Venue
+                    Verified Trading Venue
                   </span>
                 </div>
 
@@ -171,7 +171,7 @@ export function Landing() {
             <div className="wm-pillar-icon">🏦</div>
             <h3>100% Non-Custodial Control</h3>
             <p>
-              Your money stays in your personal <strong>CoinDCX</strong> account. We manage trading with strictly withdrawal-disabled access. You can stop or withdraw your money at any second.
+              Your money stays in your personal <strong>trading account</strong>. We manage trading with strictly withdrawal-disabled access. You can stop or withdraw your money at any second.
             </p>
             <ul className="wm-pillar-points">
               <li>Zero transfer of crypto or INR to third parties</li>
@@ -189,7 +189,7 @@ export function Landing() {
             <ul className="wm-pillar-points">
               <li>Strict 1:2+ risk-to-reward ratio on every setup</li>
               <li>Profits settle directly inside your exchange balance</li>
-              <li>Transparent real-time PnL visible in your CoinDCX app</li>
+              <li>Transparent real-time PnL visible in your exchange app</li>
             </ul>
           </div>
         </div>
@@ -219,7 +219,7 @@ export function Landing() {
             <div className="wm-step-num">01</div>
             <h3>Keep Capital in Your Exchange</h3>
             <p>
-              Maintain your INR or USDT balance inside your personal verified <strong>CoinDCX</strong> account. You never transfer capital to us.
+              Maintain your INR or USDT balance inside your personal verified <strong>trading account</strong>. You never transfer capital to us.
             </p>
           </div>
 
@@ -243,7 +243,7 @@ export function Landing() {
             <div className="wm-step-num">04</div>
             <h3>Enjoy 3%–5% Monthly Profits</h3>
             <p>
-              Our institutional engine executes systematic trades. Watch your compounding profits accumulate live in your CoinDCX mobile app.
+              Our institutional engine executes systematic trades. Watch your compounding profits accumulate live in your exchange mobile app.
             </p>
           </div>
         </div>
@@ -270,7 +270,7 @@ export function Landing() {
             <tbody>
               <tr>
                 <td><strong>Custody of Funds</strong></td>
-                <td className="highlight ok-text">✓ 100% in your own CoinDCX account</td>
+                <td className="highlight ok-text">✓ 100% in your own trading account</td>
                 <td className="bad-text">✗ You must deposit crypto to them</td>
                 <td>✓ Bank / Asset Management Co.</td>
               </tr>
@@ -351,7 +351,7 @@ export function Landing() {
               <span className="wm-pillar-icon">🔐</span>
               <h3>Isolated Personal Wallet Custody</h3>
               <p>
-                Your funds are never pooled into third-party smart contracts or custodial schemes. Everything stays in your verified CoinDCX wallet.
+                Your funds are never pooled into third-party smart contracts or custodial schemes. Everything stays in your verified trading account.
               </p>
               <ul className="wm-pillar-points">
                 <li>Withdrawal permissions permanently disabled</li>
@@ -376,7 +376,7 @@ export function Landing() {
                 The 100% Principal Protection Guarantee
               </h3>
               <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: '22px' }}>
-                Our trading infrastructure connects to your personal CoinDCX account with strict trade-only delegation.
+                Our trading infrastructure connects to your personal trading account with strict trade-only delegation.
                 Withdrawal permissions are permanently disabled. No matter how wild crypto markets swing, your capital remains permanently isolated in your verified account.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -418,7 +418,7 @@ export function Landing() {
                 </div>
                 <div>
                   <div style={{ fontSize: '26px', fontWeight: 850, color: '#34d399', fontFamily: 'var(--mono)' }}>100%</div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>Personal CoinDCX Settlement</div>
+                  <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>Personal Trading Account Settlement</div>
                 </div>
               </div>
             </div>
@@ -523,7 +523,7 @@ export function Landing() {
             <div className="feature-icon">📱</div>
             <h3>Live Verification on Your Phone</h3>
             <p>
-              Because trades execute directly on your CoinDCX account, you can open your CoinDCX app anytime to view every position, order, and rupee live.
+              Because trades execute directly on your trading account, you can open your exchange app anytime to view every position, order, and rupee live.
             </p>
           </div>
 

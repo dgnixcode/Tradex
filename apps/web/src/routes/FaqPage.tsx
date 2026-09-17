@@ -11,15 +11,15 @@ interface CategoryFaq {
 
 const FAQ_SECTIONS: readonly CategoryFaq[] = [
   {
-    category: 'Custody, Safety & CoinDCX',
+    category: 'Custody, Safety & Trading Account',
     items: [
       {
         q: 'Can anyone withdraw or transfer money from my account?',
         a: 'No, absolutely not. When connecting your account, withdrawal permissions are permanently disabled. We only receive execution rights to buy and sell on your behalf. Even our own administrators cannot transfer a single rupee or coin out of your account.',
       },
       {
-        q: 'Why do you use CoinDCX instead of holding client funds?',
-        a: 'We believe holding client funds creates unnecessary counterparty risk. By keeping your capital in your personal CoinDCX wallet, you benefit from exchange-grade cold storage, two-factor authentication, and direct bank settlement.',
+        q: 'Why do you execute trades directly in my account instead of holding client funds?',
+        a: 'We believe holding client funds creates unnecessary counterparty risk. By keeping your capital in your personal trading account, you benefit from exchange-grade cold storage, two-factor authentication, and direct bank settlement.',
       },
       {
         q: 'Can I withdraw my money or stop trading anytime?',
@@ -36,7 +36,7 @@ const FAQ_SECTIONS: readonly CategoryFaq[] = [
       },
       {
         q: 'Where do the trading profits go?',
-        a: 'All profits settle immediately and directly into your personal CoinDCX balance in real-time. You can view every fill, profit, and position in your CoinDCX mobile app 24/7.',
+        a: 'All profits settle immediately and directly into your personal trading account balance in real-time. You can view every fill, profit, and position in your exchange mobile app 24/7.',
       },
       {
         q: 'What is the compounding effect over a year?',

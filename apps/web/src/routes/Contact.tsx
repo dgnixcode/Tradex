@@ -13,7 +13,7 @@ export function Contact() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [capital, setCapital] = useState('₹10,00,000 – ₹25,00,000');
-  const [exchange, setExchange] = useState('CoinDCX');
+  const [exchange, setExchange] = useState('Personal Trading Account');
   const [method, setMethod] = useState('WhatsApp');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -68,7 +68,7 @@ export function Contact() {
               Schedule Your <span className="wm-grad">Wealth Consultation</span>
             </h1>
             <p className="wm-subpage-sub">
-              Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure CoinDCX onboarding.
+              Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure trading account onboarding.
             </p>
           </div>
         </section>
@@ -89,7 +89,7 @@ export function Contact() {
                   Thank you, <strong>{name}</strong>. A senior portfolio manager from {branding.name} will reach out to you via <strong>{method}</strong> at <strong>{phone}</strong> within 2 hours.
                 </p>
                 <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '13px', color: '#34d399', textAlign: 'left' }}>
-                  <strong>🔒 Security Reminder:</strong> Our advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal CoinDCX account.
+                  <strong>🔒 Security Reminder:</strong> Our advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal trading account.
                 </div>
                 <button
                   type="button"
@@ -176,10 +176,11 @@ export function Contact() {
                       fontSize: '14px',
                     }}
                   >
-                    <option value="CoinDCX">CoinDCX (Recommended INR &amp; USDT)</option>
-                    <option value="Binance">Binance (Global)</option>
-                    <option value="Other">Other Tier-1 Exchange</option>
-                    <option value="Need Guidance">I Need Help Opening a CoinDCX Account</option>
+                    <option value="Personal Trading Account">Your Trading Account (Any Exchange)</option>
+                    <option value="CoinDCX">CoinDCX (INR &amp; USDT)</option>
+                    <option value="Binance">Binance (Global USDT)</option>
+                    <option value="Other">Other Registered Exchange</option>
+                    <option value="Need Guidance">I Need Help Setting Up a Trading Account</option>
                   </select>
                 </div>
 
@@ -276,7 +277,7 @@ export function Contact() {
                 </strong>
               </div>
               <ul className="wm-pillar-points" style={{ borderTop: 'none', paddingTop: 0, margin: 0 }}>
-                <li>100% of your funds remain in your personal CoinDCX account</li>
+                <li>100% of your funds remain in your personal trading account</li>
                 <li>Zero withdrawal authority granted to anyone</li>
                 <li>Guaranteed 100% capital preservation framework</li>
                 <li>Target 3% to 5% net monthly profit compounding</li>

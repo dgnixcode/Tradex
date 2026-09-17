@@ -34,90 +34,131 @@ export function ForgotPassword() {
   };
 
   return (
-    <div className="auth-split auth-light">
+    <div className="auth-split auth-dark">
       <aside className="auth-aside">
-        <Brand to="/" />
+        <Brand to="/" size="lg" />
         <div>
           <p className="auth-aside-quote">
-            Secure recovery for <span className="grad">your trading desk</span>.
+            Cryptographic recovery for <span className="grad">your trading desk</span>.
           </p>
           <ul className="auth-aside-points">
-            <li>Single-use cryptographic reset tokens</li>
-            <li>Time-bounded 15-minute validity window</li>
-            <li>Active sessions automatically revoked upon reset</li>
-            <li>Zero exposure of unhashed credentials</li>
+            <li>
+              <span className="auth-point-icon">✓</span>
+              <span><strong>Single-use cryptographic tokens</strong> sent directly to your registered inbox</span>
+            </li>
+            <li>
+              <span className="auth-point-icon">✓</span>
+              <span><strong>Time-bounded 15-minute window</strong> to prevent link reuse</span>
+            </li>
+            <li>
+              <span className="auth-point-icon">✓</span>
+              <span><strong>Automatic session revocation</strong> across all existing devices</span>
+            </li>
+            <li>
+              <span className="auth-point-icon">✓</span>
+              <span><strong>Zero exposure</strong> of unhashed API secrets or credentials</span>
+            </li>
           </ul>
         </div>
-        <span className="muted" style={{ fontSize: 12.5 }}>Preview &amp; dry-run · no orders are sent</span>
+
+        <div className="auth-system-badge">
+          <span className="auth-status-pulse" />
+          <span>Security Protocol: Active · TLS Encrypted</span>
+        </div>
       </aside>
 
       <main className="auth-main">
         <div className="auth-card">
-          <Brand to="/" />
+          <div className="auth-card-brand">
+            <Brand to="/" size="md" />
+          </div>
+
           <h2>Reset password</h2>
           <p className="sub">
             {sent
-              ? 'Check your inbox for the recovery link.'
-              : "Enter your registered email address and we'll send you a password reset link."}
+              ? 'Recovery instructions have been dispatched.'
+              : 'Enter your registered email address and we will send you a password reset link.'}
           </p>
 
           {sent ? (
-            <div style={{ marginTop: '20px' }}>
-              <div
-                style={{
-                  padding: '16px',
-                  borderRadius: 'var(--radius, 8px)',
-                  background: 'rgba(34, 197, 94, 0.1)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                  color: '#16a34a',
-                  fontSize: '14px',
-                  lineHeight: '1.5',
-                  marginBottom: '24px',
-                }}
-              >
-                <strong>Email dispatched:</strong>
-                <p style={{ margin: '8px 0 0 0', color: 'var(--text-dim)' }}>
-                  {message || 'If an account exists with that email, a password reset link has been sent.'}
+            <div>
+              <div className="auth-success-card">
+                <div className="auth-success-icon">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <h3 className="auth-success-title">Email Dispatched</h3>
+                <p className="auth-success-desc">
+                  {message || `If an account exists for ${email}, a password reset link has been dispatched.`}
                 </p>
-                <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: 'var(--muted)' }}>
+                <p className="auth-success-notice">
                   The link expires in 15 minutes. Check your spam folder if you do not see it in a few minutes.
                 </p>
               </div>
 
-              <Link to="/login" className="btn btn-lg" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
-                Back to Login
+              <Link to="/login" className="auth-btn-submit" style={{ textDecoration: 'none', display: 'flex' }}>
+                Return to Sign In
               </Link>
+
+              <p className="auth-alt" style={{ marginTop: '16px' }}>
+                Didn&rsquo;t receive the email?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setSent(false); setMessage(null); }}
+                  style={{ background: 'none', border: 'none', color: '#34d399', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                >
+                  Try another email
+                </button>
+              </p>
             </div>
           ) : (
             <form onSubmit={submit}>
-              <div className="field">
-                <label htmlFor="email">Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="username"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoFocus
-                />
+              <div className="auth-field">
+                <label htmlFor="email">Email address</label>
+                <div className="auth-input-wrap">
+                  <span className="auth-input-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect width="20" height="16" x="2" y="4" rx="2" />
+                      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                    </svg>
+                  </span>
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="username"
+                    placeholder="name@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
               </div>
 
-              {error !== null && <div className="error" style={{ marginBottom: '16px' }}>{error}</div>}
+              {error !== null && (
+                <div className="auth-error-alert">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>{error}</span>
+                </div>
+              )}
 
-              <button className="btn btn-lg" type="submit" disabled={busy}>
-                {busy ? 'Sending link…' : 'Send reset link'}
+              <button className="auth-btn-submit" type="submit" disabled={busy}>
+                {busy ? 'Sending recovery link…' : 'Send Recovery Link →'}
               </button>
             </form>
           )}
 
-          <p className="auth-alt muted">
-            Remember your password? <Link to="/login">Log in</Link>
+          <p className="auth-footer-links">
+            Remember your password? <Link to="/login">Sign in</Link>
           </p>
 
-          <p className="auth-back muted">
-            <Link to="/">← Back to home</Link>
+          <p className="auth-home-link">
+            <Link to="/">← Back to Aza WealthKare</Link>
           </p>
         </div>
       </main>

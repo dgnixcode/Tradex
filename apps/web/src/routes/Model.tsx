@@ -68,12 +68,12 @@ export function Model() {
               <div className="wm-pillar-icon">🔒</div>
               <h3>Non-Custodial Guarantee</h3>
               <p>
-                Your capital stays 100% in your own verified CoinDCX exchange account. We execute with withdrawal privileges disabled.
+                Your capital stays 100% in your own verified trading account. We execute with withdrawal privileges disabled.
               </p>
               <ul className="wm-pillar-points">
                 <li>Zero risk of third-party theft</li>
                 <li>Instant 24/7 bank liquidity</li>
-                <li>Real-time verification in CoinDCX app</li>
+                <li>Real-time verification in your exchange app</li>
               </ul>
             </div>
           </div>

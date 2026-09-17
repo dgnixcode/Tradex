@@ -44,7 +44,7 @@ export function About() {
               Over the last decade, crypto investors have repeatedly suffered devastating losses from exchange insolvencies, unregistered hedge funds, and black-box collective schemes that vanished with user deposits.
             </p>
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '0' }}>
-              {branding.name} was engineered as the antidote. We never take possession of your assets. Your funds remain in your personal, verified <strong>CoinDCX</strong> exchange account. We manage trading with strictly withdrawal-disabled execution access. You retain 100% ownership, complete visibility, and 24/7 liquidity.
+              {branding.name} was engineered as the antidote. We never take possession of your assets. Your funds remain in your personal, verified <strong>trading account</strong>. We manage trading with strictly withdrawal-disabled execution access. You retain 100% ownership, complete visibility, and 24/7 liquidity.
             </p>
           </div>
 

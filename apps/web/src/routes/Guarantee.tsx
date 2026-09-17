@@ -43,7 +43,7 @@ export function Guarantee() {
               Unlike retail traders who hold losing positions in hope of a turnaround, {branding.name} operates with institutional algorithmic discipline. Every trade position is sized strictly as a small fraction of your portfolio and bracketed by non-negotiable stop-loss orders.
             </p>
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', margin: 0 }}>
-              Because your funds remain exclusively in your personal <strong>CoinDCX</strong> wallet with withdrawal permissions disabled, you face zero counterparty or credit risk. You hold the ultimate keys to your money at every microsecond.
+              Because your funds remain exclusively in your personal <strong>trading account</strong> with withdrawal permissions disabled, you face zero counterparty or credit risk. You hold the ultimate keys to your money at every microsecond.
             </p>
           </div>
 
@@ -68,7 +68,7 @@ export function Guarantee() {
               <div className="wm-pillar-icon">🔒</div>
               <h3>Zero Custody Vulnerability</h3>
               <p>
-                We never take deposits. Your money is protected by CoinDCX&rsquo;s exchange-grade cold storage, multi-factor authentication, and regulatory compliance.
+                We never take deposits. Your money is protected by exchange-grade cold storage, multi-factor authentication, and regulatory compliance.
               </p>
             </div>
           </div>

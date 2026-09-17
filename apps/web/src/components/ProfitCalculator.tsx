@@ -242,7 +242,7 @@ export function ProfitCalculator() {
                 100% Principal Protection Guarantee
               </strong>
               <p className="calc-shield-desc">
-                Your capital of <strong>{formatMoney(amount)}</strong> stays exclusively in your personal CoinDCX wallet. Withdrawals are permanently disabled at the exchange permission layer.
+                Your capital of <strong>{formatMoney(amount)}</strong> stays exclusively in your personal trading account. Withdrawals are permanently disabled at the exchange permission layer.
               </p>
             </div>
           </div>
@@ -259,7 +259,7 @@ export function ProfitCalculator() {
             </div>
             <div className="calc-result-hint-row">
               <span className="calc-hint-dot" />
-              <span>Directly credited to your personal CoinDCX wallet</span>
+              <span>Directly credited to your personal trading account</span>
             </div>
           </div>
 

@@ -29,7 +29,7 @@ const COLUMNS: readonly FooterCol[] = [
   {
     title: 'Safety & Custody',
     links: [
-      { label: 'CoinDCX Non-Custodial', to: '/model' },
+      { label: 'Non-Custodial Architecture', to: '/model' },
       { label: 'Zero Withdrawal Rights', to: '/guarantee' },
       { label: '12 Pre-Trade Safety Gates', to: '/guarantee' },
       { label: '24/7 Instant Liquidity', to: '/faq' },
@@ -53,7 +53,7 @@ export function MarketingFooter() {
         <div className="mk-footer-brand">
           <Brand to="/" />
           <p>
-            Institutional-grade crypto wealth management. Your funds remain safely inside your personal CoinDCX or exchange account at all times. Systematic algorithmic execution generating consistent 3%–5% monthly returns with 100% capital protection.
+            Institutional-grade crypto wealth management. Your funds remain safely inside your personal trading account at all times. Systematic algorithmic execution generating consistent 3%–5% monthly returns with 100% capital protection.
           </p>
           <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <span className="pill ok" style={{ fontSize: '11px' }}>🛡️ Non-Custodial</span>
@@ -87,7 +87,7 @@ export function MarketingFooter() {
         lineHeight: '1.6',
         color: 'var(--muted)',
       }}>
-        <strong>Regulatory &amp; Non-Custodial Disclosure:</strong> {branding.name} operates as a non-custodial software and algorithmic wealth management provider. We never take possession, custody, or deposit of your digital assets or fiat currency. Client funds remain exclusively in user-owned accounts on registered exchanges (such as CoinDCX). Access is restricted strictly to trade execution; withdrawal permissions are disabled. Past performance does not guarantee future results. Target returns of 3%–5% monthly are based on systematic quantitative risk models and disciplined stop-loss execution.
+        <strong>Regulatory &amp; Non-Custodial Disclosure:</strong> {branding.name} operates as a non-custodial software and algorithmic wealth management provider. We never take possession, custody, or deposit of your digital assets or fiat currency. Client funds remain exclusively in user-owned accounts on registered exchanges. Access is restricted strictly to trade execution; withdrawal permissions are disabled. Past performance does not guarantee future results. Target returns of 3%–5% monthly are based on systematic quantitative risk models and disciplined stop-loss execution.
       </div>
 
       <div className="mk-footer-bottom">
