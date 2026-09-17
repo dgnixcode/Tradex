@@ -2934,42 +2934,45 @@ body:has(.panel-dark)::before {
 }
 
 .aza-brand-primary {
-  font-size: 23px;
+  font-size: 24px;
   font-weight: 900;
   letter-spacing: 0.05em;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #059669 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 40%, #34d399 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   font-family: var(--mono);
 }
 
-.dark .aza-brand-primary,
-.app-header .aza-brand-primary,
-.app-sidebar .aza-brand-primary {
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #34d399 100%);
+.landing-light .aza-brand-primary {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #059669 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .aza-brand-secondary {
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.26em;
-  color: #059669;
+  font-size: 10.5px;
+  font-weight: 850;
+  letter-spacing: 0.28em;
+  color: #34d399;
   text-transform: uppercase;
   margin-top: 2px;
 }
 
-.dark .aza-brand-secondary,
-.app-header .aza-brand-secondary {
-  color: #34d399;
+.landing-light .aza-brand-secondary {
+  color: #059669;
 }
 
 .aza-brand-custom {
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.01em;
-  color: var(--text);
+  color: #ffffff;
+}
+
+.landing-light .aza-brand-custom {
+  color: #0f172a;
 }
 
 .aza-wordmark-sm .aza-brand-primary { font-size: 17px; }
@@ -3004,6 +3007,12 @@ body:has(.panel-dark)::before {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.landing-dark .brand,
+.mk-header .brand,
+.app-sidebar .brand {
+  color: #ffffff;
 }
 
 .landing-dark .mk-header.scrolled {
