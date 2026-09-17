@@ -53,49 +53,52 @@ export function Landing() {
           <div className="wm-hero-content">
             <div className="wm-badge-row">
               <span className="pill ok wm-hero-pill">
-                🛡️ Aza WealthKare Non-Custodial Wealth Management · 100% Capital Protection
+                <span className="wm-hero-live-dot" />
+                <span>Non-Custodial Wealth Management</span>
+                <span className="wm-hero-pill-sep">·</span>
+                <span className="wm-hero-pill-bold">100% Capital Protection</span>
               </span>
             </div>
 
             <h1 className="wm-hero-title">
               Grow Your Wealth. <br />
-              <span className="wm-grad">Keep 100% Custody</span> in Your Own Trading Account.
+              <span className="wm-grad">Keep 100% Custody</span> in <br className="hide-mobile" />
+              Your Own Trading Account.
             </h1>
 
             <p className="wm-hero-sub">
-              <strong>Aza WealthKare</strong> professionally manages institutional trading directly inside your personal <strong>trading account</strong>.
+              <strong>Aza WealthKare</strong> deploys institutional algorithmic execution directly inside your personal <strong>trading account</strong>.
               Targeting <strong>3% to 5% monthly profit</strong> with an ironclad <strong>100% capital protection guarantee</strong>.
-              Zero third-party deposits — your money never leaves your hands.
+              Zero third-party deposits — your capital never leaves your possession.
             </p>
 
             <div className="wm-hero-ctas">
               <Link to="/contact" className="btn btn-lg wm-btn-primary">
-                Book a Consultation →
+                <span>Book a Consultation</span>
+                <span className="btn-arrow">→</span>
               </Link>
               <a href="#calculator" className="btn btn-lg secondary wm-btn-secondary">
-                Calculate Your Growth ↓
+                <span>Calculate Your Growth</span>
+                <span className="btn-arrow">↓</span>
               </a>
             </div>
 
-            {/* Trust stats bar */}
+            {/* Trust stats bar: 4 cleanly proportioned columns, no awkward line drop */}
             <div className="wm-trust-bar">
               <div className="wm-trust-item">
-                <span className="wm-trust-val">3% – 5%</span>
+                <span className="wm-trust-val highlight">3% – 5%</span>
                 <span className="wm-trust-lbl">Target Monthly Profit</span>
               </div>
-              <div className="wm-trust-divider" />
               <div className="wm-trust-item">
                 <span className="wm-trust-val">100%</span>
-                <span className="wm-trust-lbl">Self-Custody in Your Account</span>
+                <span className="wm-trust-lbl">Self-Custody In Account</span>
               </div>
-              <div className="wm-trust-divider" />
               <div className="wm-trust-item">
-                <span className="wm-trust-val">0%</span>
+                <span className="wm-trust-val highlight-danger">0%</span>
                 <span className="wm-trust-lbl">Withdrawal Access</span>
               </div>
-              <div className="wm-trust-divider" />
               <div className="wm-trust-item">
-                <span className="wm-trust-val">100%</span>
+                <span className="wm-trust-val highlight-blue">100%</span>
                 <span className="wm-trust-lbl">Principal Guarantee</span>
               </div>
             </div>
@@ -111,13 +114,13 @@ export function Landing() {
                 loading="eager"
               />
               <div className="wm-hero-overlay-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="wm-hero-overlay-head">
                   <span className="wm-hero-badge-live">
                     <span className="wm-hero-live-dot" />
                     Aza WealthKare Execution Desk
                   </span>
-                  <span style={{ fontSize: '11px', color: '#9ca3af', fontFamily: 'var(--mono)' }}>
-                    Verified Trading Venue
+                  <span className="wm-hero-venue-tag">
+                    Institutional Venue
                   </span>
                 </div>
 
@@ -131,7 +134,7 @@ export function Landing() {
                     <span className="wm-hero-stat-lbl">Capital Shield</span>
                   </div>
                   <div className="wm-hero-stat-box">
-                    <span className="wm-hero-stat-val">Zero</span>
+                    <span className="wm-hero-stat-val blue">Zero</span>
                     <span className="wm-hero-stat-lbl">Custody Risk</span>
                   </div>
                 </div>
