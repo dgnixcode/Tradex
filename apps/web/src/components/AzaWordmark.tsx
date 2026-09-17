@@ -63,7 +63,7 @@ export function AzaWordmark({
   const nameToRender = customName ?? 'Aza WealthKare';
 
   // Check if name is the default or contains Aza
-  const isAzaDefault = nameToRender.toLowerCase().includes('aza wealthkare');
+  const isAzaDefault = nameToRender.toLowerCase().replace(/\s+/g, '').includes('azawealthkare');
 
   return (
     <span className={`aza-wordmark-wrapper aza-wordmark-${size} ${className}`.trim()}>

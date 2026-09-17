@@ -253,8 +253,9 @@ export function Settings() {
           </div>
 
           {isOwner && !totpEnabled && (
-            <div className="muted" style={{ fontSize: 12.5, marginBottom: 14, padding: '8px 12px', background: 'rgba(245, 158, 11, 0.08)', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.25)' }}>
-              Two-factor authentication is not enrolled. It is recommended before owner actions — <Link to="/app/security" style={{ color: '#34d399' }}>enrol in Security &amp; 2FA</Link>.
+            <div style={{ fontSize: 13, marginBottom: 16, padding: '10px 14px', background: 'rgba(245, 158, 11, 0.12)', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.4)', color: '#fef08a', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>⚠️</span>
+              <span>Two-factor authentication is not enrolled. It is recommended before owner actions — <Link to="/app/security" style={{ color: '#34d399', fontWeight: 600, textDecoration: 'underline' }}>enrol in Security &amp; 2FA</Link>.</span>
             </div>
           )}
 
