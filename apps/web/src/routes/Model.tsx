@@ -2,11 +2,8 @@ import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { ProfitCalculator } from '../components/ProfitCalculator.tsx';
-import { useBranding } from '../branding.tsx';
 
 export function Model() {
-  const { branding } = useBranding();
-
   return (
     <div className="landing landing-dark">
       <MarketingHeader />
@@ -14,12 +11,12 @@ export function Model() {
       <div className="wm-subpage-hero-wrap">
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
-            <span className="kicker">Quantitative Methodology</span>
+            <span className="kicker">Aza WealthKare Quantitative Methodology</span>
             <h1 className="wm-subpage-title">
-              The <span className="wm-grad">3%–5% Monthly</span> Growth &amp; Protection Architecture
+              The Aza WealthKare <span className="wm-grad">3%–5% Monthly</span> Growth &amp; Protection Architecture
             </h1>
             <p className="wm-subpage-sub">
-              Discover how {branding.name} combines systematic algorithmic execution, non-custodial risk containment, and capital preservation guarantees to generate consistent returns across all market conditions.
+              Discover how Aza WealthKare combines systematic algorithmic execution, non-custodial risk containment, and capital preservation guarantees to generate consistent returns across all market conditions.
             </p>
           </div>
         </section>
@@ -40,9 +37,9 @@ export function Model() {
           <div className="wm-pillars-grid" style={{ marginTop: 0, marginBottom: '40px' }}>
             <div className="wm-pillar-card">
               <div className="wm-pillar-icon">📊</div>
-              <h3>Quantitative Alpha</h3>
+              <h3>Aza WealthKare Quantitative Alpha</h3>
               <p>
-                Our engine identifies statistical mispricings, order-book depth imbalances, and trend momentum across major crypto pairs (BTC, ETH, SOL).
+                The Aza WealthKare algorithmic engine identifies statistical mispricings, order-book depth imbalances, and trend momentum across major crypto pairs (BTC, ETH, SOL).
               </p>
               <ul className="wm-pillar-points">
                 <li>Delta-neutral hedging</li>
@@ -66,9 +63,9 @@ export function Model() {
 
             <div className="wm-pillar-card">
               <div className="wm-pillar-icon">🔒</div>
-              <h3>Non-Custodial Guarantee</h3>
+              <h3>Aza WealthKare Non-Custodial Guarantee</h3>
               <p>
-                Your capital stays 100% in your own verified trading account. We execute with withdrawal privileges disabled.
+                Your capital stays 100% in your own verified trading account. Aza WealthKare executes with withdrawal privileges disabled.
               </p>
               <ul className="wm-pillar-points">
                 <li>Zero risk of third-party theft</li>
@@ -81,8 +78,8 @@ export function Model() {
           {/* Calculator Section */}
           <div style={{ marginTop: '50px', marginBottom: '50px' }}>
             <div className="section-head" style={{ marginBottom: '24px', textAlign: 'center' }}>
-              <span className="kicker">Simulate Growth</span>
-              <h2>Project Your Returns With Our Model</h2>
+              <span className="kicker">Aza WealthKare Growth Projection</span>
+              <h2>Project Your Returns With Aza WealthKare</h2>
             </div>
             <ProfitCalculator />
           </div>
@@ -92,11 +89,11 @@ export function Model() {
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
               <span style={{ fontSize: '32px' }}>🛡️</span>
               <h2 style={{ fontSize: '26px', fontWeight: 850, margin: 0, color: '#ffffff' }}>
-                How the 100% Capital Guarantee Operates
+                How the Aza WealthKare 100% Capital Guarantee Operates
               </h2>
             </div>
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
-              We enforce a strict capital preservation covenant: our multi-tiered risk architecture ensures that your initial principal is never exposed to catastrophic liquidation or runaway drawdowns.
+              At Aza WealthKare, we enforce a strict capital preservation covenant: our multi-tiered risk architecture ensures that your initial principal is never exposed to catastrophic liquidation or runaway drawdowns.
             </p>
             <div className="wm-steps-grid" style={{ marginTop: '20px' }}>
               <div className="wm-step-card">
@@ -112,7 +109,7 @@ export function Model() {
               <div className="wm-step-card">
                 <div className="wm-step-num">03</div>
                 <h3>Reserve-Backed Shield</h3>
-                <p>Our firm maintains a balance reserve buffer to absorb unexpected slippage or venue delays.</p>
+                <p>Aza WealthKare maintains a balance reserve buffer to absorb unexpected slippage or venue delays.</p>
               </div>
             </div>
           </div>
@@ -120,10 +117,10 @@ export function Model() {
           {/* CTA */}
           <div className="wm-final-cta-wrap" style={{ marginTop: '50px' }}>
             <h2 className="wm-cta-title">
-              Ready to Implement Institutional Management?
+              Ready to Implement Institutional Management with Aza WealthKare?
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>
-              Speak directly with our senior investment desk to discuss custom allocation and account setup.
+              Speak directly with an Aza WealthKare senior investment advisor to discuss custom allocation and account setup.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>
               Book an Advisory Consultation →

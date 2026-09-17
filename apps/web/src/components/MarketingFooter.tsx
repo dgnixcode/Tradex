@@ -53,7 +53,7 @@ export function MarketingFooter() {
         <div className="mk-footer-brand">
           <Brand to="/" />
           <p>
-            Institutional-grade crypto wealth management. Your funds remain safely inside your personal trading account at all times. Systematic algorithmic execution generating consistent 3%–5% monthly returns with 100% capital protection.
+            Aza WealthKare delivers institutional-grade crypto wealth management. Your funds remain safely inside your personal trading account at all times. Systematic algorithmic execution generating consistent 3%–5% monthly returns with 100% capital protection.
           </p>
           <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <span className="pill ok" style={{ fontSize: '11px' }}>🛡️ Non-Custodial</span>

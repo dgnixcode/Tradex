@@ -80,14 +80,14 @@ export function ProfitCalculator() {
         <div className="calc-header-left">
           <div style={{ marginBottom: '8px' }}>
             <span className="calc-badge">
-              Interactive ROI Simulator
+              Aza WealthKare ROI Simulator
             </span>
           </div>
           <h3 style={{ margin: '0 0 6px', fontSize: '24px', fontWeight: 800, color: 'var(--ink)' }}>
-            Estimate Your Crypto Wealth Growth
+            Estimate Your Wealth Growth with Aza WealthKare
           </h3>
           <p className="muted" style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
-            Simulate monthly compounding based on our systematic 3%–5% non-custodial strategies.
+            Simulate monthly compounding based on Aza WealthKare's systematic 3%–5% non-custodial strategies.
           </p>
         </div>
 
@@ -290,11 +290,11 @@ export function ProfitCalculator() {
               to={`/contact?capital=${amount}&currency=${currency}&rate=${monthlyRate}`}
               className="calc-primary-cta"
             >
-              <span>Schedule Wealth Consultation for {formatMoney(amount)}</span>
+              <span>Schedule Aza WealthKare Consultation for {formatMoney(amount)}</span>
               <span className="calc-cta-arrow">→</span>
             </Link>
             <p className="calc-disclaimer">
-              * Compounded projections illustrate monthly reinvestment with zero withdrawal deductions. Client capital remains in client's verified exchange account under 100% self-custody.
+              * Compounded projections illustrate monthly reinvestment with zero withdrawal deductions under Aza WealthKare's non-custodial framework. Client capital remains in client's verified exchange account under 100% self-custody.
             </p>
           </div>
         </div>

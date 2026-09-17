@@ -1,11 +1,8 @@
 import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
-import { useBranding } from '../branding.tsx';
 
 export function Guarantee() {
-  const { branding } = useBranding();
-
   return (
     <div className="landing landing-dark">
       <MarketingHeader />
@@ -13,12 +10,12 @@ export function Guarantee() {
       <div className="wm-subpage-hero-wrap">
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
-            <span className="kicker">Investor Security Covenant</span>
+            <span className="kicker">Aza WealthKare Security Covenant</span>
             <h1 className="wm-subpage-title">
-              The <span className="wm-grad">100% Capital Protection</span> Guarantee
+              The Aza WealthKare <span className="wm-grad">100% Capital Protection</span> Guarantee
             </h1>
             <p className="wm-subpage-sub">
-              We place capital preservation above all else. Discover the mathematical risk parameters, algorithmic downside circuit breakers, and non-custodial protections that safeguard your wealth.
+              At Aza WealthKare, we place capital preservation above all else. Discover the mathematical risk parameters, algorithmic downside circuit breakers, and non-custodial protections that safeguard your wealth.
             </p>
           </div>
         </section>
@@ -37,13 +34,13 @@ export function Guarantee() {
           
           <div className="wm-pillar-card" style={{ padding: '36px', marginBottom: '32px' }}>
             <h2 style={{ fontSize: '26px', fontWeight: 850, marginBottom: '14px', color: '#ffffff' }}>
-              Why We Can Offer a 100% Principal Guarantee
+              Why Aza WealthKare Can Offer a 100% Principal Guarantee
             </h2>
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
-              Unlike retail traders who hold losing positions in hope of a turnaround, {branding.name} operates with institutional algorithmic discipline. Every trade position is sized strictly as a small fraction of your portfolio and bracketed by non-negotiable stop-loss orders.
+              Unlike retail traders who hold losing positions in hope of a turnaround, Aza WealthKare operates with institutional algorithmic discipline. Every trade position is sized strictly as a small fraction of your portfolio and bracketed by non-negotiable stop-loss orders.
             </p>
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', margin: 0 }}>
-              Because your funds remain exclusively in your personal <strong>trading account</strong> with withdrawal permissions disabled, you face zero counterparty or credit risk. You hold the ultimate keys to your money at every microsecond.
+              Because your funds remain exclusively in your personal <strong>trading account</strong> with withdrawal permissions disabled, you face zero counterparty or credit risk with Aza WealthKare. You hold the ultimate keys to your money at every microsecond.
             </p>
           </div>
 
@@ -75,10 +72,10 @@ export function Guarantee() {
 
           <div className="wm-final-cta-wrap">
             <h2 className="wm-cta-title">
-              Protect Your Principal While Compounding Returns
+              Protect Your Principal While Compounding Returns with Aza WealthKare
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>
-              Target 3% to 5% monthly profits with the assurance of complete principal protection.
+              Target 3% to 5% monthly profits with the assurance of complete principal protection backed by Aza WealthKare.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>
               Schedule Your Capital Allocation Call →

@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
-import { useBranding } from '../branding.tsx';
 import { submitConsultationInquiry } from '../api.ts';
 
 export function Contact() {
-  const { branding } = useBranding();
   const [searchParams] = useSearchParams();
 
   const [name, setName] = useState('');
@@ -63,12 +61,12 @@ export function Contact() {
       <div className="wm-subpage-hero-wrap">
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-            <span className="kicker">Private Client Advisory</span>
+            <span className="kicker">Aza WealthKare Private Advisory</span>
             <h1 className="wm-subpage-title">
-              Schedule Your <span className="wm-grad">Wealth Consultation</span>
+              Schedule Your <span className="wm-grad">Aza WealthKare Consultation</span>
             </h1>
             <p className="wm-subpage-sub">
-              Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure trading account onboarding.
+              Connect with a senior portfolio advisor from Aza WealthKare. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure trading account onboarding.
             </p>
           </div>
         </section>
@@ -86,10 +84,10 @@ export function Contact() {
                   Consultation Request Received
                 </h3>
                 <p style={{ fontSize: '15px', color: '#94a3b8', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 24px' }}>
-                  Thank you, <strong>{name}</strong>. A senior portfolio manager from {branding.name} will reach out to you via <strong>{method}</strong> at <strong>{phone}</strong> within 2 hours.
+                  Thank you, <strong>{name}</strong>. A senior portfolio manager from Aza WealthKare will reach out to you via <strong>{method}</strong> at <strong>{phone}</strong> within 2 hours.
                 </p>
                 <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '13px', color: '#34d399', textAlign: 'left' }}>
-                  <strong>🔒 Security Reminder:</strong> Our advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal trading account.
+                  <strong>🔒 Security Reminder:</strong> Aza WealthKare advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal trading account.
                 </div>
                 <button
                   type="button"
@@ -242,7 +240,7 @@ export function Contact() {
           <div>
             <div className="wm-pillar-card" style={{ padding: '32px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px', color: '#ffffff' }}>
-                Direct Advisory Channels
+                Aza WealthKare Direct Advisory Channels
               </h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '14px' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -273,13 +271,13 @@ export function Contact() {
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontSize: '24px' }}>🛡️</span>
                 <strong style={{ fontSize: '16.5px', color: '#34d399' }}>
-                  Our Ironclad Investor Guarantees
+                  Our Ironclad Aza WealthKare Investor Guarantees
                 </strong>
               </div>
               <ul className="wm-pillar-points" style={{ borderTop: 'none', paddingTop: 0, margin: 0 }}>
                 <li>100% of your funds remain in your personal trading account</li>
-                <li>Zero withdrawal authority granted to anyone</li>
-                <li>Guaranteed 100% capital preservation framework</li>
+                <li>Zero withdrawal authority granted to Aza WealthKare or any third party</li>
+                <li>Aza WealthKare guaranteed 100% capital preservation framework</li>
                 <li>Target 3% to 5% net monthly profit compounding</li>
                 <li>Instant 24/7 liquidity directly to your bank account</li>
               </ul>

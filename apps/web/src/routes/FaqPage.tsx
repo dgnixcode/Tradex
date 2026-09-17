@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
-import { useBranding } from '../branding.tsx';
 
 interface CategoryFaq {
   readonly category: string;
@@ -15,11 +14,11 @@ const FAQ_SECTIONS: readonly CategoryFaq[] = [
     items: [
       {
         q: 'Can anyone withdraw or transfer money from my account?',
-        a: 'No, absolutely not. When connecting your account, withdrawal permissions are permanently disabled. We only receive execution rights to buy and sell on your behalf. Even our own administrators cannot transfer a single rupee or coin out of your account.',
+        a: 'No, absolutely not. When connecting your account, withdrawal permissions are permanently disabled. Aza WealthKare only receives execution rights to buy and sell on your behalf. Even our own administrators cannot transfer a single rupee or coin out of your account.',
       },
       {
-        q: 'Why do you execute trades directly in my account instead of holding client funds?',
-        a: 'We believe holding client funds creates unnecessary counterparty risk. By keeping your capital in your personal trading account, you benefit from exchange-grade cold storage, two-factor authentication, and direct bank settlement.',
+        q: 'Why does Aza WealthKare execute trades directly in my account instead of holding client funds?',
+        a: 'At Aza WealthKare, we believe holding client funds creates unnecessary counterparty risk. By keeping your capital in your personal trading account, you benefit from exchange-grade cold storage, two-factor authentication, and direct bank settlement.',
       },
       {
         q: 'Can I withdraw my money or stop trading anytime?',
@@ -31,8 +30,8 @@ const FAQ_SECTIONS: readonly CategoryFaq[] = [
     category: 'Returns & Profit Compounding',
     items: [
       {
-        q: 'How is the 3%–5% monthly profit generated?',
-        a: 'Our quantitative desk executes systematic, disciplined trading across low-risk market spreads, delta-hedging, and trend momentum. By employing rigorous 1:2+ risk-to-reward ratios and automated trailing stop-losses, we capture steady monthly returns while capping downside risk.',
+        q: 'How does Aza WealthKare generate consistent 3%–5% monthly profits?',
+        a: 'Our quantitative desk at Aza WealthKare executes systematic, disciplined trading across low-risk market spreads, delta-hedging, and trend momentum. By employing rigorous 1:2+ risk-to-reward ratios and automated trailing stop-losses, we capture steady monthly returns while capping downside risk.',
       },
       {
         q: 'Where do the trading profits go?',
@@ -48,12 +47,12 @@ const FAQ_SECTIONS: readonly CategoryFaq[] = [
     category: 'Capital Protection & Risk Management',
     items: [
       {
-        q: 'How does the 100% Capital Safety Guarantee work?',
-        a: 'We operate under a strict capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps. Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
+        q: 'How does Aza WealthKare guarantee 100% Capital Safety?',
+        a: 'Aza WealthKare operates under an uncompromising capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps. Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
       },
       {
-        q: 'What happens during sudden market crashes?',
-        a: 'Our 12 automated pre-trade safety gates monitor live exchange spreads and depth. If market conditions become disorderly, trailing circuit breakers automatically de-escalate positions to cash (INR/USDT) to insulate client capital.',
+        q: 'What happens during sudden market crashes under Aza WealthKare risk protocol?',
+        a: 'Aza WealthKare\'s 12 automated pre-trade safety gates monitor live exchange spreads and depth. If market conditions become disorderly, trailing circuit breakers automatically de-escalate positions to cash (INR/USDT) to insulate client capital.',
       },
     ],
   },
@@ -66,14 +65,13 @@ const FAQ_SECTIONS: readonly CategoryFaq[] = [
       },
       {
         q: 'How do I start with Aza WealthKare?',
-        a: 'Simply fill out our consultation inquiry form. Our senior wealth manager will connect with you via WhatsApp or phone, structure your risk parameters, and guide you through secure trade-only onboarding.',
+        a: 'Simply fill out our consultation inquiry form. An Aza WealthKare senior portfolio advisor will connect with you via WhatsApp or phone, structure your risk parameters, and guide you through secure trade-only onboarding.',
       },
     ],
   },
 ];
 
 export function FaqPage() {
-  const { branding } = useBranding();
   const [openIndex, setOpenIndex] = useState<string>('0-0');
 
   const toggle = (key: string) => {
@@ -87,12 +85,12 @@ export function FaqPage() {
       <div className="wm-subpage-hero-wrap">
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-            <span className="kicker">{branding.name} Knowledge Base</span>
+            <span className="kicker">Aza WealthKare Knowledge Base</span>
             <h1 className="wm-subpage-title">
               Frequently Asked <span className="wm-grad">Questions</span>
             </h1>
             <p className="wm-subpage-sub">
-              Transparent answers about our non-custodial crypto wealth management, capital protection covenants, and client onboarding.
+              Transparent answers about Aza WealthKare's non-custodial crypto wealth management, capital protection covenants, and client onboarding.
             </p>
           </div>
         </section>
@@ -136,10 +134,10 @@ export function FaqPage() {
           {/* Need more help */}
           <div className="wm-final-cta-wrap" style={{ marginTop: '50px' }}>
             <h2 className="wm-cta-title">
-              Have a Specific Question for Our Desk?
+              Have a Specific Question for Aza WealthKare's Desk?
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>
-              Our senior portfolio advisors are available for one-on-one portfolio discussions.
+              Our senior portfolio advisors at Aza WealthKare are available for one-on-one portfolio discussions.
             </p>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ textDecoration: 'none' }}>
               Contact Our Advisory Team →

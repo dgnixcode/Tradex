@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { ProfitCalculator } from '../components/ProfitCalculator.tsx';
-import { useBranding } from '../branding.tsx';
 
 interface FaqItem {
   readonly q: string;
@@ -13,32 +12,31 @@ interface FaqItem {
 const FAQS: readonly FaqItem[] = [
   {
     q: 'Can anyone withdraw or transfer money from my trading account?',
-    a: 'No, never. Management access is strictly trade-only, with withdrawal permissions permanently disabled. It is technically and cryptographically impossible for anyone to move or withdraw funds from your account. You remain the sole custodian of your assets with full 24/7 access.',
+    a: 'No, never. Management access granted to Aza WealthKare is strictly trade-only, with withdrawal permissions permanently disabled at the exchange API layer. It is technically and cryptographically impossible for Aza WealthKare or anyone else to move or withdraw funds from your account. You remain the sole custodian of your assets with full 24/7 access.',
   },
   {
     q: 'How does Aza WealthKare generate consistent 3%–5% monthly profits?',
-    a: 'Our quantitative desk executes systematic, disciplined trading across low-risk market spreads, delta-hedging, and trend-following strategies. By employing rigorous 1:2+ risk-reward ratios and automated trailing stop-losses, we capture steady monthly returns while capping market exposure.',
+    a: 'The Aza WealthKare quantitative desk executes systematic, disciplined trading across low-risk market spreads, delta-hedging, and trend-following strategies. By employing rigorous 1:2+ risk-reward ratios and automated trailing stop-losses, Aza WealthKare captures steady monthly returns while capping market exposure.',
   },
   {
-    q: 'How does the 100% Capital Safety Guarantee work?',
-    a: 'We operate under a strict capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps. Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
+    q: 'How does the Aza WealthKare 100% Capital Safety Guarantee work?',
+    a: 'Aza WealthKare operates under an ironclad capital preservation mandate. Every managed position is bracketed by automated downside stop-losses and strict portfolio drawdown caps (< 2.5%). Our proprietary risk containment architecture prevents catastrophic drops and preserves your initial principal.',
   },
   {
     q: 'Can I withdraw my funds or profits whenever I want?',
-    a: 'Yes, 100% at any time. Because your money never leaves your personal trading account, you have complete liquidity. You can withdraw your profits to your linked bank account or stop management at any second directly from your exchange app.',
+    a: 'Yes, 100% at any time. Because your money never leaves your personal trading account, you have complete liquidity. You can withdraw your profits directly to your linked bank account or pause Aza WealthKare management at any second directly from your exchange app.',
   },
   {
-    q: 'Which exchanges and currencies are supported?',
-    a: 'We support leading registered exchange trading accounts for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios, including CoinDCX, Binance, and other tier-1 exchange venues.',
+    q: 'Which exchanges and currencies does Aza WealthKare support?',
+    a: 'Aza WealthKare supports leading registered exchange trading accounts for both Indian Rupee (INR) and Tether (USDT) futures and spot portfolios, including CoinDCX, Binance, and other tier-1 exchange venues.',
   },
   {
     q: 'How do I get started with Aza WealthKare?',
-    a: 'Simply request a consultation via our contact form. Our senior wealth advisor will reach out to understand your goals, guide you through securing your personal exchange account with trade-only delegation, and activate your portfolio management.',
+    a: 'Simply request a consultation via our contact form. An Aza WealthKare senior wealth advisor will reach out to understand your goals, guide you through securing your personal exchange account with trade-only delegation, and activate your portfolio management.',
   },
 ];
 
 export function Landing() {
-  const { branding } = useBranding();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   const toggleFaq = (index: number) => {
@@ -55,7 +53,7 @@ export function Landing() {
           <div className="wm-hero-content">
             <div className="wm-badge-row">
               <span className="pill ok wm-hero-pill">
-                🛡️ Non-Custodial Wealth Management · 100% Capital Protection
+                🛡️ Aza WealthKare Non-Custodial Wealth Management · 100% Capital Protection
               </span>
             </div>
 
@@ -65,7 +63,7 @@ export function Landing() {
             </h1>
 
             <p className="wm-hero-sub">
-              We professionally manage institutional trading directly inside your personal <strong>trading account</strong>.
+              <strong>Aza WealthKare</strong> professionally manages institutional trading directly inside your personal <strong>trading account</strong>.
               Targeting <strong>3% to 5% monthly profit</strong> with an ironclad <strong>100% capital protection guarantee</strong>.
               Zero third-party deposits — your money never leaves your hands.
             </p>
@@ -116,7 +114,7 @@ export function Landing() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="wm-hero-badge-live">
                     <span className="wm-hero-live-dot" />
-                    Live Execution Desk
+                    Aza WealthKare Execution Desk
                   </span>
                   <span style={{ fontSize: '11px', color: '#9ca3af', fontFamily: 'var(--mono)' }}>
                     Verified Trading Venue
@@ -147,18 +145,18 @@ export function Landing() {
       <section id="model" className="mk-section mk-block">
         <div className="section-head">
           <span className="kicker">The Aza WealthKare Standard</span>
-          <h2>A New Paradigm in Crypto Wealth Management</h2>
+          <h2>A New Paradigm in Crypto Wealth Management by Aza WealthKare</h2>
           <p>
-            Traditional funds ask you to send them your money. We built a system where your capital stays safely in your own hands.
+            Traditional funds ask you to send them your money. At Aza WealthKare, we built a non-custodial system where your capital stays safely in your own hands.
           </p>
         </div>
 
         <div className="wm-pillars-grid">
           <div className="wm-pillar-card" id="guarantee">
             <div className="wm-pillar-icon">🛡️</div>
-            <h3>100% Capital Safety Guarantee</h3>
+            <h3>Aza WealthKare 100% Capital Safety Guarantee</h3>
             <p>
-              Your initial principal is protected with strict mathematical risk management. Every trade has algorithmic stop-losses, trailing circuit breakers, and reserve-backed risk absorption.
+              Your initial principal is protected with Aza WealthKare&rsquo;s strict mathematical risk management. Every trade has algorithmic stop-losses, trailing circuit breakers, and reserve-backed risk absorption.
             </p>
             <ul className="wm-pillar-points">
               <li>Algorithmic downside locks on all legs</li>
@@ -171,7 +169,7 @@ export function Landing() {
             <div className="wm-pillar-icon">🏦</div>
             <h3>100% Non-Custodial Control</h3>
             <p>
-              Your money stays in your personal <strong>trading account</strong>. We manage trading with strictly withdrawal-disabled access. You can stop or withdraw your money at any second.
+              Your money stays in your personal <strong>trading account</strong>. Aza WealthKare manages trading with strictly withdrawal-disabled access. You can stop or withdraw your money at any second.
             </p>
             <ul className="wm-pillar-points">
               <li>Zero transfer of crypto or INR to third parties</li>
@@ -184,7 +182,7 @@ export function Landing() {
             <div className="wm-pillar-icon">📈</div>
             <h3>Consistent 3%–5% Monthly Profits</h3>
             <p>
-              Our quantitative desk uses systematic delta-neutral and trend-following strategies. Instead of high-risk gambling, we compound consistent 36%–60% annualized gains for our clients.
+              The Aza WealthKare quantitative desk uses systematic delta-neutral and trend-following strategies. Instead of high-risk gambling, we compound consistent 36%–60% annualized gains for our clients.
             </p>
             <ul className="wm-pillar-points">
               <li>Strict 1:2+ risk-to-reward ratio on every setup</li>
@@ -198,9 +196,9 @@ export function Landing() {
       {/* -------------------------------------------------- INTERACTIVE CALCULATOR */}
       <section id="calculator" className="mk-section mk-block" style={{ paddingTop: '20px' }}>
         <div className="section-head" style={{ marginBottom: '28px' }}>
-          <span className="kicker">Simulate Your Returns</span>
-          <h2>Calculate What Your Capital Can Earn</h2>
-          <p>See how 3%–5% consistent monthly compounding transforms your portfolio while maintaining 100% principal protection.</p>
+          <span className="kicker">Aza WealthKare Yield Simulator</span>
+          <h2>Calculate What Your Capital Can Earn with Aza WealthKare</h2>
+          <p>See how Aza WealthKare&rsquo;s consistent 3%–5% monthly compounding transforms your portfolio while maintaining 100% principal protection.</p>
         </div>
 
         <ProfitCalculator />
@@ -210,32 +208,32 @@ export function Landing() {
       <section id="how-it-works" className="mk-section mk-block">
         <div className="section-head">
           <span className="kicker">Seamless Client Onboarding</span>
-          <h2>How It Works: Zero Transfer, Total Transparency</h2>
-          <p>Get started with private wealth management in 4 straightforward steps.</p>
+          <h2>How Aza WealthKare Works: Zero Transfer, Total Transparency</h2>
+          <p>Get started with private wealth management by Aza WealthKare in 4 straightforward steps.</p>
         </div>
 
         <div className="wm-steps-grid">
           <div className="wm-step-card">
             <div className="wm-step-num">01</div>
-            <h3>Keep Capital in Your Exchange</h3>
+            <h3>Keep Capital in Your Trading Account</h3>
             <p>
-              Maintain your INR or USDT balance inside your personal verified <strong>trading account</strong>. You never transfer capital to us.
+              Maintain your INR or USDT balance inside your personal verified <strong>trading account</strong>. You never transfer capital to Aza WealthKare.
             </p>
           </div>
 
           <div className="wm-step-card">
             <div className="wm-step-num">02</div>
-            <h3>Book Private Consultation</h3>
+            <h3>Book Private Wealth Consultation</h3>
             <p>
-              Connect with our senior wealth advisory team to structure your risk preferences, capital allocation, and target return parameters.
+              Connect with an Aza WealthKare senior wealth advisory team to structure your risk preferences, capital allocation, and target return parameters.
             </p>
           </div>
 
           <div className="wm-step-card">
             <div className="wm-step-num">03</div>
-            <h3>Enable Secure Delegation</h3>
+            <h3>Enable Secure Trade-Only Delegation</h3>
             <p>
-              We guide you through granting trade-only delegation on your exchange with withdrawal permissions permanently disabled.
+              We guide you through granting trade-only delegation to Aza WealthKare on your exchange with withdrawal permissions permanently disabled.
             </p>
           </div>
 
@@ -243,7 +241,7 @@ export function Landing() {
             <div className="wm-step-num">04</div>
             <h3>Enjoy 3%–5% Monthly Profits</h3>
             <p>
-              Our institutional engine executes systematic trades. Watch your compounding profits accumulate live in your exchange mobile app.
+              The Aza WealthKare algorithmic engine executes systematic trades. Watch your compounding profits accumulate live in your exchange mobile app.
             </p>
           </div>
         </div>
@@ -253,8 +251,8 @@ export function Landing() {
       <section className="mk-section mk-block">
         <div className="section-head">
           <span className="kicker">Transparent Comparison</span>
-          <h2>Why High-Net-Worth Clients Choose {branding.name}</h2>
-          <p>See how our non-custodial wealth management model compares with traditional investment alternatives.</p>
+          <h2>Why High-Net-Worth Clients Choose Aza WealthKare</h2>
+          <p>See how the Aza WealthKare non-custodial wealth management model compares with traditional investment alternatives.</p>
         </div>
 
         <div className="wm-table-wrap">
@@ -262,7 +260,7 @@ export function Landing() {
             <thead>
               <tr>
                 <th>Feature</th>
-                <th className="highlight">{branding.name}</th>
+                <th className="highlight">Aza WealthKare Desk</th>
                 <th>Crypto Hedge Funds</th>
                 <th>Bank FDs / Mutual Funds</th>
               </tr>
@@ -313,10 +311,10 @@ export function Landing() {
       <div className="wm-vault-section-wrap">
         <div style={{ maxWidth: '1240px', margin: '0 auto' }}>
           <div className="section-head">
-            <span className="kicker">Capital Protection Framework</span>
-            <h2>How We Protect 100% of Your Capital Across Market Cycles</h2>
+            <span className="kicker">Aza WealthKare Capital Protection Framework</span>
+            <h2>How Aza WealthKare Protects 100% of Your Capital Across Market Cycles</h2>
             <p>
-              Disciplined quantitative risk management designed to preserve initial principal during market drawdowns while steadily extracting 3%–5% monthly alpha.
+              Disciplined quantitative risk management engineered by Aza WealthKare to preserve initial principal during market drawdowns while steadily extracting 3%–5% monthly alpha.
             </p>
           </div>
 
@@ -371,12 +369,12 @@ export function Landing() {
               />
             </div>
             <div>
-              <span className="kicker">Cryptographic Architecture</span>
+              <span className="kicker">Aza WealthKare Cryptographic Architecture</span>
               <h3 style={{ fontSize: '26px', fontWeight: 800, margin: '8px 0 14px', color: '#ffffff' }}>
-                The 100% Principal Protection Guarantee
+                The Aza WealthKare 100% Principal Protection Guarantee
               </h3>
               <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: '22px' }}>
-                Our trading infrastructure connects to your personal trading account with strict trade-only delegation.
+                The Aza WealthKare trading infrastructure connects to your personal trading account with strict trade-only delegation.
                 Withdrawal permissions are permanently disabled. No matter how wild crypto markets swing, your capital remains permanently isolated in your verified account.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -400,12 +398,12 @@ export function Landing() {
           {/* Quantitative Algorithmic Execution Showcase */}
           <div className="wm-algo-showcase" style={{ marginTop: 0 }}>
             <div>
-              <span className="kicker" style={{ color: '#34d399' }}>24/7 Systematic Alpha</span>
+              <span className="kicker" style={{ color: '#34d399' }}>24/7 Systematic Alpha by Aza WealthKare</span>
               <h3 style={{ fontSize: '28px', fontWeight: 800, margin: '8px 0 14px', color: '#ffffff' }}>
-                Quantitative Execution Desk in Real Time
+                Inside the Aza WealthKare Real-Time Execution Desk
               </h3>
               <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: '24px' }}>
-                While retail traders struggle with emotional fatigue and volatility whipsaws, our proprietary quantitative algorithms execute disciplined market-making and basis spreads around the clock.
+                While retail traders struggle with emotional fatigue and volatility whipsaws, Aza WealthKare proprietary quantitative algorithms execute disciplined market-making and basis spreads around the clock.
               </p>
               <div style={{ display: 'flex', gap: '28px', flexWrap: 'wrap' }}>
                 <div>
@@ -434,12 +432,12 @@ export function Landing() {
           {/* Market Regime Resilience Card */}
           <div className="wm-regime-wrap">
             <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 24px' }}>
-              <span className="kicker" style={{ fontSize: '11.5px' }}>Cycle-Tested Engineering</span>
+              <span className="kicker" style={{ fontSize: '11.5px' }}>Aza WealthKare Cycle-Tested Engineering</span>
               <h3 style={{ fontSize: '22px', fontWeight: 800, margin: '8px 0 6px', color: '#ffffff' }}>
-                Market Regime Performance Matrix
+                Aza WealthKare Market Regime Performance Matrix
               </h3>
               <p style={{ fontSize: '14px', color: '#94a3b8', margin: 0 }}>
-                Our algorithms dynamically adapt execution logic based on macroeconomic crypto volatility.
+                Aza WealthKare algorithms dynamically adapt execution logic based on macroeconomic crypto volatility.
               </p>
             </div>
 
@@ -481,9 +479,9 @@ export function Landing() {
       {/* -------------------------------------------------- SECURITY & RISK */}
       <section id="security" className="mk-section mk-block">
         <div className="section-head">
-          <span className="kicker">Institutional Safety Architecture</span>
-          <h2>Built for Total Peace of Mind</h2>
-          <p>Real money demands uncompromising engineering. Here is how your capital security is ensured.</p>
+          <span className="kicker">Aza WealthKare Safety Architecture</span>
+          <h2>Built by Aza WealthKare for Total Peace of Mind</h2>
+          <p>Real money demands uncompromising engineering. Here is how Aza WealthKare safeguards your wealth.</p>
         </div>
 
         <div className="features">
@@ -491,7 +489,7 @@ export function Landing() {
             <div className="feature-icon">🔒</div>
             <h3>Zero Withdrawal Authority</h3>
             <p>
-              Management access is granted with <strong>withdrawals permanently blocked</strong>. Even our own operators cannot initiate an outgoing transfer from your exchange.
+              Management access is granted to Aza WealthKare with <strong>withdrawals permanently blocked</strong>. Even our own operators cannot initiate an outgoing transfer from your exchange.
             </p>
           </div>
 
@@ -540,9 +538,9 @@ export function Landing() {
       {/* -------------------------------------------------- FAQ ACCORDION */}
       <section id="faq" className="mk-section mk-block">
         <div className="section-head">
-          <span className="kicker">Got Questions?</span>
-          <h2>Frequently Asked Questions</h2>
-          <p>Everything you need to know about our non-custodial crypto wealth management service.</p>
+          <span className="kicker">Aza WealthKare Advisory</span>
+          <h2>Frequently Asked Questions About Aza WealthKare</h2>
+          <p>Everything you need to know about Aza WealthKare&rsquo;s non-custodial crypto wealth management service.</p>
         </div>
 
         <div className="wm-faq-wrap">
@@ -570,13 +568,13 @@ export function Landing() {
       <section className="mk-section mk-block" style={{ padding: '60px 24px' }}>
         <div className="wm-final-cta-wrap">
           <span className="pill ok" style={{ fontSize: '12.5px', letterSpacing: '0.05em' }}>
-            Zero Custody Risk · 100% Capital Guaranteed
+            Zero Custody Risk · 100% Capital Guaranteed by Aza WealthKare
           </span>
           <h2 className="wm-cta-title">
-            Put Your Exchange Capital to Work Today
+            Put Your Capital to Work with Aza WealthKare Today
           </h2>
           <p style={{ maxWidth: '640px', margin: '0 auto 32px', color: '#94a3b8', fontSize: '16.5px', lineHeight: 1.6 }}>
-            Join discerning investors earning 3% to 5% monthly profits without ever transferring custody of their funds.
+            Join discerning investors earning 3% to 5% monthly profits through Aza WealthKare without ever transferring custody of their funds.
           </p>
           <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link to="/contact" className="btn btn-lg wm-btn-primary" style={{ minWidth: '240px', textDecoration: 'none' }}>
