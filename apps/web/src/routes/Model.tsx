@@ -15,10 +15,10 @@ export function Model() {
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
             <span className="kicker">Quantitative Methodology</span>
-            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+            <h1 className="wm-subpage-title">
               The <span className="wm-grad">3%–5% Monthly</span> Growth &amp; Protection Architecture
             </h1>
-            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+            <p className="wm-subpage-sub">
               Discover how {branding.name} combines systematic algorithmic execution, non-custodial risk containment, and capital preservation guarantees to generate consistent returns across all market conditions.
             </p>
           </div>
@@ -98,7 +98,7 @@ export function Model() {
             <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
               We enforce a strict capital preservation covenant: our multi-tiered risk architecture ensures that your initial principal is never exposed to catastrophic liquidation or runaway drawdowns.
             </p>
-            <div className="wm-steps-grid" style={{ marginTop: '20px', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="wm-steps-grid" style={{ marginTop: '20px' }}>
               <div className="wm-step-card">
                 <div className="wm-step-num">01</div>
                 <h3>Max 2.5% Drawdown Cap</h3>
@@ -119,7 +119,7 @@ export function Model() {
 
           {/* CTA */}
           <div className="wm-final-cta-wrap" style={{ marginTop: '50px' }}>
-            <h2 style={{ fontSize: '32px', fontWeight: 850, margin: '0 0 14px' }}>
+            <h2 className="wm-cta-title">
               Ready to Implement Institutional Management?
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>

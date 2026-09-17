@@ -14,10 +14,10 @@ export function Guarantee() {
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
             <span className="kicker">Investor Security Covenant</span>
-            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+            <h1 className="wm-subpage-title">
               The <span className="wm-grad">100% Capital Protection</span> Guarantee
             </h1>
-            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+            <p className="wm-subpage-sub">
               We place capital preservation above all else. Discover the mathematical risk parameters, algorithmic downside circuit breakers, and non-custodial protections that safeguard your wealth.
             </p>
           </div>
@@ -74,7 +74,7 @@ export function Guarantee() {
           </div>
 
           <div className="wm-final-cta-wrap">
-            <h2 style={{ fontSize: '32px', fontWeight: 850, margin: '0 0 14px' }}>
+            <h2 className="wm-cta-title">
               Protect Your Principal While Compounding Returns
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>

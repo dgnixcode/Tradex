@@ -3702,6 +3702,515 @@ body:has(.panel-dark)::before {
 }
 
 /* =========================================================================
+   PUBLIC MARKETING & FRONTEND RESPONSIVE STYLES
+   ========================================================================= */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wm-subpage-title {
+  font-size: 44px;
+  font-weight: 850;
+  margin: 14px 0 20px;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  line-height: 1.15;
+}
+
+.wm-subpage-sub {
+  font-size: 17px;
+  line-height: 1.6;
+  color: #94a3b8;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.wm-cta-title {
+  font-size: 38px;
+  font-weight: 850;
+  margin: 16px 0 14px;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+/* Marketing Header & Mobile Dropdown/Scrim */
+.mk-menu-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 45;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.mk-mobile-menu {
+  position: fixed;
+  top: 64px;
+  left: 12px;
+  right: 12px;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(10, 14, 24, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  padding: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideDownFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mk-mobile-menu-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mk-mobile-menu-links a {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  color: #cbd5e1;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.mk-mobile-menu-links a:hover,
+.mk-mobile-menu-links a:active {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.mk-mobile-menu-actions {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mk-mobile-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: 750;
+  text-decoration: none;
+  border-radius: 10px;
+}
+
+.mk-mobile-op-link {
+  display: block;
+  text-align: center;
+  font-size: 12.5px;
+  color: #94a3b8;
+  text-decoration: none;
+  padding: 6px 0;
+  transition: color 0.15s ease;
+}
+
+.mk-mobile-op-link:hover {
+  color: #34d399;
+}
+
+.wm-table-wrap {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  position: relative;
+  border-radius: 14px;
+}
+
+.wm-comp-table {
+  min-width: 640px;
+  width: 100%;
+}
+
+/* Tablet & Intermediate Viewports (<= 980px) */
+@media (max-width: 980px) {
+  .landing-dark .wm-hero {
+    grid-template-columns: 1fr;
+    padding: 56px 20px 44px;
+    gap: 36px;
+    text-align: center;
+  }
+  .landing-dark .wm-hero-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .landing-dark .wm-hero-sub {
+    margin: 0 auto 28px;
+  }
+  .wm-hero-ctas {
+    justify-content: center;
+  }
+  .landing-dark .wm-trust-bar {
+    margin: 28px auto 0;
+    width: 100%;
+    max-width: 600px;
+    justify-content: center;
+  }
+  .wm-pillars-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .wm-steps-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .wm-regime-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  .calc-grid {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+}
+
+/* Medium Tablets & Large Phones (<= 860px) */
+@media (max-width: 860px) {
+  .mk-header {
+    padding: 12px 18px;
+    gap: 12px;
+  }
+  .mk-header-op-btn {
+    display: none !important;
+  }
+  .wm-contact-grid {
+    grid-template-columns: 1fr !important;
+    gap: 24px !important;
+  }
+  .wm-vault-feature {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 28px 22px;
+  }
+  .wm-algo-showcase {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 28px 22px;
+  }
+  .mk-footer-inner {
+    grid-template-columns: 1fr 1fr;
+    gap: 32px 24px;
+  }
+  .mk-footer-brand {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Mobile Devices (<= 768px) */
+@media (max-width: 768px) {
+  .landing-dark .wm-hero-title {
+    font-size: 34px !important;
+    line-height: 1.18;
+    margin-bottom: 16px;
+  }
+  .landing-dark .wm-hero-sub {
+    font-size: 15.5px !important;
+    line-height: 1.55;
+    margin-bottom: 24px;
+  }
+  .wm-subpage-title {
+    font-size: 30px;
+    margin: 10px 0 14px;
+  }
+  .wm-subpage-sub {
+    font-size: 15px;
+  }
+  .wm-cta-title {
+    font-size: 28px;
+  }
+  .wm-subpage-hero-wrap {
+    padding: 48px 18px 36px;
+  }
+  .wm-track-summary {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px;
+    padding: 18px 16px;
+  }
+}
+
+/* Standard Phone Viewports (<= 640px) */
+@media (max-width: 640px) {
+  .landing-dark .wm-hero-title {
+    font-size: 28px !important;
+  }
+  .wm-subpage-title {
+    font-size: 26px;
+  }
+  .wm-cta-title {
+    font-size: 24px;
+  }
+  .wm-hero-ctas {
+    flex-direction: column;
+    width: 100%;
+    gap: 12px;
+  }
+  .wm-hero-ctas .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px 20px;
+  }
+  /* Trust Bar transformed to 2x2 Grid */
+  .landing-dark .wm-trust-bar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16px 12px !important;
+    padding: 16px 18px !important;
+  }
+  .landing-dark .wm-trust-divider {
+    display: none !important;
+  }
+  .landing-dark .wm-trust-item {
+    text-align: center;
+  }
+  .landing-dark .wm-trust-val {
+    font-size: 18px;
+  }
+  .landing-dark .wm-trust-lbl {
+    font-size: 11px;
+  }
+  /* Hero Media Overlay Card */
+  .wm-hero-overlay-card {
+    position: static;
+    margin: 12px 0 0;
+    border-radius: 14px;
+    padding: 14px 16px;
+  }
+  .wm-hero-stats-strip {
+    gap: 8px;
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  .wm-hero-stat-val {
+    font-size: 15px;
+  }
+  .wm-hero-stat-lbl {
+    font-size: 10.5px;
+  }
+  /* Vault & Algorithm Sections */
+  .wm-vault-section-wrap,
+  .wm-algo-section-wrap {
+    padding: 44px 16px;
+  }
+  .wm-vault-feature,
+  .wm-algo-showcase {
+    padding: 22px 16px;
+    border-radius: 16px;
+    margin-top: 24px;
+    gap: 18px;
+  }
+  .wm-final-cta-wrap {
+    padding: 40px 18px;
+    border-radius: 18px;
+  }
+  /* Pillar & Step Cards */
+  .landing-dark .wm-pillar-card,
+  .landing-dark .wm-step-card {
+    padding: 22px 18px;
+  }
+  .wm-pillar-icon {
+    font-size: 26px;
+    margin-bottom: 12px;
+  }
+  .wm-steps-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  /* Profit Calculator */
+  .landing-dark .calc-card {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+  .calc-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .calc-currency-toggle {
+    width: 100%;
+  }
+  .calc-toggle-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 12px;
+  }
+  .calc-input-row {
+    padding: 0 12px;
+  }
+  .calc-number-input {
+    font-size: 18px !important;
+  }
+  .calc-input-symbol {
+    font-size: 18px;
+  }
+  .calc-chip {
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+  .calc-result-box {
+    padding: 16px 18px;
+  }
+  .calc-result-value.profit {
+    font-size: 26px;
+  }
+  .calc-results-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .calc-primary-cta {
+    padding: 14px 16px;
+    font-size: 13.5px;
+  }
+  /* Features & FAQ */
+  .wm-faq-question {
+    padding: 16px 18px;
+    font-size: 14.5px;
+    gap: 12px;
+  }
+  .wm-faq-answer {
+    padding: 0 18px 16px;
+    font-size: 13.5px;
+  }
+  /* Comparison Table Padding */
+  .wm-comp-table th, .wm-comp-table td {
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  /* Footer Mobile Reflow */
+  .mk-footer {
+    padding: 36px 16px 24px;
+    margin-top: 40px;
+  }
+  .mk-footer-inner {
+    grid-template-columns: 1fr 1fr;
+    gap: 28px 16px;
+  }
+  .mk-footer-col h4 {
+    font-size: 11.5px;
+    margin-bottom: 10px;
+  }
+  .mk-footer-col a {
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .mk-footer-bottom {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+    align-items: center;
+  }
+  .mk-footer-disclaimer {
+    padding: 16px 0 !important;
+    font-size: 11.5px !important;
+  }
+  /* Auth Pages */
+  .auth-main {
+    padding: 24px 16px;
+  }
+  .auth-card {
+    max-width: 100%;
+  }
+  .auth-card h2 {
+    font-size: 23px;
+  }
+  .auth-card .sub {
+    font-size: 13.5px;
+    margin-bottom: 20px;
+  }
+}
+
+/* Small Phones (<= 520px) */
+@media (max-width: 520px) {
+  .mk-header .aza-brand-primary {
+    font-size: 20px;
+  }
+  .mk-header .aza-brand-secondary {
+    font-size: 8px;
+    letter-spacing: 0.22em;
+  }
+  .mk-header .aza-monogram {
+    width: 30px;
+    height: 30px;
+  }
+  .mk-header-consult-btn {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
+/* Compact Phones (<= 480px) */
+@media (max-width: 480px) {
+  .landing-dark .wm-hero-title {
+    font-size: 25px !important;
+  }
+  .wm-subpage-title {
+    font-size: 23px;
+  }
+  .wm-cta-title {
+    font-size: 21px;
+  }
+  .wm-trust-bar {
+    gap: 12px 8px !important;
+  }
+  .calc-slider-labels {
+    font-size: 10px;
+  }
+  .calc-guarantee-notice {
+    padding: 12px 14px;
+  }
+  .wm-vault-mini-stat {
+    padding: 12px 10px;
+  }
+  .wm-summary-stat .num {
+    font-size: 20px;
+  }
+}
+
+/* Very Compact Phones (<= 400px) */
+@media (max-width: 400px) {
+  .mk-header-consult-btn {
+    display: none !important;
+  }
+  .mk-footer-inner {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .landing-dark .wm-trust-bar {
+    grid-template-columns: 1fr 1fr !important;
+    padding: 12px 10px !important;
+  }
+}
+
+/* =========================================================================
    Panel Mobile Navigation Shell & Responsive Infrastructure (<= 860px)
    ========================================================================= */
 .panel-mobile-header {

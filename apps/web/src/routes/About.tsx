@@ -14,10 +14,10 @@ export function About() {
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '840px', margin: '0 auto', textAlign: 'center' }}>
             <span className="kicker">About {branding.name}</span>
-            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+            <h1 className="wm-subpage-title">
               Institutional Crypto Wealth Management Built on <span className="wm-grad">Zero Custody Risk</span>
             </h1>
-            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+            <p className="wm-subpage-sub">
               We founded {branding.name} to solve the single greatest hazard in crypto investing: counterparty risk. We believe you should never have to hand over your life savings to a third party to achieve professional, compounding returns.
             </p>
           </div>
@@ -96,7 +96,7 @@ export function About() {
 
           {/* Call to action */}
           <div className="wm-final-cta-wrap" style={{ margin: '0 auto' }}>
-            <h2 style={{ fontSize: '32px', fontWeight: 850, margin: '0 0 14px' }}>
+            <h2 className="wm-cta-title">
               Experience Fiduciary Crypto Wealth Management
             </h2>
             <p style={{ color: '#94a3b8', marginBottom: '28px', fontSize: '15.5px' }}>

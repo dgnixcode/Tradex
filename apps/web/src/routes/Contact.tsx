@@ -64,10 +64,10 @@ export function Contact() {
         <section className="mk-section mk-block" style={{ padding: '20px 0 10px' }}>
           <div className="section-head" style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
             <span className="kicker">Private Client Advisory</span>
-            <h1 style={{ fontSize: '44px', fontWeight: 850, margin: '14px 0 20px', letterSpacing: '-0.03em', color: '#ffffff' }}>
+            <h1 className="wm-subpage-title">
               Schedule Your <span className="wm-grad">Wealth Consultation</span>
             </h1>
-            <p style={{ fontSize: '17px', lineHeight: 1.6, color: '#94a3b8' }}>
+            <p className="wm-subpage-sub">
               Connect with a senior portfolio advisor from {branding.name}. We will structure your non-custodial capital allocation, review your safety parameters, and guide you through secure CoinDCX onboarding.
             </p>
           </div>
@@ -185,7 +185,7 @@ export function Contact() {
 
                 <div className="field">
                   <label htmlFor="c-method">Preferred Contact Channel</label>
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
                     {['WhatsApp', 'Phone Call', 'Google Meet'].map((m) => (
                       <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', cursor: 'pointer' }}>
                         <input

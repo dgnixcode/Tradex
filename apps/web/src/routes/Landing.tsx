@@ -572,7 +572,7 @@ export function Landing() {
           <span className="pill ok" style={{ fontSize: '12.5px', letterSpacing: '0.05em' }}>
             Zero Custody Risk · 100% Capital Guaranteed
           </span>
-          <h2 style={{ fontSize: '38px', marginTop: '18px', marginBottom: '16px', fontWeight: 850 }}>
+          <h2 className="wm-cta-title">
             Put Your Exchange Capital to Work Today
           </h2>
           <p style={{ maxWidth: '640px', margin: '0 auto 32px', color: '#94a3b8', fontSize: '16.5px', lineHeight: 1.6 }}>
