@@ -78,6 +78,55 @@ export function MarketingFooter() {
         ))}
       </div>
 
+      {/* Direct Contact & Office Details Strip */}
+      <div style={{
+        maxWidth: '1200px',
+        margin: '28px auto 0',
+        padding: '18px 24px',
+        borderTop: '1px solid var(--line)',
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '20px 32px',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        fontSize: '13px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '16px', color: '#25D366' }}>💬</span>
+          <span style={{ color: 'var(--muted)' }}>WhatsApp:</span>
+          <a
+            href={`https://wa.me/${(branding.whatsapp || '').replace(/[^0-9]/g, '') || '919876543210'}?text=${encodeURIComponent(`Hello ${branding.name}, I would like to inquire about your wealth management services.`)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}
+          >
+            {branding.whatsapp}
+          </a>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '15px' }}>📞</span>
+          <span style={{ color: 'var(--muted)' }}>Desk:</span>
+          <a href={`tel:${branding.phone}`} style={{ color: 'var(--ink)', textDecoration: 'none', fontWeight: 500 }}>
+            {branding.phone}
+          </a>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '15px' }}>✉️</span>
+          <span style={{ color: 'var(--muted)' }}>Email:</span>
+          <a href={`mailto:${branding.email}`} style={{ color: 'var(--ink)', textDecoration: 'none', fontWeight: 500 }}>
+            {branding.email}
+          </a>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '420px' }}>
+          <span style={{ fontSize: '15px' }}>🏢</span>
+          <span style={{ color: 'var(--muted)' }}>Office:</span>
+          <span style={{ color: 'var(--ink)', opacity: 0.9 }}>{branding.address}</span>
+        </div>
+      </div>
+
       <div className="mk-footer-disclaimer" style={{
         maxWidth: '1200px',
         margin: '36px auto 0',

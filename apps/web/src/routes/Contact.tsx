@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
+import { useBranding } from '../branding.tsx';
 import { submitConsultationInquiry } from '../api.ts';
 
 export function Contact() {
+  const { branding } = useBranding();
   const [searchParams] = useSearchParams();
 
   const [name, setName] = useState('');
@@ -240,28 +242,61 @@ export function Contact() {
           <div>
             <div className="wm-pillar-card" style={{ padding: '32px', marginBottom: '24px' }}>
               <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px', color: '#ffffff' }}>
-                Aza WealthKare Direct Advisory Channels
+                {branding.name} Direct Advisory Channels
               </h3>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '14px' }}>
-                <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>💬</span>
-                  <div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '20px', color: '#25D366' }}>💬</span>
+                  <div style={{ flex: 1 }}>
                     <strong style={{ color: '#ffffff' }}>WhatsApp Priority Desk:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>Direct advisory line for clients</div>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
+                      <a
+                        href={`https://wa.me/${(branding.whatsapp || '').replace(/[^0-9]/g, '') || '919876543210'}?text=${encodeURIComponent(`Hello ${branding.name}, I would like to inquire about your wealth management services.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}
+                      >
+                        {branding.whatsapp || '+91 98765 43210'} ↗
+                      </a>
+                    </div>
                   </div>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>✉️</span>
-                  <div>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '20px' }}>📞</span>
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ color: '#ffffff' }}>Direct Advisory Line:</strong>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
+                      <a href={`tel:${branding.phone}`} style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}>
+                        {branding.phone}
+                      </a>
+                    </div>
+                  </div>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '20px' }}>✉️</span>
+                  <div style={{ flex: 1 }}>
                     <strong style={{ color: '#ffffff' }}>Advisory Email:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>support@azawealthkare.com</div>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
+                      <a href={`mailto:${branding.email}`} style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}>
+                        {branding.email}
+                      </a>
+                    </div>
                   </div>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>🕒</span>
-                  <div>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '20px' }}>🏢</span>
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ color: '#ffffff' }}>Corporate Office:</strong>
+                    <div style={{ color: '#cbd5e1', marginTop: '3px', lineHeight: 1.45, fontSize: '13.5px' }}>
+                      {branding.address}
+                    </div>
+                  </div>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '20px' }}>🕒</span>
+                  <div style={{ flex: 1 }}>
                     <strong style={{ color: '#ffffff' }}>Operating Hours:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>Monday – Saturday: 9:00 AM – 8:00 PM IST</div>
+                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>{branding.hours}</div>
                   </div>
                 </li>
               </ul>

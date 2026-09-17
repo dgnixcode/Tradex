@@ -32,6 +32,7 @@ import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
+import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
 import './styles.css';
 
 // A single query client. Previews are never cached — a plan is priced against a
@@ -119,6 +120,7 @@ function Root() {
       <AuthProvider>
         <PageTitleSync />
         <Outlet />
+        <WhatsAppWidget />
       </AuthProvider>
     </BrandingProvider>
   );
