@@ -6,14 +6,13 @@ import { Brand } from './Brand.tsx';
 interface NavLink {
   readonly to: string;
   readonly label: string;
-  readonly hasDropdown?: boolean;
 }
 
 const NAV: readonly NavLink[] = [
   { to: '/', label: 'Home' },
   { to: '/about', label: 'About' },
-  { to: '/model', label: 'Our Services', hasDropdown: true },
-  { to: '/guarantee', label: 'Digital Assets', hasDropdown: true },
+  { to: '/model', label: 'Our Services' },
+  { to: '/guarantee', label: 'Digital Assets' },
   { to: '/#calculator', label: 'Insights' },
   { to: '/contact', label: 'Contact' },
 ];
@@ -39,16 +38,7 @@ export function MarketingHeader() {
         {NAV.map((l) => {
           const isHome = l.to === '/' && typeof window !== 'undefined' && (window.location.pathname === '/' || window.location.pathname === '');
           const linkClass = `mk-nav-link ${isHome ? 'is-active' : ''}`;
-          const content = (
-            <>
-              <span>{l.label}</span>
-              {l.hasDropdown && (
-                <svg className="mk-nav-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 1l4 4 4-4" />
-                </svg>
-              )}
-            </>
-          );
+          const content = <span>{l.label}</span>;
 
           return l.to.startsWith('/#') ? (
             <a key={l.to} href={l.to.substring(1)} className={linkClass}>{content}</a>

@@ -489,21 +489,21 @@ export function Landing() {
             </div>
             <div>
               <span className="kicker">Aza WealthKare Cryptographic Architecture</span>
-              <h3 style={{ fontSize: '26px', fontWeight: 800, margin: '8px 0 14px', color: '#ffffff' }}>
+              <h3 style={{ fontSize: '26px', fontWeight: 700, margin: '8px 0 14px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                 The Aza WealthKare 100% Principal Protection Guarantee
               </h3>
-              <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: '22px' }}>
+              <p style={{ color: '#475569', fontSize: '15px', lineHeight: 1.65, marginBottom: '22px' }}>
                 The Aza WealthKare trading infrastructure connects to your personal trading account with strict trade-only delegation.
                 Withdrawal permissions are permanently disabled. No matter how wild crypto markets swing, your capital remains permanently isolated in your verified account.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div className="wm-vault-mini-stat">
-                  <strong style={{ display: 'block', fontSize: '13.5px', color: '#ffffff', marginBottom: '2px' }}>Zero Third-Party Risk</strong>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>No pooling, zero commingling, zero transfer</span>
+                  <strong style={{ display: 'block', fontSize: '14px', color: '#0b1a30', marginBottom: '2px' }}>Zero Third-Party Risk</strong>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>No pooling, zero commingling, zero transfer</span>
                 </div>
                 <div className="wm-vault-mini-stat highlight">
-                  <strong style={{ display: 'block', fontSize: '13.5px', color: '#34d399', marginBottom: '2px' }}>Automated Risk Fences</strong>
-                  <span style={{ fontSize: '12px', color: '#6ee7b7' }}>Sub-millisecond drawdown circuit breakers</span>
+                  <strong style={{ display: 'block', fontSize: '14px', color: '#0052cc', marginBottom: '2px' }}>Automated Risk Fences</strong>
+                  <span style={{ fontSize: '12px', color: '#475569' }}>Sub-millisecond drawdown circuit breakers</span>
                 </div>
               </div>
             </div>
@@ -517,25 +517,25 @@ export function Landing() {
           {/* Quantitative Algorithmic Execution Showcase */}
           <div className="wm-algo-showcase" style={{ marginTop: 0 }}>
             <div>
-              <span className="kicker" style={{ color: '#34d399' }}>24/7 Systematic Alpha by Aza WealthKare</span>
-              <h3 style={{ fontSize: '28px', fontWeight: 800, margin: '8px 0 14px', color: '#ffffff' }}>
+              <span className="kicker" style={{ color: '#0052cc' }}>24/7 Systematic Alpha by Aza WealthKare</span>
+              <h3 style={{ fontSize: '28px', fontWeight: 700, margin: '8px 0 14px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                 Inside the Aza WealthKare Real-Time Execution Desk
               </h3>
-              <p style={{ color: '#94a3b8', fontSize: '15px', lineHeight: 1.6, marginBottom: '24px' }}>
+              <p style={{ color: '#475569', fontSize: '15px', lineHeight: 1.65, marginBottom: '24px' }}>
                 While retail traders struggle with emotional fatigue and volatility whipsaws, Aza WealthKare proprietary quantitative algorithms execute disciplined market-making and basis spreads around the clock.
               </p>
               <div style={{ display: 'flex', gap: '28px', flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#34d399', fontFamily: 'var(--mono)' }}>&lt; 2.5%</div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>Max Monitored Drawdown</div>
+                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#0052cc', fontFamily: 'var(--mono)' }}>&lt; 2.5%</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>Max Monitored Drawdown</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#ffffff', fontFamily: 'var(--mono)' }}>24/7/365</div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>Algorithmic Surveillance</div>
+                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#0b1a30', fontFamily: 'var(--mono)' }}>24/7/365</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>Algorithmic Surveillance</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#34d399', fontFamily: 'var(--mono)' }}>100%</div>
-                  <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>Personal Trading Account Settlement</div>
+                  <div style={{ fontSize: '26px', fontWeight: 850, color: '#059669', fontFamily: 'var(--mono)' }}>100%</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>Personal Trading Account Settlement</div>
                 </div>
               </div>
             </div>
@@ -551,11 +551,11 @@ export function Landing() {
           {/* Market Regime Resilience Card */}
           <div className="wm-regime-wrap">
             <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto 24px' }}>
-              <span className="kicker" style={{ fontSize: '11.5px' }}>Aza WealthKare Cycle-Tested Engineering</span>
-              <h3 style={{ fontSize: '22px', fontWeight: 800, margin: '8px 0 6px', color: '#ffffff' }}>
+              <span className="kicker" style={{ fontSize: '11.5px', color: '#0052cc' }}>Aza WealthKare Cycle-Tested Engineering</span>
+              <h3 style={{ fontSize: '24px', fontWeight: 700, margin: '8px 0 8px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                 Aza WealthKare Market Regime Performance Matrix
               </h3>
-              <p style={{ fontSize: '14px', color: '#94a3b8', margin: 0 }}>
+              <p style={{ fontSize: '14.5px', color: '#475569', margin: 0 }}>
                 Aza WealthKare algorithms dynamically adapt execution logic based on macroeconomic crypto volatility.
               </p>
             </div>
@@ -564,9 +564,9 @@ export function Landing() {
               <div className="wm-regime-card bull">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                   <span style={{ fontSize: '20px' }}>📈</span>
-                  <strong style={{ fontSize: '14.5px', color: '#34d399' }}>Bull Market Regimes</strong>
+                  <strong style={{ fontSize: '15px', color: '#166534' }}>Bull Market Regimes</strong>
                 </div>
-                <p style={{ fontSize: '13px', color: '#a7f3d0', margin: 0, lineHeight: 1.5 }}>
+                <p style={{ fontSize: '13px', color: '#334155', margin: 0, lineHeight: 1.55 }}>
                   Systematic trend capture with automated trailing take-profits. Locks in targeted 3%–5% monthly gains while ratcheting stop-losses upward.
                 </p>
               </div>
@@ -574,9 +574,9 @@ export function Landing() {
               <div className="wm-regime-card bear">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                   <span style={{ fontSize: '20px' }}>📉</span>
-                  <strong style={{ fontSize: '14.5px', color: '#60a5fa' }}>Bear Market Regimes</strong>
+                  <strong style={{ fontSize: '15px', color: '#1e40af' }}>Bear Market Regimes</strong>
                 </div>
-                <p style={{ fontSize: '13px', color: '#bfdbfe', margin: 0, lineHeight: 1.5 }}>
+                <p style={{ fontSize: '13px', color: '#334155', margin: 0, lineHeight: 1.55 }}>
                   Capital preservation mode. Neutralizes exposure through synthetic short hedges and harvests steady basis yield with 100% principal protection.
                 </p>
               </div>
@@ -584,9 +584,9 @@ export function Landing() {
               <div className="wm-regime-card chop">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                   <span style={{ fontSize: '20px' }}>⚡</span>
-                  <strong style={{ fontSize: '14.5px', color: '#c084fc' }}>High Volatility &amp; Chop</strong>
+                  <strong style={{ fontSize: '15px', color: '#6b21a8' }}>High Volatility &amp; Chop</strong>
                 </div>
-                <p style={{ fontSize: '13px', color: '#e9d5ff', margin: 0, lineHeight: 1.5 }}>
+                <p style={{ fontSize: '13px', color: '#334155', margin: 0, lineHeight: 1.55 }}>
                   Mean-reversion micro-scalping within strict bracket corridors. Captures intraday spreads while hard risk fences prevent runaway losses.
                 </p>
               </div>

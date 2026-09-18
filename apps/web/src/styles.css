@@ -3383,6 +3383,23 @@ body:has(.panel-dark)::before {
   background: #04060c;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: #94a3b8;
+  --ink: #ffffff !important;
+  --muted: #94a3b8 !important;
+  --text: #ffffff !important;
+  --faint: #94a3b8 !important;
+}
+
+.landing-dark .mk-footer a {
+  color: #cbd5e1;
+}
+
+.landing-dark .mk-footer a:hover {
+  color: #ffffff;
+}
+
+.landing-dark .mk-footer-col h4 {
+  color: #f8fafc;
+  font-weight: 700;
 }
 
 /* =========================================================================
@@ -3899,11 +3916,11 @@ body:has(.panel-dark)::before {
 
 .landing-dark .wm-grad,
 .wm-grad {
-  color: #34d399 !important;
+  color: #0052cc !important;
   background: none !important;
-  -webkit-text-fill-color: #34d399 !important;
-  text-shadow: 0 0 22px rgba(52, 211, 153, 0.85), 0 0 38px rgba(52, 211, 153, 0.45) !important;
-  font-weight: 850 !important;
+  -webkit-text-fill-color: #0052cc !important;
+  text-shadow: none !important;
+  font-weight: 750 !important;
   display: inline !important;
 }
 
@@ -4080,8 +4097,8 @@ body:has(.panel-dark)::before {
 }
 
 .landing-dark .wm-trust-val.highlight {
-  color: #34d399;
-  text-shadow: 0 0 16px rgba(52, 211, 153, 0.4);
+  color: #0052cc;
+  text-shadow: none;
 }
 
 .landing-dark .wm-trust-val.highlight-danger {
@@ -4339,8 +4356,8 @@ body:has(.panel-dark)::before {
 }
 
 .telemetry-col-value.text-emerald {
-  color: #34d399;
-  text-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+  color: #059669;
+  text-shadow: none;
 }
 
 .telemetry-col-value.text-coral {
@@ -4396,15 +4413,13 @@ body:has(.panel-dark)::before {
   font-weight: 700;
 }
 
-/* Vault / Capital Protection Section with Full-Width Background */
+/* Vault / Capital Protection Section - Light Luxury Style */
 .wm-vault-section-wrap {
   position: relative;
   width: 100%;
-  background: 
-    linear-gradient(180deg, rgba(7, 10, 19, 0.94) 0%, rgba(7, 10, 19, 0.84) 50%, rgba(7, 10, 19, 0.96) 100%),
-    url('/images/crypto_vault_shield.jpg') center / cover no-repeat;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
   padding: 90px 24px;
 }
 
@@ -4413,22 +4428,32 @@ body:has(.panel-dark)::before {
   grid-template-columns: 1.05fr 0.95fr;
   gap: 44px;
   align-items: center;
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 24px;
   padding: 40px;
   margin-top: 48px;
-  box-shadow: 0 25px 50px -10px rgba(0, 0, 0, 0.5);
-  color: #f1f5f9;
+  box-shadow: 0 10px 30px rgba(11, 26, 48, 0.04);
+  color: #1e293b;
+}
+
+.wm-vault-mini-stat {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+
+.wm-vault-mini-stat.highlight {
+  background: rgba(0, 82, 204, 0.05);
+  border-color: rgba(0, 82, 204, 0.2);
 }
 
 .wm-vault-img-wrap {
   border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 16px 36px rgba(11, 26, 48, 0.08);
+  border: 1px solid #e2e8f0;
 }
 
 .wm-vault-img-wrap img {
@@ -4442,15 +4467,13 @@ body:has(.panel-dark)::before {
   transform: scale(1.02);
 }
 
-/* Algo Trading Showcase with Full-Width Background */
+/* Algo Trading Showcase - Light Luxury Style */
 .wm-algo-section-wrap {
   position: relative;
   width: 100%;
-  background: 
-    linear-gradient(180deg, rgba(7, 10, 19, 0.93) 0%, rgba(7, 10, 19, 0.85) 50%, rgba(7, 10, 19, 0.96) 100%),
-    url('/images/algo_trading_desk.jpg') center / cover no-repeat;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
   padding: 90px 24px;
 }
 
@@ -4459,22 +4482,20 @@ body:has(.panel-dark)::before {
   grid-template-columns: 1.05fr 0.95fr;
   gap: 44px;
   align-items: center;
-  background: rgba(11, 15, 25, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: #f8fafc;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: #f8fafc;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
   border-radius: 24px;
   padding: 40px;
   margin-top: 48px;
-  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(11, 26, 48, 0.04);
 }
 
 .wm-algo-img-wrap {
   border-radius: 18px;
   overflow: hidden;
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  box-shadow: 0 0 35px rgba(16, 185, 129, 0.2);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 16px 36px rgba(11, 26, 48, 0.08);
 }
 
 .wm-algo-img-wrap img {
@@ -4486,6 +4507,42 @@ body:has(.panel-dark)::before {
 
 .wm-algo-img-wrap:hover img {
   transform: scale(1.02);
+}
+
+/* Market Regime Cards */
+.wm-regime-wrap {
+  margin-top: 56px;
+  padding-top: 48px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.wm-regime-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 18px rgba(11, 26, 48, 0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wm-regime-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(11, 26, 48, 0.07);
+}
+
+.wm-regime-card.bull {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.wm-regime-card.bear {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.wm-regime-card.chop {
+  border-color: #e9d5ff;
+  background: #faf5ff;
 }
 
 /* Closing CTA Banner - Institutional Midnight Navy */
@@ -6464,14 +6521,18 @@ body:has(.panel-dark)::before {
 }
 
 /* =========================================================================
-   WEBSITE INTEGRATED AUTH PAGES (Login, Forgot/Reset Password)
+   WEBSITE INTEGRATED AUTH PAGES (Login, Forgot/Reset Password) - LUXURY LIGHT
    ========================================================================= */
+.auth-site-page {
+  background-color: #f8fafc;
+}
+
 .auth-site-grid {
-  max-width: 1100px;
+  max-width: 1120px;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1.15fr 0.95fr;
-  gap: 48px;
+  gap: 52px;
   align-items: center;
   padding: 0 24px;
 }
@@ -6483,18 +6544,19 @@ body:has(.panel-dark)::before {
 }
 
 .auth-site-aside-title {
-  font-size: 28px;
-  line-height: 1.35;
-  font-weight: 800;
-  color: #f8fafc;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(26px, 2.8vw, 34px);
+  line-height: 1.25;
+  font-weight: 700;
+  color: #0b1a30;
   letter-spacing: -0.02em;
   margin: 0;
 }
 
 .auth-site-aside-desc {
-  font-size: 15px;
-  line-height: 1.6;
-  color: #94a3b8;
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: #475569;
   margin: 0;
 }
 
@@ -6504,7 +6566,7 @@ body:has(.panel-dark)::before {
   margin: 6px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .auth-site-points li {
@@ -6517,13 +6579,13 @@ body:has(.panel-dark)::before {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: rgba(0, 82, 204, 0.08);
+  border: 1px solid rgba(0, 82, 204, 0.25);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #34d399;
-  font-size: 12px;
+  color: #0052cc;
+  font-size: 13px;
   font-weight: 800;
   flex-shrink: 0;
   margin-top: 2px;
@@ -6532,31 +6594,32 @@ body:has(.panel-dark)::before {
 .auth-site-points li strong {
   display: block;
   font-size: 14.5px;
-  color: #f1f5f9;
-  margin-bottom: 2px;
+  font-weight: 700;
+  color: #0b1a30;
+  margin-bottom: 3px;
 }
 
 .auth-site-points li p {
   margin: 0;
   font-size: 13.5px;
-  color: #94a3b8;
-  line-height: 1.45;
+  color: #475569;
+  line-height: 1.5;
 }
 
 .auth-site-badge {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(52, 211, 153, 0.25);
-  border-radius: 24px;
-  padding: 9px 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 8px 18px;
   font-size: 12.5px;
-  color: #94a3b8;
+  font-weight: 500;
+  color: #475569;
   width: fit-content;
-  margin-top: 6px;
+  margin-top: 8px;
+  box-shadow: 0 2px 8px rgba(11, 26, 48, 0.04);
 }
 
 .auth-site-card-wrap {
@@ -6568,53 +6631,204 @@ body:has(.panel-dark)::before {
 .auth-site-card {
   width: 100%;
   max-width: 460px;
-  background: rgba(13, 19, 33, 0.88);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(52, 211, 153, 0.25);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 20px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 40px rgba(16, 185, 129, 0.08);
-  padding: 36px 32px;
+  box-shadow: 0 10px 40px rgba(11, 26, 48, 0.06), 0 1px 3px rgba(11, 26, 48, 0.04);
+  padding: 40px 36px;
   box-sizing: border-box;
 }
 
 .auth-card-head h2 {
   margin: 0 0 6px;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 24px;
-  font-weight: 800;
-  color: #f8fafc;
+  font-weight: 700;
+  color: #0b1a30;
   letter-spacing: -0.02em;
 }
 
 .auth-card-head .sub {
-  color: #94a3b8;
+  color: #64748b;
   margin: 0 0 24px;
   font-size: 14px;
   line-height: 1.5;
 }
 
+.auth-site-page .auth-field {
+  margin-bottom: 20px;
+}
+
+.auth-site-page .auth-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  color: #0b1a30;
+  margin-bottom: 7px;
+}
+
+.auth-site-page .auth-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-site-page .auth-input-wrap input {
+  width: 100%;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  color: #0f172a;
+  padding: 12px 14px 12px 42px;
+  font-size: 14.5px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.auth-site-page .auth-input-wrap.no-icon input {
+  padding-left: 14px;
+}
+
+.auth-site-page .auth-input-wrap.has-toggle input {
+  padding-right: 42px;
+}
+
+.auth-site-page .auth-input-wrap input:focus {
+  outline: none;
+  border-color: #0052cc;
+  box-shadow: 0 0 0 3.5px rgba(0, 82, 204, 0.15);
+  background: #ffffff;
+}
+
+.auth-site-page .auth-input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.auth-site-page .auth-pw-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color 0.15s ease;
+}
+
+.auth-site-page .auth-pw-toggle:hover {
+  color: #0b1a30;
+}
+
+.auth-site-page .auth-btn-submit {
+  width: 100%;
+  background: #0052cc;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 82, 204, 0.28);
+  transition: all 0.2s ease;
+  margin-top: 12px;
+}
+
+.auth-site-page .auth-btn-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 82, 204, 0.38);
+  background: #0047b3;
+}
+
+.auth-site-page .auth-btn-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.auth-site-page .auth-error-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.auth-site-page .auth-hint-alert {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.auth-site-link {
+  font-size: 12.5px;
+  color: #0052cc !important;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.auth-site-link:hover {
+  color: #0047b3 !important;
+  text-decoration: underline;
+}
+
 .auth-site-footer-note {
   margin-top: 24px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   font-size: 13.5px;
-  color: #94a3b8;
+  color: #64748b;
   flex-wrap: wrap;
 }
 
 .auth-site-footer-note a {
-  color: #34d399;
+  color: #0052cc;
   text-decoration: none;
   font-weight: 600;
   transition: color 0.15s ease;
 }
 
 .auth-site-footer-note a:hover {
-  color: #6ee7b7;
+  color: #0047b3;
   text-decoration: underline;
 }
 
@@ -6631,14 +6845,14 @@ body:has(.panel-dark)::before {
 
 @media (max-width: 480px) {
   .auth-site-card {
-    padding: 24px 18px;
+    padding: 26px 20px;
     border-radius: 16px;
   }
   .auth-card-head h2 {
     font-size: 21px;
   }
   .auth-site-aside-title {
-    font-size: 22px;
+    font-size: 24px;
   }
 }
 

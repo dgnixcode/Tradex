@@ -38,7 +38,7 @@ const COLUMNS: readonly FooterCol[] = [
   {
     title: 'Internal Access',
     links: [
-      { label: 'Operator Portal (Company)', to: '/login' },
+      { label: 'Trading Desk Portal (Staff)', to: '/login' },
       { label: 'System Status', to: '#' },
     ],
   },
@@ -83,7 +83,7 @@ export function MarketingFooter() {
         maxWidth: '1200px',
         margin: '28px auto 0',
         padding: '18px 24px',
-        borderTop: '1px solid var(--line)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
         display: 'flex',
         flexWrap: 'wrap',
         gap: '20px 32px',
@@ -93,7 +93,7 @@ export function MarketingFooter() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '16px', color: '#25D366' }}>💬</span>
-          <span style={{ color: 'var(--muted)' }}>WhatsApp:</span>
+          <span style={{ color: '#94a3b8' }}>WhatsApp:</span>
           <a
             href={`https://wa.me/${(branding.whatsapp || '').replace(/[^0-9]/g, '') || '919876543210'}?text=${encodeURIComponent(`Hello ${branding.name}, I would like to inquire about your wealth management services.`)}`}
             target="_blank"
@@ -106,24 +106,24 @@ export function MarketingFooter() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '15px' }}>📞</span>
-          <span style={{ color: 'var(--muted)' }}>Desk:</span>
-          <a href={`tel:${branding.phone}`} style={{ color: 'var(--ink)', textDecoration: 'none', fontWeight: 500 }}>
+          <span style={{ color: '#94a3b8' }}>Desk:</span>
+          <a href={`tel:${branding.phone}`} style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
             {branding.phone}
           </a>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '15px' }}>✉️</span>
-          <span style={{ color: 'var(--muted)' }}>Email:</span>
-          <a href={`mailto:${branding.email}`} style={{ color: 'var(--ink)', textDecoration: 'none', fontWeight: 500 }}>
+          <span style={{ color: '#94a3b8' }}>Email:</span>
+          <a href={`mailto:${branding.email}`} style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
             {branding.email}
           </a>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '420px' }}>
           <span style={{ fontSize: '15px' }}>🏢</span>
-          <span style={{ color: 'var(--muted)' }}>Office:</span>
-          <span style={{ color: 'var(--ink)', opacity: 0.9 }}>{branding.address}</span>
+          <span style={{ color: '#94a3b8' }}>Office:</span>
+          <span style={{ color: '#e2e8f0', opacity: 0.95 }}>{branding.address}</span>
         </div>
       </div>
 

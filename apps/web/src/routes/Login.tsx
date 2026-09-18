@@ -45,7 +45,7 @@ export function Login() {
   };
 
   return (
-    <div className="landing landing-dark auth-dark">
+    <div className="landing landing-dark auth-site-page">
       <MarketingHeader />
 
       <div className="wm-subpage-hero-wrap">
@@ -154,7 +154,7 @@ export function Login() {
                 <div className="auth-field">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px' }}>
                     <label htmlFor="password" style={{ marginBottom: 0 }}>Password</label>
-                    <Link to="/forgot-password" style={{ fontSize: '12.5px', color: '#34d399', textDecoration: 'none' }}>
+                    <Link to="/forgot-password" className="auth-site-link">
                       Forgot password?
                     </Link>
                   </div>

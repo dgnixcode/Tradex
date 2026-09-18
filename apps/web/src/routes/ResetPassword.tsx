@@ -60,7 +60,7 @@ export function ResetPassword() {
   const mismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
 
   return (
-    <div className="landing landing-dark auth-dark">
+    <div className="landing landing-dark auth-site-page">
       <MarketingHeader />
 
       <div className="wm-subpage-hero-wrap">

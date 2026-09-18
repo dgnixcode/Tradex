@@ -35,7 +35,7 @@ export function ForgotPassword() {
   };
 
   return (
-    <div className="landing landing-dark auth-dark">
+    <div className="landing landing-dark auth-site-page">
       <MarketingHeader />
 
       <div className="wm-subpage-hero-wrap">
