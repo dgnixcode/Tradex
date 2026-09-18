@@ -26,6 +26,7 @@ import { GroupDetailReport } from './routes/GroupDetailReport.tsx';
 import { Report } from './routes/Report.tsx';
 import { Settings } from './routes/Settings.tsx';
 import { Futures } from './routes/Futures.tsx';
+import { Analytics } from './routes/Analytics.tsx';
 import { ConnectAccount } from './routes/ConnectAccount.tsx';
 import { AccountDetail } from './routes/AccountDetail.tsx';
 import { DeskControls } from './routes/DeskControls.tsx';
@@ -181,6 +182,8 @@ function PageTitleSync() {
       pageTitle = 'Client Inquiries';
     } else if (path === '/app/positions') {
       pageTitle = 'Futures Positions';
+    } else if (path === '/app/analytics') {
+      pageTitle = 'Trading Analytics';
     } else if (path === '/app/accounts') {
       pageTitle = 'Exchange Accounts';
     } else if (path.startsWith('/app/accounts/')) {
@@ -255,6 +258,7 @@ const router = createBrowserRouter([
           { path: 'groups/:groupId', element: <GroupDetail /> },
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Futures /> },
+          { path: 'analytics', element: <Analytics /> },
           { path: 'activity', element: <Blotter /> },
           { path: 'activity/groups/:groupTradeId', element: <GroupDetailReport /> },
           { path: 'report', element: <Report /> },

@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   addGroupMember, archiveGroup, DEFAULT_GROUP_NAME, fetchAccountList, fetchGroup,
-  removeGroupMember, setGroupMemberEnabled, updateGroup,
+  fetchTradingAnalytics, removeGroupMember, setGroupMemberEnabled, updateGroup,
 } from '../api.ts';
 import type { GroupDetail as GroupDetailData } from '../api.ts';
+import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
+import { fmtPrice } from './Futures.tsx';
 
 // The group detail view. Manages one group's membership: enable/disable each
 // account, remove it, or add an account from the tenant's accounts. A disabled
@@ -32,6 +34,16 @@ export function GroupDetail() {
 
   const group = useQuery({ queryKey: ['group', groupId], queryFn: () => fetchGroup(groupId) });
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccountList });
+
+  const [activeTab, setActiveTab] = useState<'members' | 'analytics'>('members');
+  const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'all' | '30d' | '7d' | 'today'>('all');
+
+  const groupAnalytics = useQuery({
+    queryKey: ['trading-analytics', 'group', groupId, analyticsTimeframe],
+    queryFn: () => fetchTradingAnalytics({ groupId, timeframe: analyticsTimeframe }),
+    enabled: activeTab === 'analytics',
+    refetchInterval: 5000,
+  });
 
   // Edit state. The rename fields are populated when the user clicks Rename, so
   // there is no state-set-during-render dance to keep them in sync with the query.
@@ -167,9 +179,32 @@ export function GroupDetail() {
         {opError !== null && <div className="error" style={{ marginTop: 10 }}>{opError}</div>}
       </div>
 
-      {/* members */}
+      {/* members and analytics tabs */}
       <div className="panel">
-        <h3 style={{ marginTop: 0 }}>Accounts in this group</h3>
+        {/* Tab Navigation */}
+        <div className="account-nav-tabs" style={{ marginBottom: 20 }}>
+          <button
+            type="button"
+            className={`account-nav-tab ${activeTab === 'members' ? 'active' : ''}`}
+            onClick={() => setActiveTab('members')}
+          >
+            <span>👥 Members & Accounts</span>
+            {detail.members.length > 0 && (
+              <span className="account-tab-badge">{detail.members.length}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`account-nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
+            onClick={() => setActiveTab('analytics')}
+          >
+            <span>📊 Group Trading Analytics</span>
+          </button>
+        </div>
+
+        {activeTab === 'members' && (
+          <div>
+            <h3 style={{ marginTop: 0 }}>Accounts in this group</h3>
 
         {detail.members.length === 0 ? (
           <div className="empty-state">
@@ -322,6 +357,412 @@ export function GroupDetail() {
           )}
         </div>
       </div>
-    </div>
-  );
+    )}
+
+    {/* TAB 2: GROUP ANALYTICS */}
+    {activeTab === 'analytics' && (
+      <div>
+        {/* Header & Timeframe Switcher */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Strategy Group Telemetry</h3>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              Aggregated trading performance, member contribution matrix, and asset exposure for {detail.name}.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
+              {(['all', '30d', '7d', 'today'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  className={`btn btn-sm ${analyticsTimeframe === tf ? 'secondary' : 'ghost'}`}
+                  style={{
+                    fontSize: 12,
+                    padding: '4px 10px',
+                    fontWeight: analyticsTimeframe === tf ? 700 : 500,
+                    borderRadius: 6,
+                  }}
+                  onClick={() => setAnalyticsTimeframe(tf)}
+                >
+                  {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : 'Today'}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              className="btn secondary btn-sm"
+              disabled={groupAnalytics.isFetching}
+              onClick={() => groupAnalytics.refetch()}
+              style={{ fontSize: 12 }}
+              title="Refresh group analytics"
+            >
+              {groupAnalytics.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+            </button>
+          </div>
+        </div>
+
+        {groupAnalytics.isLoading && <p className="muted">Loading group trading telemetry…</p>}
+        {groupAnalytics.isError && <div className="error">{(groupAnalytics.error as Error).message}</div>}
+
+        {groupAnalytics.data && (() => {
+          const rep = groupAnalytics.data;
+          const kpis = rep.kpis;
+          const pnlInr = kpis.unrealisedPnlMinor['INR'] ?? '0';
+          const marginInr = kpis.lockedMarginMinor['INR'] ?? '0';
+          const pnlPctInr = kpis.pnlPercentage['INR'];
+          const pnlNum = Number(pnlInr);
+          const isProf = pnlNum > 0;
+          const isLoss = pnlNum < 0;
+
+          return (
+            <div>
+              {/* KPI Cards Grid */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 14,
+                  marginBottom: 24,
+                }}
+              >
+                {/* KPI 1: Group Net PnL */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                    border: '1px solid #1e2433',
+                    borderRadius: 12,
+                    padding: '16px 18px',
+                    borderLeft: `4px solid ${isProf ? '#10b981' : isLoss ? '#ef4444' : '#64748b'}`,
+                  }}
+                >
+                  <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    Group Unrealised PnL
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span
+                      style={{
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: isProf ? 'var(--ok)' : isLoss ? 'var(--danger)' : 'var(--text)',
+                        letterSpacing: '-0.5px',
+                      }}
+                    >
+                      {fmtSignedCurrency(pnlInr, 'INR')}
+                    </span>
+                    {pnlPctInr !== undefined && (
+                      <span
+                        className="pnl-pct-badge"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          background: isProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                          color: isProf ? 'var(--ok)' : 'var(--danger)',
+                          border: `1px solid ${isProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                        }}
+                      >
+                        {isProf ? '+' : isLoss ? '−' : ''}{Math.abs(pnlPctInr).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
+                  </div>
+                </div>
+
+                {/* KPI 2: Group Margin Deployed */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                    border: '1px solid #1e2433',
+                    borderRadius: 12,
+                    padding: '16px 18px',
+                    borderLeft: '4px solid #3b82f6',
+                  }}
+                >
+                  <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    Locked Margin Deployed
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+                    {fmtCurrency(marginInr, 'INR')}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Collateral backing group positions
+                  </div>
+                </div>
+
+                {/* KPI 3: Group Volume */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                    border: '1px solid #1e2433',
+                    borderRadius: 12,
+                    padding: '16px 18px',
+                    borderLeft: '4px solid #8b5cf6',
+                  }}
+                >
+                  <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    Group Traded Volume
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+                    {fmtCurrency(kpis.totalTradedVolumeMinor['INR'] ?? '0', 'INR')}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    From {kpis.filledOrders} filled group order{kpis.filledOrders === 1 ? '' : 's'}
+                  </div>
+                </div>
+
+                {/* KPI 4: Win Rate & Fill Rate */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                    border: '1px solid #1e2433',
+                    borderRadius: 12,
+                    padding: '16px 18px',
+                    borderLeft: '4px solid #10b981',
+                  }}
+                >
+                  <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    Win Rate & Fill Rate
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ok)' }}>
+                      {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      ({kpis.winningPositions}W / {kpis.losingPositions}L)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Fill Rate: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+                  </div>
+                </div>
+              </div>
+
+              {/* Member Contribution Matrix */}
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h4 style={{ margin: 0, fontSize: 15 }}>Member Performance & Contribution Matrix</h4>
+                  <span className="muted" style={{ fontSize: 12 }}>{rep.accounts.length} member account{rep.accounts.length === 1 ? '' : 's'}</span>
+                </div>
+
+                {rep.accounts.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>No accounts in this group yet.</p>
+                  </div>
+                ) : (
+                  <div className="table-scroll-container">
+                    <table style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Account</th>
+                          <th>Status</th>
+                          <th style={{ textAlign: 'right' }}>Allocated Capital</th>
+                          <th style={{ textAlign: 'right' }}>Active Trades</th>
+                          <th style={{ textAlign: 'right' }}>Locked Margin</th>
+                          <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
+                          <th style={{ textAlign: 'right' }}>Return %</th>
+                          <th style={{ textAlign: 'right' }}>Execution Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rep.accounts.map((acc) => {
+                          const accPnlInr = acc.unrealisedPnlMinor['INR'] ?? '0';
+                          const accMarginInr = acc.lockedMarginMinor['INR'] ?? '0';
+                          const accPnlNum = Number(accPnlInr);
+                          const accIsProf = accPnlNum > 0;
+                          const accIsLoss = accPnlNum < 0;
+
+                          return (
+                            <tr key={acc.accountId}>
+                              <td>
+                                <Link to={`/app/accounts/${acc.accountId}`} style={{ fontWeight: 700, color: 'var(--accent)', textDecoration: 'none' }}>
+                                  {acc.accountName}
+                                </Link>
+                              </td>
+                              <td><span className={`badge ${acc.status === 'active' ? 'planned' : 'skipped'}`}>{acc.status}</span></td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {acc.allocatedCapitalMinor
+                                  ? fmtCurrency(acc.allocatedCapitalMinor, acc.allocatedCurrency ?? 'INR')
+                                  : '—'}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{acc.openPositionsCount}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(accMarginInr, 'INR')}</td>
+                              <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: accIsProf ? 'var(--ok)' : accIsLoss ? 'var(--danger)' : 'var(--text)' }}>
+                                {fmtSignedCurrency(accPnlInr, 'INR')}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                {acc.roePct !== null ? (
+                                  <span
+                                    className="pnl-pct-badge"
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      background: accIsProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                      color: accIsProf ? 'var(--ok)' : 'var(--danger)',
+                                    }}
+                                  >
+                                    {accIsProf ? '+' : accIsLoss ? '−' : ''}{Math.abs(acc.roePct).toFixed(2)}%
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td style={{ textAlign: 'right', fontSize: 12 }}>
+                                <strong>{acc.fillRatePct.toFixed(0)}%</strong> <span className="muted">({acc.filledOrders}/{acc.totalOrders})</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Group Asset Exposure */}
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h4 style={{ margin: 0, fontSize: 15 }}>Group Asset Exposure</h4>
+                  <span className="muted" style={{ fontSize: 12 }}>{rep.symbols.length} active pair{rep.symbols.length === 1 ? '' : 's'}</span>
+                </div>
+
+                {rep.symbols.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>No active positions open across this group's accounts.</p>
+                  </div>
+                ) : (
+                  <div className="table-scroll-container">
+                    <table style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Asset / Pair</th>
+                          <th>Side</th>
+                          <th style={{ textAlign: 'right' }}>Total Size</th>
+                          <th style={{ textAlign: 'right' }}>Positions</th>
+                          <th style={{ textAlign: 'right' }}>Avg Entry</th>
+                          <th style={{ textAlign: 'right' }}>Mark Price</th>
+                          <th style={{ textAlign: 'right' }}>Locked Margin</th>
+                          <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
+                          <th style={{ textAlign: 'right' }}>ROE %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rep.symbols.map((s) => {
+                          const sPnlNum = Number(s.unrealisedPnlMinor);
+                          const sIsProf = sPnlNum > 0;
+                          const sIsLoss = sPnlNum < 0;
+                          return (
+                            <tr key={s.pair}>
+                              <td><strong>{s.symbol}</strong> <span className="muted" style={{ fontSize: 11 }}>({s.pair})</span></td>
+                              <td>
+                                <span className={`badge ${s.side === 'long' ? 'planned' : s.side === 'short' ? 'skipped' : ''}`}>
+                                  {s.side.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{s.totalQuantity}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{s.positionsCount}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{s.avgEntryPrice ? fmtPrice(s.avgEntryPrice) : '—'}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{s.markPrice ? fmtPrice(s.markPrice) : '—'}</td>
+                              <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(s.lockedMarginMinor, s.marginCurrency)}</td>
+                              <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: sIsProf ? 'var(--ok)' : sIsLoss ? 'var(--danger)' : 'var(--text)' }}>
+                                {fmtSignedCurrency(s.unrealisedPnlMinor, s.marginCurrency)}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                {s.roePct !== null ? (
+                                  <span
+                                    className="pnl-pct-badge"
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      background: sIsProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                      color: sIsProf ? 'var(--ok)' : 'var(--danger)',
+                                    }}
+                                  >
+                                    {sIsProf ? '+' : sIsLoss ? '−' : ''}{Math.abs(s.roePct).toFixed(2)}%
+                                  </span>
+                                ) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Group Order Execution Blotter */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h4 style={{ margin: 0, fontSize: 15 }}>Group Execution Orders</h4>
+                  <span className="muted" style={{ fontSize: 12 }}>{rep.recentOrders.length} order{rep.recentOrders.length === 1 ? '' : 's'}</span>
+                </div>
+
+                {rep.recentOrders.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                    <p className="muted" style={{ margin: 0, fontSize: 13 }}>No orders recorded for this group in this timeframe.</p>
+                  </div>
+                ) : (
+                  <div className="table-scroll-container">
+                    <table style={{ width: '100%', fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Account</th>
+                          <th>Pair</th>
+                          <th>Side</th>
+                          <th>State</th>
+                          <th style={{ textAlign: 'right' }}>Filled Qty</th>
+                          <th style={{ textAlign: 'right' }}>Avg Fill Price</th>
+                          <th style={{ textAlign: 'right' }}>Notional</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rep.recentOrders.map((o) => (
+                          <tr key={o.id}>
+                            <td className="muted" style={{ fontSize: 12 }}>{new Date(o.createdAtMs).toLocaleTimeString()}</td>
+                            <td>
+                              <Link to={`/app/accounts/${o.accountId}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                                {o.accountName}
+                              </Link>
+                            </td>
+                            <td><strong>{o.pair}</strong></td>
+                            <td>
+                              <span
+                                className="badge"
+                                style={{
+                                  background: o.side === 'buy' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                  color: o.side === 'buy' ? 'var(--ok)' : 'var(--danger)',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {o.side.toUpperCase()}
+                              </span>
+                            </td>
+                            <td><span className={`badge ${o.state === 'filled' ? 'planned' : o.state === 'rejected' ? 'skipped' : ''}`}>{o.state}</span></td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{o.filledQuantity ?? '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{o.avgFillPrice ? fmtPrice(o.avgFillPrice) : '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{o.notionalMinor ? fmtCurrency(o.notionalMinor, o.quoteCurrency ?? 'INR') : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    )}
+  </div>
+</div>
+);
 }

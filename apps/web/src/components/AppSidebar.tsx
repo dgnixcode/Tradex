@@ -47,6 +47,21 @@ const NAV_ITEMS: readonly NavItem[] = [
     match: (p) => p.startsWith('/app/positions'),
   },
   {
+    label: 'Analytics',
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 3v18h18" />
+        <path d="M18 17l-5-5-4 4-4-4" />
+        <circle cx="18" cy="17" r="1.5" />
+        <circle cx="13" cy="12" r="1.5" />
+        <circle cx="9" cy="16" r="1.5" />
+        <circle cx="5" cy="12" r="1.5" />
+      </svg>
+    ),
+    to: '/app/analytics',
+    match: (p) => p.startsWith('/app/analytics'),
+  },
+  {
     label: 'Accounts',
     icon: (
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

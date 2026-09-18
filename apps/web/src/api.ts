@@ -509,6 +509,109 @@ export async function fetchAnalyticsCsv(q: AnalyticsQuery = {}): Promise<{ text:
   return { text, filename: m === null ? 'realised.csv' : m[1] };
 }
 
+// --- trading analytics (desk, group, and account telemetry) ------------------
+
+export interface TradingAnalyticsQuery {
+  readonly groupId?: string | undefined;
+  readonly accountId?: string | undefined;
+  readonly timeframe?: 'today' | '7d' | '30d' | 'all' | undefined;
+}
+
+export interface TradingKpis {
+  readonly openPositionsCount: number;
+  readonly unrealisedPnlMinor: Record<string, string>;
+  readonly lockedMarginMinor: Record<string, string>;
+  readonly pnlPercentage: Record<string, number>;
+  readonly totalOrders: number;
+  readonly filledOrders: number;
+  readonly skippedOrders: number;
+  readonly rejectedOrders: number;
+  readonly fillRatePct: number;
+  readonly totalTradedVolumeMinor: Record<string, string>;
+  readonly winningPositions: number;
+  readonly losingPositions: number;
+  readonly winRatePct: number | null;
+}
+
+export interface SymbolAnalytics {
+  readonly symbol: string;
+  readonly pair: string;
+  readonly positionsCount: number;
+  readonly totalQuantity: string;
+  readonly side: 'long' | 'short' | 'both' | 'flat';
+  readonly marginCurrency: string;
+  readonly unrealisedPnlMinor: string;
+  readonly lockedMarginMinor: string;
+  readonly roePct: number | null;
+  readonly avgEntryPrice: string | null;
+  readonly markPrice: string | null;
+}
+
+export interface GroupAnalyticsRow {
+  readonly groupId: string;
+  readonly groupName: string;
+  readonly memberCount: number;
+  readonly activePositionsCount: number;
+  readonly totalAllocatedMinor: Record<string, string>;
+  readonly totalLockedMarginMinor: Record<string, string>;
+  readonly totalUnrealisedPnlMinor: Record<string, string>;
+  readonly roePct: number | null;
+  readonly profitableMembersCount: number;
+  readonly unprofitableMembersCount: number;
+}
+
+export interface AccountAnalyticsRow {
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly groupName: string | null;
+  readonly status: string;
+  readonly allocatedCapitalMinor: string | null;
+  readonly allocatedCurrency: string | null;
+  readonly openPositionsCount: number;
+  readonly unrealisedPnlMinor: Record<string, string>;
+  readonly lockedMarginMinor: Record<string, string>;
+  readonly roePct: number | null;
+  readonly totalOrders: number;
+  readonly filledOrders: number;
+  readonly fillRatePct: number;
+}
+
+export interface RecentTradingOrder {
+  readonly id: string;
+  readonly createdAtMs: number;
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly groupName: string | null;
+  readonly pair: string;
+  readonly side: 'buy' | 'sell';
+  readonly state: string;
+  readonly filledQuantity: string | null;
+  readonly avgFillPrice: string | null;
+  readonly notionalMinor: string | null;
+  readonly quoteCurrency: string | null;
+}
+
+export interface TradingAnalyticsReport {
+  readonly scope: {
+    readonly type: 'all' | 'group' | 'account';
+    readonly id: string | null;
+    readonly name: string | null;
+  };
+  readonly timeframe: 'today' | '7d' | '30d' | 'all';
+  readonly fromMs: number;
+  readonly toMs: number;
+  readonly kpis: TradingKpis;
+  readonly symbols: readonly SymbolAnalytics[];
+  readonly groups: readonly GroupAnalyticsRow[];
+  readonly accounts: readonly AccountAnalyticsRow[];
+  readonly recentOrders: readonly RecentTradingOrder[];
+  readonly at: string;
+}
+
+export const fetchTradingAnalytics = (q: TradingAnalyticsQuery = {}): Promise<TradingAnalyticsReport> =>
+  request<TradingAnalyticsReport>(`/analytics/trading-overview${qs(q)}`);
+
+
 
 // --- workspace settings -----------------------------------------------------
 

@@ -8,6 +8,7 @@ import {
   exitFuturesPosition,
   fetchAccount,
   fetchFuturesPositions,
+  fetchTradingAnalytics,
   resumeAccount,
   setFuturesProtection,
   setTrailingProtection,
@@ -16,6 +17,7 @@ import {
 } from '../api.ts';
 import type { FuturesPositionRow } from '../api.ts';
 import { useAuth } from '../auth.tsx';
+import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
 import {
   PositionManageModal,
   addMinors,
@@ -67,7 +69,8 @@ export function AccountDetail() {
   const { state } = useAuth();
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
 
-  const [activeTab, setActiveTab] = useState<'positions' | 'overview' | 'actions'>('positions');
+  const [activeTab, setActiveTab] = useState<'positions' | 'analytics' | 'overview' | 'actions'>('positions');
+  const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'all' | '30d' | '7d' | 'today'>('all');
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
 
   const [opError, setOpError] = useState<string | null>(null);
@@ -78,6 +81,13 @@ export function AccountDetail() {
   const account = useQuery({
     queryKey: ['account', accountId],
     queryFn: () => fetchAccount(accountId),
+  });
+
+  const tradingAnalytics = useQuery({
+    queryKey: ['trading-analytics', 'account', accountId, analyticsTimeframe],
+    queryFn: () => fetchTradingAnalytics({ accountId, timeframe: analyticsTimeframe }),
+    enabled: activeTab === 'analytics',
+    refetchInterval: 5000,
   });
 
   const futuresPositions = useQuery({
@@ -320,6 +330,13 @@ export function AccountDetail() {
             {accountPositions.length > 0 && (
               <span className="account-tab-badge">{accountPositions.length}</span>
             )}
+          </button>
+          <button
+            type="button"
+            className={`account-nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
+            onClick={() => setActiveTab('analytics')}
+          >
+            <span>📊 Performance & Analytics</span>
           </button>
           <button
             type="button"
@@ -645,6 +662,363 @@ export function AccountDetail() {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* TAB: ANALYTICS & PERFORMANCE */}
+        {activeTab === 'analytics' && (
+          <div>
+            {/* Analytics Header & Timeframe Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Trading Performance & Telemetry</h3>
+                <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                  Execution analytics, capital utilization, and win/loss performance for {a.name}.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
+                  {(['all', '30d', '7d', 'today'] as const).map((tf) => (
+                    <button
+                      key={tf}
+                      type="button"
+                      className={`btn btn-sm ${analyticsTimeframe === tf ? 'secondary' : 'ghost'}`}
+                      style={{
+                        fontSize: 12,
+                        padding: '4px 10px',
+                        fontWeight: analyticsTimeframe === tf ? 700 : 500,
+                        borderRadius: 6,
+                      }}
+                      onClick={() => setAnalyticsTimeframe(tf)}
+                    >
+                      {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : 'Today'}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  className="btn secondary btn-sm"
+                  disabled={tradingAnalytics.isFetching}
+                  onClick={() => tradingAnalytics.refetch()}
+                  style={{ fontSize: 12 }}
+                  title="Refresh analytics telemetry"
+                >
+                  {tradingAnalytics.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {tradingAnalytics.isLoading && <p className="muted">Loading analytics telemetry…</p>}
+            {tradingAnalytics.isError && <div className="error">{(tradingAnalytics.error as Error).message}</div>}
+
+            {tradingAnalytics.data && (() => {
+              const rep = tradingAnalytics.data;
+              const kpis = rep.kpis;
+              const pnlInr = kpis.unrealisedPnlMinor['INR'] ?? '0';
+              const marginInr = kpis.lockedMarginMinor['INR'] ?? '0';
+              const pnlPctInr = kpis.pnlPercentage['INR'];
+              const pnlNum = Number(pnlInr);
+              const isPnlProf = pnlNum > 0;
+              const isPnlLoss = pnlNum < 0;
+
+              // Sizing capital & utilization
+              const allocatedCapMinor = a.allocatedCapitalMinor;
+              const capNum = allocatedCapMinor ? Number(allocatedCapMinor) : 0;
+              const marginNum = Number(marginInr);
+              const utilizationPct = capNum > 0 ? (marginNum / capNum) * 100 : null;
+
+              return (
+                <div>
+                  {/* KPI Cards Grid */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: 14,
+                      marginBottom: 24,
+                    }}
+                  >
+                    {/* KPI 1: Unrealised PnL */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: `4px solid ${isPnlProf ? '#10b981' : isPnlLoss ? '#ef4444' : '#64748b'}`,
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Net Unrealised PnL
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 800,
+                            color: isPnlProf ? 'var(--ok)' : isPnlLoss ? 'var(--danger)' : 'var(--text)',
+                            letterSpacing: '-0.5px',
+                          }}
+                        >
+                          {fmtSignedCurrency(pnlInr, 'INR')}
+                        </span>
+                        {pnlPctInr !== undefined && (
+                          <span
+                            className="pnl-pct-badge"
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                              background: isPnlProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: isPnlProf ? 'var(--ok)' : 'var(--danger)',
+                              border: `1px solid ${isPnlProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                            }}
+                          >
+                            {isPnlProf ? '+' : isPnlLoss ? '−' : ''}{Math.abs(pnlPctInr).toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
+                      </div>
+                    </div>
+
+                    {/* KPI 2: Margin Deployed & Utilization */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: '4px solid #3b82f6',
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Locked Margin Deployed
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+                        {fmtCurrency(marginInr, 'INR')}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        {utilizationPct !== null
+                          ? `${utilizationPct.toFixed(1)}% of capital deployed`
+                          : 'Active collateral backing positions'}
+                      </div>
+                    </div>
+
+                    {/* KPI 3: Executed Volume */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: '4px solid #8b5cf6',
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Executed Volume
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
+                        {fmtCurrency(kpis.totalTradedVolumeMinor['INR'] ?? '0', 'INR')}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
+                      </div>
+                    </div>
+
+                    {/* KPI 4: Win Rate & Execution Success */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: '4px solid #10b981',
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Win Rate & Fill Rate
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ok)' }}>
+                          {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          ({kpis.winningPositions}W / {kpis.losingPositions}L)
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        Fill Rate: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Capital Allocation & Utilization Progress Bar */}
+                  {allocatedCapMinor && capNum > 0 && (
+                    <div
+                      style={{
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid var(--line)',
+                        borderRadius: 10,
+                        padding: '16px 20px',
+                        marginBottom: 24,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>Capital Utilization & Buffer</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {fmtCurrency(marginInr, 'INR')} used of {formatMinor(allocatedCapMinor, quoteScaleOf(a.allocatedCurrency ?? 'INR'), a.allocatedCurrency ?? 'INR')}
+                        </span>
+                      </div>
+                      <div style={{ width: '100%', height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            width: `${Math.min(100, Math.max(0, utilizationPct ?? 0))}%`,
+                            height: '100%',
+                            background: (utilizationPct ?? 0) > 80 ? 'var(--danger)' : (utilizationPct ?? 0) > 50 ? '#f59e0b' : '#3b82f6',
+                            transition: 'width 0.3s ease',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+                        <span>Utilization: <strong>{(utilizationPct ?? 0).toFixed(1)}%</strong></span>
+                        <span>Free Buffer: <strong>{fmtCurrency((BigInt(allocatedCapMinor) - BigInt(marginInr)).toString(), 'INR')}</strong></span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Open Positions Asset Table */}
+                  <div style={{ marginBottom: 28 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h4 style={{ margin: 0, fontSize: 15 }}>Current Asset Exposure</h4>
+                      <span className="muted" style={{ fontSize: 12 }}>{rep.symbols.length} active pair{rep.symbols.length === 1 ? '' : 's'}</span>
+                    </div>
+
+                    {rep.symbols.length === 0 ? (
+                      <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No active positions currently open on this account.</p>
+                      </div>
+                    ) : (
+                      <div className="table-scroll-container">
+                        <table style={{ width: '100%' }}>
+                          <thead>
+                            <tr>
+                              <th>Asset / Pair</th>
+                              <th>Side</th>
+                              <th style={{ textAlign: 'right' }}>Size</th>
+                              <th style={{ textAlign: 'right' }}>Entry Price</th>
+                              <th style={{ textAlign: 'right' }}>Mark Price</th>
+                              <th style={{ textAlign: 'right' }}>Locked Margin</th>
+                              <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
+                              <th style={{ textAlign: 'right' }}>ROE %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rep.symbols.map((s) => {
+                              const sPnlNum = Number(s.unrealisedPnlMinor);
+                              const sIsProf = sPnlNum > 0;
+                              const sIsLoss = sPnlNum < 0;
+                              return (
+                                <tr key={s.pair}>
+                                  <td><strong>{s.symbol}</strong> <span className="muted" style={{ fontSize: 11 }}>({s.pair})</span></td>
+                                  <td>
+                                    <span className={`badge ${s.side === 'long' ? 'planned' : s.side === 'short' ? 'skipped' : ''}`}>
+                                      {s.side.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{s.totalQuantity}</td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{s.avgEntryPrice ? fmtPrice(s.avgEntryPrice) : '—'}</td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{s.markPrice ? fmtPrice(s.markPrice) : '—'}</td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(s.lockedMarginMinor, s.marginCurrency)}</td>
+                                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: sIsProf ? 'var(--ok)' : sIsLoss ? 'var(--danger)' : 'var(--text)' }}>
+                                    {fmtSignedCurrency(s.unrealisedPnlMinor, s.marginCurrency)}
+                                  </td>
+                                  <td style={{ textAlign: 'right' }}>
+                                    {s.roePct !== null ? (
+                                      <span
+                                        className="pnl-pct-badge"
+                                        style={{
+                                          fontSize: 11,
+                                          fontWeight: 700,
+                                          padding: '2px 6px',
+                                          borderRadius: 4,
+                                          background: sIsProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                          color: sIsProf ? 'var(--ok)' : 'var(--danger)',
+                                        }}
+                                      >
+                                        {sIsProf ? '+' : sIsLoss ? '−' : ''}{Math.abs(s.roePct).toFixed(2)}%
+                                      </span>
+                                    ) : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Execution Order Blotter */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h4 style={{ margin: 0, fontSize: 15 }}>Recent Execution Orders</h4>
+                      <span className="muted" style={{ fontSize: 12 }}>{rep.recentOrders.length} order{rep.recentOrders.length === 1 ? '' : 's'}</span>
+                    </div>
+
+                    {rep.recentOrders.length === 0 ? (
+                      <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No orders recorded for this account in this timeframe.</p>
+                      </div>
+                    ) : (
+                      <div className="table-scroll-container">
+                        <table style={{ width: '100%', fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Pair</th>
+                              <th>Side</th>
+                              <th>State</th>
+                              <th style={{ textAlign: 'right' }}>Filled Qty</th>
+                              <th style={{ textAlign: 'right' }}>Avg Fill Price</th>
+                              <th style={{ textAlign: 'right' }}>Notional</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rep.recentOrders.map((o) => (
+                              <tr key={o.id}>
+                                <td className="muted" style={{ fontSize: 12 }}>{new Date(o.createdAtMs).toLocaleTimeString()}</td>
+                                <td><strong>{o.pair}</strong></td>
+                                <td>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: o.side === 'buy' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                      color: o.side === 'buy' ? 'var(--ok)' : 'var(--danger)',
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {o.side.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td><span className={`badge ${o.state === 'filled' ? 'planned' : o.state === 'rejected' ? 'skipped' : ''}`}>{o.state}</span></td>
+                                <td className="mono" style={{ textAlign: 'right' }}>{o.filledQuantity ?? '—'}</td>
+                                <td className="mono" style={{ textAlign: 'right' }}>{o.avgFillPrice ? fmtPrice(o.avgFillPrice) : '—'}</td>
+                                <td className="mono" style={{ textAlign: 'right' }}>{o.notionalMinor ? fmtCurrency(o.notionalMinor, o.quoteCurrency ?? 'INR') : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

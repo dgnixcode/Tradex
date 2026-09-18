@@ -49,6 +49,7 @@ import { getFuturesRtPrices } from './futures/rt-prices.js';
 import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
+import { buildTradingAnalytics } from './futures/trading-analytics.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
 
 /**
@@ -1097,6 +1098,19 @@ export function createHttpServer(deps: HttpDeps): Server {
         'content-disposition': `attachment; filename="realised-${win.label}.csv"`,
       });
       ctx.res.end(csv);
+      return;
+    }
+
+    // ---- GET /api/analytics/trading-overview — comprehensive trading telemetry ----
+    if (method === 'GET' && path === '/api/analytics/trading-overview') {
+      requireAction(principal, 'view.dashboards');
+      const sp = ctx.url.searchParams;
+      const report = await buildTradingAnalytics(deps.db, principal.tenantId, {
+        groupId: sp.get('groupId'),
+        accountId: sp.get('accountId'),
+        timeframe: sp.get('timeframe') as 'today' | '7d' | '30d' | 'all' | null,
+      });
+      sendJson(ctx.res, 200, report);
       return;
     }
 
