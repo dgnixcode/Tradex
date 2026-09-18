@@ -34,13 +34,13 @@ export function About() {
           </div>
 
           <div className="wm-pillar-card" style={{ padding: '40px', marginBottom: '36px' }}>
-            <h2 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '16px', color: '#ffffff' }}>
+            <h2 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '16px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
               The Aza WealthKare Philosophy: Non-Custodial Wealth Creation
             </h2>
-            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
+            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#475569', marginBottom: '16px' }}>
               Over the last decade, crypto investors have repeatedly suffered devastating losses from exchange insolvencies, unregistered hedge funds, and black-box collective schemes that vanished with user deposits.
             </p>
-            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '0' }}>
+            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#475569', marginBottom: '0' }}>
               Aza WealthKare was engineered as the definitive antidote. We never take possession of your assets. Your funds remain in your personal, verified <strong>trading account</strong>. Aza WealthKare manages trading with strictly withdrawal-disabled execution access. You retain 100% ownership, complete visibility, and 24/7 liquidity.
             </p>
           </div>

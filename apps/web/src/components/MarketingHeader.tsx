@@ -68,9 +68,9 @@ export function MarketingHeader() {
             <Link
               to="/login"
               className="btn secondary btn-sm mk-header-op-btn"
-              title="Internal Company Access Only"
+              title="Internal Trading Desk Access"
             >
-              Operator
+              Desk Login
             </Link>
             <Link to="/contact" className="btn btn-sm ref-header-cta-btn">
               Get Started →
@@ -132,7 +132,7 @@ export function MarketingHeader() {
                 className="mk-mobile-op-link"
                 onClick={() => setMenuOpen(false)}
               >
-                {authed ? '⚡ Management Console' : '🔒 Operator Portal Login'}
+                {authed ? '⚡ Management Console' : '🔒 Trading Desk Login'}
               </Link>
             </div>
           </div>

@@ -88,33 +88,36 @@ export function Landing() {
               </a>
             </div>
 
-            {/* 4 Trust Stats matching reference image */}
+            {/* 4 Trust Stats highlighting core guarantees and non-custodial model */}
             <div className="ref-trust-stats-strip">
               <div className="ref-trust-stat">
-                <div className="ref-stat-sub">Trusted by</div>
-                <div className="ref-stat-val">500+</div>
-                <div className="ref-stat-label">Clients</div>
+                <div className="ref-stat-val">100%</div>
+                <div className="ref-stat-label-bold">Self-Custody</div>
+                <div className="ref-stat-label">In Your Own Account</div>
               </div>
 
               <div className="ref-stat-divider" />
 
               <div className="ref-trust-stat">
-                <div className="ref-stat-val">₹2,500+ Cr</div>
-                <div className="ref-stat-label">Assets Advised</div>
+                <div className="ref-stat-val" style={{ color: '#0052cc' }}>3% – 5%</div>
+                <div className="ref-stat-label-bold">Target Profit</div>
+                <div className="ref-stat-label">Monthly Compounding</div>
               </div>
 
               <div className="ref-stat-divider" />
 
               <div className="ref-trust-stat">
-                <div className="ref-stat-sub">Institutional</div>
-                <div className="ref-stat-label-bold">Grade Expertise</div>
+                <div className="ref-stat-val">100%</div>
+                <div className="ref-stat-label-bold">Capital Protection</div>
+                <div className="ref-stat-label">Algorithmic Risk Shield</div>
               </div>
 
               <div className="ref-stat-divider" />
 
               <div className="ref-trust-stat">
-                <div className="ref-stat-sub">Traditional &amp;</div>
-                <div className="ref-stat-label-bold">Digital Assets</div>
+                <div className="ref-stat-val">0%</div>
+                <div className="ref-stat-label-bold">Withdrawal Access</div>
+                <div className="ref-stat-label">Trade-Only Delegation</div>
               </div>
             </div>
           </div>

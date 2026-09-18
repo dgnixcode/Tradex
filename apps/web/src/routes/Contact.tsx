@@ -82,13 +82,13 @@ export function Contact() {
             {submitted ? (
               <div style={{ textAlign: 'center', padding: '30px 10px' }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
-                <h3 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '12px', color: '#ffffff' }}>
+                <h3 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '12px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                   Consultation Request Received
                 </h3>
-                <p style={{ fontSize: '15px', color: '#94a3b8', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 24px' }}>
+                <p style={{ fontSize: '15px', color: '#475569', lineHeight: 1.6, maxWidth: '440px', margin: '0 auto 24px' }}>
                   Thank you, <strong>{name}</strong>. A senior portfolio manager from Aza WealthKare will reach out to you via <strong>{method}</strong> at <strong>{phone}</strong> within 2 hours.
                 </p>
-                <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '13px', color: '#34d399', textAlign: 'left' }}>
+                <div style={{ padding: '16px', borderRadius: '8px', background: 'rgba(0, 82, 204, 0.08)', border: '1px solid rgba(0, 82, 204, 0.25)', fontSize: '13px', color: '#0052cc', textAlign: 'left' }}>
                   <strong>🔒 Security Reminder:</strong> Aza WealthKare advisors will NEVER request your exchange password, OTPs, or fund transfers. You maintain 100% custody in your personal trading account.
                 </div>
                 <button
@@ -102,7 +102,7 @@ export function Contact() {
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
-                <h3 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 20px', color: '#ffffff' }}>
+                <h3 style={{ fontSize: '20px', fontWeight: 700, margin: '0 0 20px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                   Investor Information
                 </h3>
 
@@ -241,20 +241,20 @@ export function Contact() {
           {/* Contact Details & Guarantees Column */}
           <div>
             <div className="wm-pillar-card" style={{ padding: '32px', marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px', color: '#ffffff' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
                 {branding.name} Direct Advisory Channels
               </h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                   <span style={{ fontSize: '20px', color: '#25D366' }}>💬</span>
                   <div style={{ flex: 1 }}>
-                    <strong style={{ color: '#ffffff' }}>WhatsApp Priority Desk:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
+                    <strong style={{ color: '#0b1a30' }}>WhatsApp Priority Desk:</strong>
+                    <div style={{ color: '#475569', marginTop: '2px' }}>
                       <a
                         href={`https://wa.me/${(branding.whatsapp || '').replace(/[^0-9]/g, '') || '919876543210'}?text=${encodeURIComponent(`Hello ${branding.name}, I would like to inquire about your wealth management services.`)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}
+                        style={{ color: '#059669', textDecoration: 'none', fontWeight: 600 }}
                       >
                         {branding.whatsapp || '+91 98765 43210'} ↗
                       </a>
@@ -264,9 +264,9 @@ export function Contact() {
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                   <span style={{ fontSize: '20px' }}>📞</span>
                   <div style={{ flex: 1 }}>
-                    <strong style={{ color: '#ffffff' }}>Direct Advisory Line:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
-                      <a href={`tel:${branding.phone}`} style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}>
+                    <strong style={{ color: '#0b1a30' }}>Direct Advisory Line:</strong>
+                    <div style={{ color: '#475569', marginTop: '2px' }}>
+                      <a href={`tel:${branding.phone}`} style={{ color: '#0052cc', textDecoration: 'none', fontWeight: 600 }}>
                         {branding.phone}
                       </a>
                     </div>
@@ -275,9 +275,9 @@ export function Contact() {
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                   <span style={{ fontSize: '20px' }}>✉️</span>
                   <div style={{ flex: 1 }}>
-                    <strong style={{ color: '#ffffff' }}>Advisory Email:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>
-                      <a href={`mailto:${branding.email}`} style={{ color: '#34d399', textDecoration: 'none', fontWeight: 600 }}>
+                    <strong style={{ color: '#0b1a30' }}>Advisory Email:</strong>
+                    <div style={{ color: '#475569', marginTop: '2px' }}>
+                      <a href={`mailto:${branding.email}`} style={{ color: '#0052cc', textDecoration: 'none', fontWeight: 600 }}>
                         {branding.email}
                       </a>
                     </div>
@@ -286,8 +286,8 @@ export function Contact() {
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                   <span style={{ fontSize: '20px' }}>🏢</span>
                   <div style={{ flex: 1 }}>
-                    <strong style={{ color: '#ffffff' }}>Corporate Office:</strong>
-                    <div style={{ color: '#cbd5e1', marginTop: '3px', lineHeight: 1.45, fontSize: '13.5px' }}>
+                    <strong style={{ color: '#0b1a30' }}>Corporate Office:</strong>
+                    <div style={{ color: '#475569', marginTop: '3px', lineHeight: 1.45, fontSize: '13.5px' }}>
                       {branding.address}
                     </div>
                   </div>
@@ -295,17 +295,17 @@ export function Contact() {
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                   <span style={{ fontSize: '20px' }}>🕒</span>
                   <div style={{ flex: 1 }}>
-                    <strong style={{ color: '#ffffff' }}>Operating Hours:</strong>
-                    <div style={{ color: '#94a3b8', marginTop: '2px' }}>{branding.hours}</div>
+                    <strong style={{ color: '#0b1a30' }}>Operating Hours:</strong>
+                    <div style={{ color: '#475569', marginTop: '2px' }}>{branding.hours}</div>
                   </div>
                 </li>
               </ul>
             </div>
 
-            <div className="wm-pillar-card" style={{ padding: '28px', background: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+            <div className="wm-pillar-card" style={{ padding: '28px', background: 'rgba(0, 82, 204, 0.04)', borderColor: 'rgba(0, 82, 204, 0.2)' }}>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontSize: '24px' }}>🛡️</span>
-                <strong style={{ fontSize: '16.5px', color: '#34d399' }}>
+                <strong style={{ fontSize: '16.5px', color: '#0052cc' }}>
                   Our Ironclad Aza WealthKare Investor Guarantees
                 </strong>
               </div>
