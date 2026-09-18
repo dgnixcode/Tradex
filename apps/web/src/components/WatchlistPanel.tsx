@@ -70,13 +70,14 @@ export function WatchlistPanel({
   // Real-time SSE price streaming — merges diffs into the 'futures-prices' query cache
   const { isStreaming } = useLivePrices();
 
-  // Polling is completely OFF while the real-time stream is active.
-  // It only turns ON (every 1s) as a fallback if the socket/stream drops or fails.
+  // Bulk futures prices query:
+  // - When socket stream is active: refetchInterval is false (0 HTTP polls, 100% pure WebSocket/SSE stream)
+  // - When socket drops or fails: refetchInterval activates at 1500ms as automatic fallback
   const { data: pricesData } = useQuery({
     queryKey: ['futures-prices'],
     queryFn: fetchFuturesPrices,
-    refetchInterval: isStreaming ? false : 1000,
-    staleTime: 500,
+    refetchInterval: isStreaming ? false : 1500,
+    staleTime: isStreaming ? Infinity : 500,
   });
 
   // Sync with localStorage
