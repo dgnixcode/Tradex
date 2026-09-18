@@ -3649,19 +3649,16 @@ body:has(.panel-dark)::before {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 
-.ref-play-icon {
+.ref-calc-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 1.5px solid #0b1a30;
-  color: #0b1a30;
-}
-
-.ref-play-icon svg {
-  margin-left: 2px;
+  border: 1.5px solid #0052cc;
+  color: #0052cc;
+  background: rgba(0, 82, 204, 0.08);
 }
 
 /* Trust stats bar in hero */
