@@ -22,6 +22,7 @@ import {
   bufferColor,
   calcRoePct,
   fmtMinor,
+  fmtPrice,
   pnlClass,
   pnlText,
   roeText,
@@ -358,12 +359,39 @@ export function AccountDetail() {
                 <div className="positions-summary" style={{ marginBottom: 16 }}>
                   <div>
                     <div className="stat-label">Unrealised PnL</div>
-                    <div style={{ display: 'flex', gap: 16 }}>
-                      {Object.entries(totalAccountPnl).map(([cur, minor]) => (
-                        <span key={cur} className={`pnl-big ${pnlClass(minor)}`}>
-                          {pnlText(minor, cur as 'INR' | 'USDT')}
-                        </span>
-                      ))}
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                      {Object.entries(totalAccountPnl).map(([cur, minor]) => {
+                        const pnlVal = Number(minor);
+                        const marginMinor = totalAccountMargin[cur];
+                        const marginVal = marginMinor ? Number(marginMinor) : 0;
+                        const pct = marginVal > 0 ? (pnlVal / marginVal) * 100 : null;
+                        const isProf = pnlVal > 0;
+                        const isLoss = pnlVal < 0;
+                        const sign = isProf ? '+' : isLoss ? '-' : '';
+                        const pctColor = isProf ? 'var(--ok)' : isLoss ? 'var(--danger)' : 'var(--text-dim)';
+                        const pctBg = isProf ? 'rgba(16, 185, 129, 0.15)' : isLoss ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.05)';
+                        const pctBorder = isProf ? 'rgba(16, 185, 129, 0.35)' : isLoss ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255, 255, 255, 0.1)';
+
+                        return (
+                          <div key={cur} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span className={`pnl-big ${pnlClass(minor)}`}>
+                              {pnlText(minor, cur as 'INR' | 'USDT')}
+                            </span>
+                            {pct !== null && (
+                              <span
+                                className="pnl-pct-badge"
+                                style={{
+                                  color: pctColor,
+                                  background: pctBg,
+                                  border: `1px solid ${pctBorder}`,
+                                }}
+                              >
+                                {sign}{Math.abs(pct).toFixed(2)}%
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                       {Object.keys(totalAccountPnl).length === 0 && (
                         <span className="pnl-big muted">—</span>
                       )}
@@ -462,13 +490,13 @@ export function AccountDetail() {
                               {p.quantity}
                             </td>
                             <td className="mono" style={{ textAlign: 'right' }}>
-                              {p.avgEntryPrice ?? '—'}
+                              {fmtPrice(p.avgEntryPrice)}
                             </td>
                             <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>
-                              {p.markPrice ?? '—'}
+                              {fmtPrice(p.markPrice)}
                             </td>
                             <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
-                              {p.liquidationPrice ?? '—'}
+                              {fmtPrice(p.liquidationPrice)}
                               {p.liqBufferBp !== null && (
                                 <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
                                   {(p.liqBufferBp / 100).toFixed(1)}% buf
@@ -493,8 +521,8 @@ export function AccountDetail() {
                                 <span className="muted" style={{ fontSize: 11.5 }}>none</span>
                               ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
-                                  {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+                                  {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
+                                  {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
                                 </div>
                               )}
                             </td>
@@ -571,16 +599,16 @@ export function AccountDetail() {
                           </div>
                           <div className="pos-mobile-cell">
                             <span className="pos-mobile-label">Entry</span>
-                            <span className="pos-mobile-val mono">{p.avgEntryPrice ?? '—'}</span>
+                            <span className="pos-mobile-val mono">{fmtPrice(p.avgEntryPrice)}</span>
                           </div>
                           <div className="pos-mobile-cell">
                             <span className="pos-mobile-label">Mark</span>
-                            <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{p.markPrice ?? '—'}</span>
+                            <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</span>
                           </div>
                           <div className="pos-mobile-cell">
                             <span className="pos-mobile-label">Liq Buffer</span>
                             <span className="pos-mobile-val mono" style={{ color: bufferColor(p.liqBufferBp) }}>
-                              {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : (p.liquidationPrice ?? '—')}
+                              {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : fmtPrice(p.liquidationPrice)}
                             </span>
                           </div>
                         </div>
@@ -592,8 +620,8 @@ export function AccountDetail() {
                               <span className="muted" style={{ fontSize: 11 }}>None</span>
                             ) : (
                               <div style={{ display: 'inline-flex', gap: 4 }}>
-                                {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
-                                {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+                                {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
+                                {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
                               </div>
                             )}
                           </div>

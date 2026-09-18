@@ -89,6 +89,20 @@ export function roeText(pct: number | null): string {
   return ` (${sign}${pct.toFixed(2)}%)`;
 }
 
+/** Formats decimal price strings cleanly (e.g. 267.81665000000004 -> 267.82) */
+export function fmtPrice(priceStr: string | null | undefined): string {
+  if (!priceStr || priceStr === '0' || priceStr === '') return '—';
+  const n = Number(priceStr);
+  if (!Number.isFinite(n)) return priceStr;
+  if (n >= 1000) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (n >= 1) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+  return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+}
+
 function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
   const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
   return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
@@ -192,10 +206,10 @@ function AccountRow({
       <td className="mono" style={{ textAlign: 'right' }}>
         {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : <span className="muted">—</span>}
       </td>
-      <td className="mono" style={{ textAlign: 'right' }}>{p.avgEntryPrice ?? <span className="muted">—</span>}</td>
-      <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{p.markPrice ?? <span className="muted">—</span>}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>{fmtPrice(p.avgEntryPrice)}</td>
+      <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</td>
       <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
-        {p.liquidationPrice ?? <span className="muted">—</span>}
+        {fmtPrice(p.liquidationPrice)}
         {p.liqBufferBp !== null && (
           <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
             {(p.liqBufferBp / 100).toFixed(1)}% buf
@@ -215,8 +229,8 @@ function AccountRow({
           <span className="muted" style={{ fontSize: 11.5 }}>none</span>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
-            {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+            {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
+            {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
           </div>
         )}
       </td>
@@ -293,16 +307,16 @@ function AccountMobileCard({
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Entry</span>
-          <span className="pos-mobile-val mono">{p.avgEntryPrice ?? '—'}</span>
+          <span className="pos-mobile-val mono">{fmtPrice(p.avgEntryPrice)}</span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Mark</span>
-          <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{p.markPrice ?? '—'}</span>
+          <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Liq. Buffer</span>
           <span className="pos-mobile-val mono" style={{ color: bufferColor(p.liqBufferBp) }}>
-            {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : (p.liquidationPrice ?? '—')}
+            {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : fmtPrice(p.liquidationPrice)}
           </span>
         </div>
       </div>
@@ -314,8 +328,8 @@ function AccountMobileCard({
             <span className="muted" style={{ fontSize: 11 }}>None</span>
           ) : (
             <div style={{ display: 'inline-flex', gap: 4 }}>
-              {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {p.stopLossTrigger}</span>}
-              {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {p.takeProfitTrigger}</span>}
+              {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
+              {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
             </div>
           )}
         </div>
@@ -374,23 +388,26 @@ function GroupCard({
       ? `${group.groupNames.slice(0, 2).join(', ')}${group.groupNames.length > 2 ? ` (+${group.groupNames.length - 2})` : ''}`
       : 'Ungrouped';
 
+  const pnlNum = Number(group.totalPnlMinor ?? 0);
+  const statusClass = pnlNum > 0 ? 'profit-group' : pnlNum < 0 ? 'loss-group' : 'flat-group';
+
   return (
-    <div className="position-card">
+    <div className={`position-card ${statusClass}`}>
       <div className="position-card-header" onClick={onToggle}>
         {/* Asset + Side */}
-        <span className="asset-name">{group.asset}</span>
+        <span className="asset-pill">{group.asset}</span>
         <span
           className="badge"
           style={{
             color: sideColor,
             borderColor: sideColor,
-            background: group.side === 'long' ? 'rgba(75,181,99,0.1)' : group.side === 'short' ? 'rgba(240,85,90,0.1)' : 'transparent',
+            background: group.side === 'long' ? 'rgba(75,181,99,0.12)' : group.side === 'short' ? 'rgba(240,85,90,0.12)' : 'transparent',
             fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
           }}
         >
           {group.side}
         </span>
-        <span className="card-meta">{group.marginCurrency}</span>
+        <span className="card-meta" style={{ fontWeight: 600 }}>{group.marginCurrency}</span>
 
         {/* Group Name badge */}
         <span className="group-badge" title={group.groupNames.join(', ')}>
@@ -410,93 +427,107 @@ function GroupCard({
           {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
         </span>
 
-        {/* PnL */}
-        <span className={`card-pnl ${pnlClass(group.totalPnlMinor)}`}>
-          {pnlText(group.totalPnlMinor, group.marginCurrency)}
-          {groupRoe !== null && (
-            <span style={{ fontSize: 11, marginLeft: 6, fontWeight: 500 }}>
-              {roeText(groupRoe)}
+        {/* Right side: PnL, ROE, Manage Group button, and Expand */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span className={`card-pnl ${pnlClass(group.totalPnlMinor)}`} style={{ fontSize: 16, fontWeight: 700 }}>
+              {pnlText(group.totalPnlMinor, group.marginCurrency)}
             </span>
-          )}
-        </span>
+            {groupRoe !== null && (
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  background: groupRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                  color: groupRoe >= 0 ? 'var(--ok)' : 'var(--danger)',
+                  border: `1px solid ${groupRoe >= 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                }}
+              >
+                {roeText(groupRoe).trim()}
+              </span>
+            )}
+          </div>
 
-        {/* Manage Group Button */}
-        <button
-          type="button"
-          className="btn btn-sm"
-          style={{
-            padding: '4px 11px',
-            fontSize: 11.5,
-            background: 'rgba(124, 107, 255, 0.22)',
-            color: '#c4b5fd',
-            border: '1px solid rgba(124, 107, 255, 0.45)',
-            fontWeight: 700,
-            marginLeft: 8,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            borderRadius: 'var(--radius-sm)',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onManageGroup(group);
-          }}
-          title="Manage this position across all accounts in the group"
-        >
-          <span>⚡</span> Manage Group
-        </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{
+              padding: '5px 12px',
+              fontSize: 12,
+              background: 'rgba(124, 107, 255, 0.18)',
+              color: '#c4b5fd',
+              border: '1px solid rgba(124, 107, 255, 0.4)',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onManageGroup(group);
+            }}
+            title="Manage this position across all accounts in the group"
+          >
+            <span>⚡</span> Manage Group
+          </button>
 
-        {/* Expand chevron */}
-        <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
+          <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
+        </div>
       </div>
 
       {!collapsed && (
         <div className="position-card-body">
-          {/* Sub-header with account filter bar & count */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 14px',
-              background: 'rgba(0, 0, 0, 0.25)',
-              borderBottom: '1px solid var(--line)',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Showing <strong style={{ color: 'var(--text)' }}>{filteredPositions.length}</strong> of {group.positions.length} accounts in this trade
-              </span>
-              {group.positions.length > 5 && (
-                <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>
-                  Scrollable table
+          {/* Sub-header with account filter bar & count (shown if > 2 accounts) */}
+          {group.positions.length > 2 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 14px',
+                background: 'rgba(0, 0, 0, 0.25)',
+                borderBottom: '1px solid var(--line)',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Showing <strong style={{ color: 'var(--text)' }}>{filteredPositions.length}</strong> of {group.positions.length} accounts in this trade
                 </span>
-              )}
+                {group.positions.length > 5 && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>
+                    Scrollable table
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="text"
+                  className="card-account-search"
+                  placeholder="🔍 Filter accounts…"
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ width: 190 }}
+                />
+                {accountSearch && (
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    style={{ padding: '2px 8px', fontSize: 11 }}
+                    onClick={(e) => { e.stopPropagation(); setAccountSearch(''); }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="text"
-                className="card-account-search"
-                placeholder="🔍 Filter accounts…"
-                value={accountSearch}
-                onChange={(e) => setAccountSearch(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                style={{ width: 190 }}
-              />
-              {accountSearch && (
-                <button
-                  type="button"
-                  className="btn btn-sm secondary"
-                  style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={(e) => { e.stopPropagation(); setAccountSearch(''); }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Desktop Table View (> 768px) */}
           <div className="table-scroll-container desktop-pos-table">
@@ -727,20 +758,20 @@ export function PositionManageModal({
 
           <div className="modal-metric-card">
             <span className="modal-metric-label">Entry Price</span>
-            <span className="modal-metric-value">{position.avgEntryPrice ?? '—'}</span>
+            <span className="modal-metric-value">{fmtPrice(position.avgEntryPrice)}</span>
           </div>
 
           <div className="modal-metric-card">
             <span className="modal-metric-label">Mark Price</span>
             <span className="modal-metric-value" style={{ color: 'var(--accent)' }}>
-              {position.markPrice ?? '—'}
+              {fmtPrice(position.markPrice)}
             </span>
           </div>
 
           <div className="modal-metric-card">
             <span className="modal-metric-label">Liquidation Price</span>
             <span className="modal-metric-value" style={{ color: bufferColor(position.liqBufferBp) }}>
-              {position.liquidationPrice ?? '—'}
+              {fmtPrice(position.liquidationPrice)}
               {position.liqBufferBp !== null && (
                 <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>
                   {(position.liqBufferBp / 100).toFixed(1)}% buffer
@@ -2618,12 +2649,39 @@ export function Futures() {
         <div className="positions-summary">
           <div>
             <div className="stat-label">Unrealised PnL</div>
-            <div style={{ display: 'flex', gap: 16 }}>
-              {Object.entries(totalPnl).map(([cur, minor]) => (
-                <span key={cur} className={`pnl-big ${pnlClass(minor)}`}>
-                  {pnlText(minor, cur as 'INR' | 'USDT')}
-                </span>
-              ))}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {Object.entries(totalPnl).map(([cur, minor]) => {
+                const pnlVal = Number(minor);
+                const marginMinor = totalMargin[cur];
+                const marginVal = marginMinor ? Number(marginMinor) : 0;
+                const pct = marginVal > 0 ? (pnlVal / marginVal) * 100 : null;
+                const isProf = pnlVal > 0;
+                const isLoss = pnlVal < 0;
+                const sign = isProf ? '+' : isLoss ? '-' : '';
+                const pctColor = isProf ? 'var(--ok)' : isLoss ? 'var(--danger)' : 'var(--text-dim)';
+                const pctBg = isProf ? 'rgba(16, 185, 129, 0.15)' : isLoss ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.05)';
+                const pctBorder = isProf ? 'rgba(16, 185, 129, 0.35)' : isLoss ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255, 255, 255, 0.1)';
+
+                return (
+                  <div key={cur} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span className={`pnl-big ${pnlClass(minor)}`}>
+                      {pnlText(minor, cur as 'INR' | 'USDT')}
+                    </span>
+                    {pct !== null && (
+                      <span
+                        className="pnl-pct-badge"
+                        style={{
+                          color: pctColor,
+                          background: pctBg,
+                          border: `1px solid ${pctBorder}`,
+                        }}
+                      >
+                        {sign}{Math.abs(pct).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
               {Object.keys(totalPnl).length === 0 && (
                 <span className="pnl-big muted">—</span>
               )}
