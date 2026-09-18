@@ -5,6 +5,7 @@ import {
   refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
+import { useLivePrices } from '../useLivePrices.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -2453,6 +2454,9 @@ export function Futures() {
     queryFn: fetchFuturesPositions,
     refetchInterval: 1500,
   });
+
+  // Keep live market price feed streaming in real-time while on positions page
+  useLivePrices();
 
   const refreshMut = useMutation({
     mutationFn: () => refreshFuturesPositions(),
