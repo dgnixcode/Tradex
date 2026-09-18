@@ -895,10 +895,29 @@ const server = createHttpServer({
 import { TrailingSlEngine } from './dist/trailing-sl-worker.js';
 const tslEngine = new TrailingSlEngine(
   db,
-  async (venuePositionId, stopLossPrice) => {
-    // We don't have a direct internal port for this yet, so we'll leave it as a log in this stub 
-    // or call the backend directly. For full integration we would pass a signer and call attachStopAndTakeSigned.
+  async ({ tenantId, accountId, venuePositionId, stopLossPrice }) => {
     console.log(`[TrailingSL] Target SL for position ${venuePositionId} crossed threshold, moving to ${stopLossPrice}`);
+    if (!enginePorts.futuresTpSl?.setProtection) {
+      console.warn('[TrailingSL] futuresTpSl port not available');
+      return { ok: false, reason: 'futuresTpSl port not configured' };
+    }
+    try {
+      const out = await enginePorts.futuresTpSl.setProtection({
+        actor: { tenantId, accountId },
+        venuePositionId,
+        stopLossPrice,
+        moveExisting: true,
+      });
+      if (out.stopLoss?.ok === false) {
+        console.error(`[TrailingSL] Exchange rejected SL move for position ${venuePositionId}:`, out.stopLoss.reason);
+        return { ok: false, reason: out.stopLoss.reason };
+      }
+      console.log(`[TrailingSL] Successfully moved SL to ${stopLossPrice} on exchange for position ${venuePositionId}`);
+      return { ok: true };
+    } catch (err) {
+      console.error(`[TrailingSL] Failed to move SL for position ${venuePositionId}:`, err);
+      return { ok: false, reason: err.message };
+    }
   },
   getOrderBook
 );
