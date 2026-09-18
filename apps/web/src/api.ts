@@ -634,6 +634,32 @@ export const renameWorkspace = (name: string): Promise<{ oldName: string; newNam
     method: 'PATCH', body: JSON.stringify({ name }),
   });
 
+export interface ServerBranding {
+  readonly name: string;
+  readonly logo: string | null;
+  readonly email: string;
+  readonly phone: string;
+  readonly whatsapp: string;
+  readonly address: string;
+  readonly hours: string;
+  readonly updatedAt?: string;
+}
+
+/** Fetch public platform branding and contact channels (no auth required). */
+export const fetchPublicBranding = (): Promise<ServerBranding> =>
+  request<ServerBranding>('/public/branding');
+
+/** Fetch platform branding and contact channels. */
+export const fetchPlatformBranding = (): Promise<ServerBranding> =>
+  request<ServerBranding>('/settings/branding');
+
+/** Update platform branding and contact channels (owner only). */
+export const updateServerBranding = (patch: Partial<ServerBranding>): Promise<{ ok: boolean; branding: ServerBranding }> =>
+  request<{ ok: boolean; branding: ServerBranding }>('/settings/branding', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+
 /** Satisfy the re-authentication requirement for the current session. */
 export async function stepUp(code: string): Promise<{ ok: boolean }> {
   const res = await fetch('/api/auth/step-up', {

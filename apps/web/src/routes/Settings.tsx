@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWorkspace, renameWorkspace, stepUp } from '../api.ts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchWorkspace, renameWorkspace, stepUp, updateServerBranding } from '../api.ts';
 import type { ApiError } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 import {
@@ -80,33 +80,7 @@ export function Settings() {
     setHours(branding.hours || DEFAULT_HOURS);
   }, [branding]);
 
-  const rename = useMutation({
-    mutationFn: (n: string) => renameWorkspace(n),
-    onSuccess: (r) => {
-      setCode('');
-      setNeedsCode(false);
-      void qc.invalidateQueries({ queryKey: ['workspace'] });
-      updateBranding({
-        name: r.newName,
-        logo,
-        email: email.trim(),
-        phone: phone.trim(),
-        whatsapp: whatsapp.trim(),
-        address: address.trim(),
-        hours: hours.trim(),
-      });
-      setStatus({ kind: 'ok', message: `Platform settings updated. Workspace renamed to "${r.newName}".` });
-    },
-    onError: (e) => {
-      const err = e as ApiError;
-      if (err.status === 403 && /reauth|second factor|two-factor/i.test(err.message)) {
-        setNeedsCode(true);
-        setStatus({ kind: 'err', message: 'Enter a code from your authenticator, then save again.' });
-        return;
-      }
-      setStatus({ kind: 'err', message: err.message ?? 'Could not save workspace name on server.' });
-    },
-  });
+  const [saving, setSaving] = useState(false);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -160,7 +134,28 @@ export function Settings() {
     setStatus({ kind: 'ok', message: 'Logo reset to default gradient mark. Click "Save Platform Settings" to apply.' });
   };
 
-  const handleResetDefaults = () => {
+  const handleResetDefaults = async () => {
+    if (isOwner) {
+      setSaving(true);
+      try {
+        await updateServerBranding({
+          name: DEFAULT_BRAND_NAME,
+          logo: null,
+          email: DEFAULT_EMAIL,
+          phone: DEFAULT_PHONE,
+          whatsapp: DEFAULT_WHATSAPP,
+          address: DEFAULT_ADDRESS,
+          hours: DEFAULT_HOURS,
+        });
+      } catch (err) {
+        const ae = err as ApiError;
+        setStatus({ kind: 'err', message: ae.message ?? 'Failed to reset settings on server.' });
+        setSaving(false);
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
     resetBranding();
     setName(DEFAULT_BRAND_NAME);
     setLogo(null);
@@ -184,34 +179,75 @@ export function Settings() {
       return;
     }
 
-    // Check if workspace name changed on server (for owners)
-    const serverNameChanged = workspace.data !== undefined && cleanName !== workspace.data.name;
+    setSaving(true);
+    try {
+      // Check if workspace name changed on server (for owners)
+      const serverNameChanged = workspace.data !== undefined && cleanName !== workspace.data.name;
 
-    if (isOwner && serverNameChanged) {
-      if (needsCode) {
+      if (isOwner && serverNameChanged) {
+        if (needsCode) {
+          try {
+            await stepUp(code.trim());
+          } catch (err) {
+            const ae = err as ApiError;
+            setStatus({ kind: 'err', message: ae.message ?? 'That code was not accepted.' });
+            setSaving(false);
+            return;
+          }
+        }
         try {
-          await stepUp(code.trim());
+          await renameWorkspace(cleanName);
+          setCode('');
+          setNeedsCode(false);
+          void qc.invalidateQueries({ queryKey: ['workspace'] });
         } catch (err) {
           const ae = err as ApiError;
-          setStatus({ kind: 'err', message: ae.message ?? 'That code was not accepted.' });
-          return;
+          if (ae.status === 403 && /reauth|second factor|two-factor/i.test(ae.message)) {
+            setNeedsCode(true);
+            setStatus({ kind: 'err', message: 'Enter a code from your authenticator, then save again.' });
+            setSaving(false);
+            return;
+          }
+          throw err;
         }
       }
-      rename.mutate(cleanName);
-      return;
-    }
 
-    // Apply updates locally and sync across tabs
-    updateBranding({
-      name: cleanName,
-      logo,
-      email: email.trim(),
-      phone: phone.trim(),
-      whatsapp: whatsapp.trim(),
-      address: address.trim(),
-      hours: hours.trim(),
-    });
-    setStatus({ kind: 'ok', message: 'Platform settings and contact channels saved successfully.' });
+      // Persist branding & contact channels to PostgreSQL if owner
+      if (isOwner) {
+        await updateServerBranding({
+          name: cleanName,
+          logo,
+          email: email.trim(),
+          phone: phone.trim(),
+          whatsapp: whatsapp.trim(),
+          address: address.trim(),
+          hours: hours.trim(),
+        });
+      }
+
+      // Apply updates locally and sync across tabs
+      updateBranding({
+        name: cleanName,
+        logo,
+        email: email.trim(),
+        phone: phone.trim(),
+        whatsapp: whatsapp.trim(),
+        address: address.trim(),
+        hours: hours.trim(),
+      });
+
+      setStatus({
+        kind: 'ok',
+        message: isOwner
+          ? 'Platform settings and contact channels saved to database and live across the website.'
+          : 'Platform settings and contact channels saved locally.',
+      });
+    } catch (err) {
+      const ae = err as ApiError;
+      setStatus({ kind: 'err', message: ae.message ?? 'Could not save platform settings.' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const hasPendingChanges =
@@ -625,10 +661,10 @@ export function Settings() {
           <button
             className="btn"
             type="submit"
-            disabled={rename.isPending || name.trim() === '' || !hasPendingChanges}
+            disabled={saving || name.trim() === '' || !hasPendingChanges}
             style={{ padding: '10px 22px', fontSize: 14, fontWeight: 600 }}
           >
-            {rename.isPending ? 'Saving Settings…' : 'Save Platform Settings'}
+            {saving ? 'Saving Settings…' : 'Save Platform Settings'}
           </button>
 
           <button

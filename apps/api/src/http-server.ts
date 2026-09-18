@@ -37,6 +37,7 @@ import {
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
   deleteAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
+  getPlatformBranding, updatePlatformBranding,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
@@ -678,6 +679,13 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- GET /api/public/branding — public platform branding and contact channels ----
+    if (method === 'GET' && path === '/api/public/branding') {
+      const branding = await getPlatformBranding(deps.db);
+      sendJson(ctx.res, 200, branding);
+      return;
+    }
+
     // ---- POST /api/logout ----
     if (method === 'POST' && path === '/api/logout') {
       sendJson(ctx.res, 200, { ok: true }, { 'set-cookie': buildClearCookie({ secure }) });
@@ -830,6 +838,32 @@ export function createHttpServer(deps: HttpDeps): Server {
         }
         throw e;
       }
+      return;
+    }
+
+    // ---- GET /api/settings/branding — platform branding & contact channels ----
+    if (method === 'GET' && path === '/api/settings/branding') {
+      const branding = await getPlatformBranding(deps.db);
+      sendJson(ctx.res, 200, branding);
+      return;
+    }
+
+    // ---- PUT/PATCH /api/settings/branding — update platform branding & contact channels ----
+    if ((method === 'PUT' || method === 'PATCH') && path === '/api/settings/branding') {
+      if (principal.role !== 'owner') {
+        throw new HttpError(403, 'only workspace owners may update platform branding');
+      }
+      const body = (ctx.body ?? {}) as {
+        name?: string;
+        logo?: string | null;
+        email?: string;
+        phone?: string;
+        whatsapp?: string;
+        address?: string;
+        hours?: string;
+      };
+      const updated = await updatePlatformBranding(deps.db, body, principal.userId);
+      sendJson(ctx.res, 200, { ok: true, branding: updated });
       return;
     }
 

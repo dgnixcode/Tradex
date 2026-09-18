@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { fetchPublicBranding } from './api.ts';
 
 export interface PlatformBranding {
   readonly name: string;
@@ -133,6 +134,31 @@ export function BrandingProvider({ children }: { readonly children: ReactNode })
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Sync from server on initial mount
+  useEffect(() => {
+    let active = true;
+    fetchPublicBranding()
+      .then((server) => {
+        if (!active) return;
+        setBranding({
+          name: server.name || DEFAULT_BRAND_NAME,
+          logo: server.logo,
+          logoType: determineLogoType(server.logo),
+          email: server.email || DEFAULT_EMAIL,
+          phone: server.phone || DEFAULT_PHONE,
+          whatsapp: server.whatsapp || DEFAULT_WHATSAPP,
+          address: server.address || DEFAULT_ADDRESS,
+          hours: server.hours || DEFAULT_HOURS,
+        });
+      })
+      .catch(() => {
+        // Keep initial local state if server unreachable
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const updateBranding = (updates: BrandingUpdates) => {
