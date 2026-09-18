@@ -70,11 +70,11 @@ export function Inquiries() {
   const getStatusBadge = (status: InquiryStatus) => {
     switch (status) {
       case 'new':
-        return <span className="status-badge-funded" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: 'rgba(59, 130, 246, 0.35)' }}>⚡ New Lead</span>;
+        return <span className="status-badge-funded" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', borderColor: 'rgba(59, 130, 246, 0.35)' }}>New Lead</span>;
       case 'contacted':
-        return <span className="status-badge-funded" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.35)' }}>💬 Contacted</span>;
+        return <span className="status-badge-funded" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.35)' }}>Contacted</span>;
       case 'onboarded':
-        return <span className="status-badge-funded">✅ Onboarded</span>;
+        return <span className="status-badge-funded">Onboarded</span>;
       case 'archived':
         return <span className="status-badge-skipped">Archived</span>;
     }
@@ -104,7 +104,11 @@ export function Inquiries() {
           className="btn secondary btn-sm"
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          <span>↻</span> Refresh
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          Refresh
         </button>
       </div>
 
@@ -153,7 +157,7 @@ export function Inquiries() {
           <div style={{ position: 'relative', width: '100%', maxWidth: '280px' }}>
             <input
               type="text"
-              placeholder="🔍 Search name, phone..."
+              placeholder="Search name, phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="card-account-search"
@@ -175,7 +179,10 @@ export function Inquiries() {
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--muted)' }}>
-            <div style={{ fontSize: '32px', marginBottom: '12px' }}>📭</div>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: '12px' }}>
+              <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+              <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+            </svg>
             <p style={{ margin: 0, fontSize: '15px' }}>
               {search ? 'No inquiries matching your search.' : 'No consultation inquiries in this category.'}
             </p>
@@ -235,7 +242,7 @@ export function Inquiries() {
                                 }}
                                 title="Chat on WhatsApp"
                               >
-                                <span>💬</span> WhatsApp
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> WhatsApp
                               </a>
                             </div>
                             <a
@@ -250,7 +257,7 @@ export function Inquiries() {
                         <td style={{ padding: '14px 18px' }}>
                           <div style={{ fontWeight: 600 }}>{item.capital}</div>
                           <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
-                            🏛️ {item.exchange}
+                            {item.exchange}
                           </div>
                         </td>
 
@@ -341,7 +348,7 @@ export function Inquiries() {
                       </div>
                       <div className="pos-mobile-cell">
                         <span className="pos-mobile-label">Exchange</span>
-                        <span className="pos-mobile-val">🏛️ {item.exchange}</span>
+                        <span className="pos-mobile-val">{item.exchange}</span>
                       </div>
                     </div>
 
@@ -373,7 +380,7 @@ export function Inquiries() {
                           textDecoration: 'none',
                         }}
                       >
-                        <span>💬</span> WhatsApp
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> WhatsApp
                       </a>
                       <a
                         href={`tel:${item.phone}`}
@@ -390,15 +397,15 @@ export function Inquiries() {
                           textDecoration: 'none',
                         }}
                       >
-                        <span>📞</span> Call
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg> Call
                       </a>
                     </div>
 
                     <a
                       href={`mailto:${item.email}`}
-                      style={{ fontSize: 12, color: 'var(--accent)', textAlign: 'center', textDecoration: 'none', display: 'block' }}
+                      style={{ fontSize: 12, color: 'var(--accent)', textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                     >
-                      ✉️ {item.email}
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> {item.email}
                     </a>
 
                     {/* Status Action Buttons */}
@@ -422,7 +429,7 @@ export function Inquiries() {
                           className="btn btn-sm"
                           style={{ flex: 1, fontSize: 11.5, padding: '6px', background: '#16a34a', color: '#fff', borderColor: '#16a34a' }}
                         >
-                          ✓ Onboard
+                          Onboard
                         </button>
                       )}
                       {item.status !== 'archived' && (

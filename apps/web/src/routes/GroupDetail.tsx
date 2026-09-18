@@ -137,7 +137,7 @@ export function GroupDetail() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0 }}>{detail.name}</h2>
               <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                🌐 Master System Group
+                Master System Group
               </span>
             </div>
           ) : editing ? (
@@ -198,7 +198,7 @@ export function GroupDetail() {
             className={`account-nav-tab ${activeTab === 'members' ? 'active' : ''}`}
             onClick={() => setActiveTab('members')}
           >
-            <span>👥 Members & Accounts</span>
+            <span>Members & Accounts</span>
             {detail.members.length > 0 && (
               <span className="account-tab-badge">{detail.members.length}</span>
             )}
@@ -208,7 +208,7 @@ export function GroupDetail() {
             className={`account-nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
             onClick={() => setActiveTab('analytics')}
           >
-            <span>📊 Group Trading Analytics</span>
+            <span>Group Analytics</span>
           </button>
         </div>
 
@@ -318,7 +318,7 @@ export function GroupDetail() {
         <div className="add-member" style={{ marginTop: 18 }}>
           {isDefaultGroup ? (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              🌐 All connected exchange accounts are automatically enrolled in this master group.
+              All connected exchange accounts are automatically enrolled in this master group.
             </p>
           ) : accounts.isLoading ? (
             <span className="muted">Loading accounts…</span>
@@ -360,7 +360,7 @@ export function GroupDetail() {
                   color: '#facc15',
                   fontSize: 12.5,
                 }}>
-                  ⚠️ <strong>Reassignment:</strong> <code>{selectedAddableAccount.name}</code> is currently assigned to <strong>📁 {selectedAddableAccount.groupName}</strong>. Adding it here will reassign it to this group (1 account = 1 strategy group).
+                  <strong>Reassignment:</strong> <code>{selectedAddableAccount.name}</code> is currently assigned to <strong>{selectedAddableAccount.groupName}</strong>. Adding it here will reassign it to this group (1 account = 1 strategy group).
                 </div>
               )}
             </div>
@@ -381,68 +381,52 @@ export function GroupDetail() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
+          <div className="telemetry-toolbar">
+            <div className="telemetry-pills">
               {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
                 <button
                   key={tf}
                   type="button"
-                  className={`btn btn-sm ${analyticsTimeframe === tf ? 'secondary' : 'ghost'}`}
-                  style={{
-                    fontSize: 12,
-                    padding: '4px 10px',
-                    fontWeight: analyticsTimeframe === tf ? 700 : 500,
-                    borderRadius: 6,
-                  }}
+                  className={`telemetry-pill ${analyticsTimeframe === tf ? 'active' : ''}`}
                   onClick={() => setAnalyticsTimeframe(tf)}
                 >
-                  {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : '📅 Custom'}
+                  {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : 'Custom'}
                 </button>
               ))}
             </div>
 
             {analyticsTimeframe === 'custom' && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 8px' }}>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>From:</span>
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  style={{
-                    background: '#0d0f14',
-                    border: '1px solid var(--line)',
-                    color: 'var(--text)',
-                    borderRadius: 4,
-                    padding: '2px 6px',
-                    fontSize: 12,
-                  }}
-                />
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>To:</span>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  style={{
-                    background: '#0d0f14',
-                    border: '1px solid var(--line)',
-                    color: 'var(--text)',
-                    borderRadius: 4,
-                    padding: '2px 6px',
-                    fontSize: 12,
-                  }}
-                />
+              <div className="telemetry-date-range">
+                <label>From:
+                  <input
+                    type="date"
+                    className="telemetry-date-input"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                  />
+                </label>
+                <label>To:
+                  <input
+                    type="date"
+                    className="telemetry-date-input"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                  />
+                </label>
               </div>
             )}
 
             <button
               type="button"
-              className="btn secondary btn-sm"
+              className="telemetry-action-btn"
               disabled={groupAnalytics.isFetching}
               onClick={() => groupAnalytics.refetch()}
-              style={{ fontSize: 12 }}
               title="Refresh group analytics"
             >
-              {groupAnalytics.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groupAnalytics.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+              </svg>
+              {groupAnalytics.isFetching ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>

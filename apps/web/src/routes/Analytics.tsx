@@ -98,81 +98,64 @@ export function Analytics() {
         </div>
 
         {/* Filters: Timeframe & Strategy Group */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
+        <div className="telemetry-toolbar">
+          <div className="telemetry-pills">
             {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
               <button
                 key={tf}
                 type="button"
-                className={`btn btn-sm ${timeframe === tf ? 'secondary' : 'ghost'}`}
-                style={{
-                  fontSize: 12,
-                  padding: '4px 10px',
-                  fontWeight: timeframe === tf ? 700 : 500,
-                  borderRadius: 6,
-                }}
+                className={`telemetry-pill ${timeframe === tf ? 'active' : ''}`}
                 onClick={() => setTimeframe(tf)}
               >
-                {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : '📅 Custom'}
+                {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : 'Custom'}
               </button>
             ))}
           </div>
 
           {timeframe === 'custom' && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 8px' }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>From:</span>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                style={{
-                  background: '#0d0f14',
-                  border: '1px solid var(--line)',
-                  color: 'var(--text)',
-                  borderRadius: 4,
-                  padding: '2px 6px',
-                  fontSize: 12,
-                }}
-              />
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>To:</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                style={{
-                  background: '#0d0f14',
-                  border: '1px solid var(--line)',
-                  color: 'var(--text)',
-                  borderRadius: 4,
-                  padding: '2px 6px',
-                  fontSize: 12,
-                }}
-              />
+            <div className="telemetry-date-range">
+              <label>From:
+                <input
+                  type="date"
+                  className="telemetry-date-input"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </label>
+              <label>To:
+                <input
+                  type="date"
+                  className="telemetry-date-input"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </label>
             </div>
           )}
 
           <select
-            className="btn btn-sm"
+            className="telemetry-select"
             value={selectedGroupId}
             onChange={(e) => setSelectedGroupId(e.target.value)}
-            style={{ fontSize: 12, padding: '5px 12px', minWidth: 160 }}
             aria-label="Filter by group"
           >
             <option value="">All Groups (Entire Desk)</option>
             {(groupsQuery.data ?? []).map((g) => (
-              <option key={g.id} value={g.id}>📁 {g.name}</option>
+              <option key={g.id} value={g.id}>{g.name}</option>
             ))}
           </select>
 
           <button
             type="button"
-            className="btn secondary btn-sm"
+            className="telemetry-action-btn"
             disabled={analyticsQuery.isFetching}
             onClick={() => analyticsQuery.refetch()}
-            style={{ fontSize: 12 }}
             title="Refresh analytics data"
           >
-            {analyticsQuery.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: analyticsQuery.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+            </svg>
+            {analyticsQuery.isFetching ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -313,28 +296,28 @@ export function Analytics() {
               className={`account-nav-tab ${activeTab === 'symbols' ? 'active' : ''}`}
               onClick={() => setActiveTab('symbols')}
             >
-              <span>🪙 Asset Performance ({data.symbols.length})</span>
+              <span>Asset Performance ({data.symbols.length})</span>
             </button>
             <button
               type="button"
               className={`account-nav-tab ${activeTab === 'groups' ? 'active' : ''}`}
               onClick={() => setActiveTab('groups')}
             >
-              <span>📁 Strategy Groups ({data.groups.length})</span>
+              <span>Strategy Groups ({data.groups.length})</span>
             </button>
             <button
               type="button"
               className={`account-nav-tab ${activeTab === 'accounts' ? 'active' : ''}`}
               onClick={() => setActiveTab('accounts')}
             >
-              <span>👥 Account Leaderboard ({data.accounts.length})</span>
+              <span>Account Leaderboard ({data.accounts.length})</span>
             </button>
             <button
               type="button"
               className={`account-nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
               onClick={() => setActiveTab('orders')}
             >
-              <span>📋 Order Activity ({data.recentOrders.length})</span>
+              <span>Order Activity ({data.recentOrders.length})</span>
             </button>
           </div>
 
@@ -434,8 +417,8 @@ export function Analytics() {
                     return (
                       <tr key={g.groupId}>
                         <td style={{ fontWeight: 600 }}>
-                          <Link to={`/app/groups/${g.groupId}`} style={{ color: 'var(--text)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span>📁</span> {g.groupName}
+                          <Link to={`/app/groups/${g.groupId}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                            {g.groupName}
                           </Link>
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{g.memberCount}</td>
@@ -498,7 +481,7 @@ export function Analytics() {
                         </td>
                         <td>
                           {a.groupName ? (
-                            <span className="group-badge">📁 {a.groupName}</span>
+                            <span className="group-badge">{a.groupName}</span>
                           ) : (
                             <span className="muted">—</span>
                           )}
@@ -569,7 +552,7 @@ export function Analytics() {
                       </td>
                       <td style={{ fontWeight: 600 }}>{o.accountName}</td>
                       <td>
-                        {o.groupName ? <span className="group-badge">📁 {o.groupName}</span> : <span className="muted">—</span>}
+                        {o.groupName ? <span className="group-badge">{o.groupName}</span> : <span className="muted">—</span>}
                       </td>
                       <td className="mono">{o.pair}</td>
                       <td>

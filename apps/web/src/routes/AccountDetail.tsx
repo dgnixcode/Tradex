@@ -280,8 +280,12 @@ export function AccountDetail() {
                 void futuresPositions.refetch();
               }}
               title="Fetch fresh balances & positions directly from exchange"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              {sync.isPending ? 'Syncing with exchange…' : '🔄 Refresh / Sync'}
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: sync.isPending ? 'spin 1s linear infinite' : 'none' }}>
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+              </svg>
+              {sync.isPending ? 'Syncing…' : 'Refresh / Sync'}
             </button>
 
             <Link to="/app/accounts" className="btn ghost btn-sm">
@@ -304,7 +308,7 @@ export function AccountDetail() {
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <span>✓ {syncNote}</span>
+            <span>{syncNote}</span>
             <button
               className="btn ghost btn-sm"
               style={{ padding: '2px 8px', height: 'auto', minHeight: 'unset', color: 'var(--text)' }}
@@ -336,7 +340,7 @@ export function AccountDetail() {
             className={`account-nav-tab ${activeTab === 'positions' ? 'active' : ''}`}
             onClick={() => setActiveTab('positions')}
           >
-            <span>📈 Positions</span>
+            <span>Positions</span>
             {accountPositions.length > 0 && (
               <span className="account-tab-badge">{accountPositions.length}</span>
             )}
@@ -346,21 +350,21 @@ export function AccountDetail() {
             className={`account-nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
             onClick={() => setActiveTab('analytics')}
           >
-            <span>📊 Performance & Analytics</span>
+            <span>Analytics</span>
           </button>
           <button
             type="button"
             className={`account-nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
             onClick={() => setActiveTab('overview')}
           >
-            <span>📋 Overview & Balances</span>
+            <span>Overview & Balances</span>
           </button>
           <button
             type="button"
             className={`account-nav-tab ${activeTab === 'actions' ? 'active' : ''}`}
             onClick={() => setActiveTab('actions')}
           >
-            <span>⚙️ Account Actions</span>
+            <span>Account Actions</span>
           </button>
         </div>
 
@@ -372,7 +376,6 @@ export function AccountDetail() {
 
             {futuresPositions.isSuccess && accountPositions.length === 0 && (
               <div className="empty-state" style={{ padding: '40px 20px' }}>
-                <p className="empty-ico">📈</p>
                 <p style={{ fontWeight: 600, fontSize: 15, margin: '8px 0 4px' }}>No Open Futures Positions</p>
                 <p className="muted" style={{ maxWidth: 460, margin: '0 auto', fontSize: 13 }}>
                   This account currently has no active futures positions. Positions opened for this account during group trades will appear here with real-time PnL, leverage, and bracket controls.
@@ -494,7 +497,7 @@ export function AccountDetail() {
                               </div>
                               {p.groupName && (
                                 <span className="group-badge" style={{ marginTop: 3 }}>
-                                  📁 {p.groupName}
+                                  {p.groupName}
                                 </span>
                               )}
                             </td>
@@ -571,7 +574,7 @@ export function AccountDetail() {
                                   setSyncNote(null);
                                 }}
                               >
-                                <span>⚙</span> Manage
+                                Manage
                               </button>
                             </td>
                           </tr>
@@ -593,7 +596,7 @@ export function AccountDetail() {
                         <div className="pos-mobile-card-top">
                           <div>
                             <div className="pos-mobile-acc-name">{p.pair} ({p.marginCurrency})</div>
-                            {p.groupName && <div className="pos-mobile-grp-badge">📁 {p.groupName}</div>}
+                            {p.groupName && <div className="pos-mobile-grp-badge">{p.groupName}</div>}
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div className={`pos-mobile-pnl ${pnlClass(p.unrealisedPnlMinor)}`}>
@@ -663,7 +666,7 @@ export function AccountDetail() {
                               setSyncNote(null);
                             }}
                           >
-                            ⚙ Manage Position
+                            Manage Position
                           </button>
                         </div>
                       </div>
@@ -687,68 +690,52 @@ export function AccountDetail() {
                 </p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
+              <div className="telemetry-toolbar">
+                <div className="telemetry-pills">
                   {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
                     <button
                       key={tf}
                       type="button"
-                      className={`btn btn-sm ${analyticsTimeframe === tf ? 'secondary' : 'ghost'}`}
-                      style={{
-                        fontSize: 12,
-                        padding: '4px 10px',
-                        fontWeight: analyticsTimeframe === tf ? 700 : 500,
-                        borderRadius: 6,
-                      }}
+                      className={`telemetry-pill ${analyticsTimeframe === tf ? 'active' : ''}`}
                       onClick={() => setAnalyticsTimeframe(tf)}
                     >
-                      {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : '📅 Custom'}
+                      {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : 'Custom'}
                     </button>
                   ))}
                 </div>
 
                 {analyticsTimeframe === 'custom' && (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 8px' }}>
-                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>From:</span>
-                    <input
-                      type="date"
-                      value={customFrom}
-                      onChange={(e) => setCustomFrom(e.target.value)}
-                      style={{
-                        background: '#0d0f14',
-                        border: '1px solid var(--line)',
-                        color: 'var(--text)',
-                        borderRadius: 4,
-                        padding: '2px 6px',
-                        fontSize: 12,
-                      }}
-                    />
-                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>To:</span>
-                    <input
-                      type="date"
-                      value={customTo}
-                      onChange={(e) => setCustomTo(e.target.value)}
-                      style={{
-                        background: '#0d0f14',
-                        border: '1px solid var(--line)',
-                        color: 'var(--text)',
-                        borderRadius: 4,
-                        padding: '2px 6px',
-                        fontSize: 12,
-                      }}
-                    />
+                  <div className="telemetry-date-range">
+                    <label>From:
+                      <input
+                        type="date"
+                        className="telemetry-date-input"
+                        value={customFrom}
+                        onChange={(e) => setCustomFrom(e.target.value)}
+                      />
+                    </label>
+                    <label>To:
+                      <input
+                        type="date"
+                        className="telemetry-date-input"
+                        value={customTo}
+                        onChange={(e) => setCustomTo(e.target.value)}
+                      />
+                    </label>
                   </div>
                 )}
 
                 <button
                   type="button"
-                  className="btn secondary btn-sm"
+                  className="telemetry-action-btn"
                   disabled={tradingAnalytics.isFetching}
                   onClick={() => tradingAnalytics.refetch()}
-                  style={{ fontSize: 12 }}
                   title="Refresh analytics telemetry"
                 >
-                  {tradingAnalytics.isFetching ? 'Refreshing…' : '🔄 Refresh'}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: tradingAnalytics.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                  {tradingAnalytics.isFetching ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
             </div>
@@ -1139,7 +1126,7 @@ export function AccountDetail() {
                     {a.groupName && a.groupId ? (
                       <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
                         <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
-                          📁 {a.groupName}
+                          {a.groupName}
                         </span>
                       </Link>
                     ) : (
@@ -1151,7 +1138,7 @@ export function AccountDetail() {
                   <td className="muted" style={{ width: 220 }}>Master Desk</td>
                   <td>
                     <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                      🌐 Default (All Accounts)
+                      Default (All Accounts)
                     </span>
                   </td>
                 </tr>
@@ -1162,7 +1149,7 @@ export function AccountDetail() {
             {a.balances.length > 0 && (
               <details style={{ marginTop: 28, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
                 <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 12.5, fontWeight: 600 }}>
-                  🔍 Show Raw Exchange Wallet Holdings ({a.balances.length} coins recorded)
+                  Show Raw Exchange Wallet Holdings ({a.balances.length} coins recorded)
                 </summary>
                 <div style={{ marginTop: 12 }}>
                   <table style={{ width: '100%', fontSize: 12 }}>

@@ -165,7 +165,6 @@ export function Blotter() {
 
       {query.isSuccess && rows.length === 0 && (
         <div className="empty-state">
-          <p className="empty-ico">📋</p>
           <p>No orders yet.</p>
           <p className="muted">When a group trade is confirmed, its legs appear here with their outcome.</p>
         </div>

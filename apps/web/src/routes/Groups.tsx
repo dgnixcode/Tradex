@@ -93,7 +93,6 @@ export function Groups() {
 
       {groups.isSuccess && groups.data.length === 0 && (
         <div className="empty-state">
-          <p className="empty-ico">🗂</p>
           <p>No groups yet.</p>
           <p className="muted">Create one above, then add accounts to it.</p>
         </div>
@@ -112,7 +111,7 @@ export function Groups() {
               >
                 <div className="group-card-head">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="group-card-name">{isDefault ? '🌐 ' : '📁 '}{g.name}</span>
+                    <span className="group-card-name">{g.name}</span>
                     {isDefault && (
                       <span className="badge" style={{ fontSize: 10, background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
                         Master Desk

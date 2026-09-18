@@ -9,7 +9,7 @@ import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 // The Positions page — modern UI/UX overhaul.
 //
 // Key improvements:
-//   1. Group Name visibility: Every position links to its Account Group (e.g. "📁 Momentum").
+//   1. Group Name visibility: Every position links to its Account Group (e.g. "Momentum").
 //   2. Real-money Safety: Accidental clicks eliminated by replacing direct "Close" buttons
 //      with a full-featured "Manage" modal with two-step exit confirmation.
 //   3. High-Density Visibility: Cards are expanded by default so all metrics are readable immediately.
@@ -197,7 +197,7 @@ function AccountRow({
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <strong style={{ fontSize: 13.5, color: 'var(--text)' }}>{p.accountName}</strong>
           <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-            <span style={{ opacity: 0.6 }}>📁</span> {p.groupName || 'Ungrouped'}
+            {p.groupName || 'Ungrouped'}
           </div>
         </div>
       </td>
@@ -248,7 +248,7 @@ function AccountRow({
           }}
           onClick={() => onManage(p)}
         >
-          <span>⚙</span> Manage
+          Manage
         </button>
       </td>
     </tr>
@@ -274,7 +274,7 @@ function AccountMobileCard({
       <div className="pos-mobile-card-top">
         <div>
           <div className="pos-mobile-acc-name">{p.accountName}</div>
-          <div className="pos-mobile-grp-badge">📁 {p.groupName || 'Ungrouped'}</div>
+          <div className="pos-mobile-grp-badge">{p.groupName || 'Ungrouped'}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div className={`pos-mobile-pnl ${pnlClass(p.unrealisedPnlMinor)}`}>
@@ -340,7 +340,7 @@ function AccountMobileCard({
           style={{ width: '100%', marginTop: 8, padding: '8px', fontSize: 12.5, fontWeight: 700, borderRadius: 8 }}
           onClick={() => onManage(p)}
         >
-          ⚙ Manage Position
+          Manage Position
         </button>
       </div>
     </div>
@@ -411,7 +411,7 @@ function GroupCard({
 
         {/* Group Name badge */}
         <span className="group-badge" title={group.groupNames.join(', ')}>
-          📁 {groupTitle}
+          {groupTitle}
         </span>
 
         {/* Aggregated stats */}
@@ -472,7 +472,7 @@ function GroupCard({
             }}
             title="Manage this position across all accounts in the group"
           >
-            <span>⚡</span> Manage Group
+            Manage Group
           </button>
 
           <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
@@ -509,7 +509,7 @@ function GroupCard({
                 <input
                   type="text"
                   className="card-account-search"
-                  placeholder="🔍 Filter accounts…"
+                  placeholder="Filter accounts…"
                   value={accountSearch}
                   onChange={(e) => setAccountSearch(e.target.value)}
                   onClick={(e) => e.stopPropagation()}
@@ -725,7 +725,7 @@ export function PositionManageModal({
                 {position.accountName}
               </span>
               <span className="group-badge">
-                📁 {position.groupName || 'Ungrouped'}
+                {position.groupName || 'Ungrouped'}
               </span>
             </div>
           </div>
@@ -788,28 +788,28 @@ export function PositionManageModal({
             className={`position-modal-tab ${activeTab === 'protection' ? 'active' : ''}`}
             onClick={() => setActiveTab('protection')}
           >
-            🛡️ SL / TP Protection
+            SL / TP Protection
           </button>
           <button
             type="button"
             className={`position-modal-tab ${activeTab === 'partial' ? 'active' : ''}`}
             onClick={() => setActiveTab('partial')}
           >
-            ✂️ Partial Exit
+            Partial Exit
           </button>
           <button
             type="button"
             className={`position-modal-tab ${activeTab === 'increase' ? 'active' : ''}`}
             onClick={() => setActiveTab('increase')}
           >
-            ➕ Add / Increase
+            Add / Increase
           </button>
           <button
             type="button"
             className={`position-modal-tab danger-tab ${activeTab === 'close' ? 'active' : ''}`}
             onClick={() => { setActiveTab('close'); setConfirmExit(false); }}
           >
-            🚨 Close Position
+            Close Position
           </button>
         </div>
 
@@ -1156,7 +1156,7 @@ export function PositionManageModal({
                       {accountFreeCashMinor !== null ? fmtMinor(accountFreeCashMinor, position.marginCurrency) : '—'}
                     </strong>
                     <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
-                      • 📁 {position.groupName || 'Ungrouped'}
+                      • {position.groupName || 'Ungrouped'}
                     </span>
                   </div>
                 </div>
@@ -1176,9 +1176,9 @@ export function PositionManageModal({
                   }}
                   title="Refresh account balance"
                 >
-                  <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>
-                    🔄
-                  </span>
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}>
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
                   {isRefreshing ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
@@ -1305,7 +1305,6 @@ export function PositionManageModal({
                       gap: 8,
                     }}
                   >
-                    <span>⚠️</span>
                     <span>
                       Estimated margin needed ({fmtMinor(addMarginMinor, position.marginCurrency)}) exceeds free cash in {position.accountName} ({fmtMinor(accountFreeCashMinor, position.marginCurrency)})!
                     </span>
@@ -1344,7 +1343,7 @@ export function PositionManageModal({
                 }}
               >
                 <h4 style={{ margin: '0 0 8px', color: 'var(--danger)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>⚠️</span> Full Market Exit Confirmation
+                  Full Market Exit Confirmation
                 </h4>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
                   Closing this position will immediately execute a market order on CoinDCX for the entire <strong>{position.quantity}</strong>.
@@ -1367,7 +1366,7 @@ export function PositionManageModal({
                     style={{ background: 'var(--danger)', color: '#fff', border: 'none' }}
                     onClick={() => setConfirmExit(true)}
                   >
-                    Close Position at Market ⚡
+                    Close Position at Market
                   </button>
                 </div>
               ) : (
@@ -1384,7 +1383,7 @@ export function PositionManageModal({
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)', textAlign: 'right' }}>
-                    🚨 Are you absolutely sure? Real money position will be closed immediately!
+                    Are you absolutely sure? Real money position will be closed immediately!
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -1759,7 +1758,7 @@ function GroupPositionManageModal({
         <div className="position-modal-header">
           <div>
             <h3 className="position-modal-title">
-              <span>⚡ {group.pair} (Group Actions)</span>
+              <span>{group.pair} (Group Actions)</span>
               <span
                 className="badge"
                 style={{
@@ -1779,7 +1778,7 @@ function GroupPositionManageModal({
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
               <span className="group-badge">
-                📁 {groupTitle}
+                {groupTitle}
               </span>
               <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                 Managing {group.positions.length} account{group.positions.length === 1 ? '' : 's'} holding this position
@@ -1821,28 +1820,28 @@ function GroupPositionManageModal({
             className={`position-modal-tab ${activeTab === 'increase' ? 'active' : ''}`}
             onClick={() => setActiveTab('increase')}
           >
-            ➕ Add / Increase
+            Add / Increase
           </button>
           <button
             type="button"
             className={`position-modal-tab ${activeTab === 'partial' ? 'active' : ''}`}
             onClick={() => setActiveTab('partial')}
           >
-            ✂️ Partial Exit
+            Partial Exit
           </button>
           <button
             type="button"
             className={`position-modal-tab ${activeTab === 'protection' ? 'active' : ''}`}
             onClick={() => setActiveTab('protection')}
           >
-            🛡️ SL / TP Protection
+            SL / TP Protection
           </button>
           <button
             type="button"
             className={`position-modal-tab danger-tab ${activeTab === 'close' ? 'active' : ''}`}
             onClick={() => { setActiveTab('close'); setConfirmExit(false); }}
           >
-            🚨 Close Group
+            Close Group
           </button>
         </div>
 
@@ -1934,9 +1933,9 @@ function GroupPositionManageModal({
                   }}
                   title="Refresh account balances"
                 >
-                  <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>
-                    🔄
-                  </span>
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}>
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
                   {isRefreshing ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
@@ -2019,7 +2018,7 @@ function GroupPositionManageModal({
                 >
                   <div>
                     <strong style={{ color: skippedAccounts.length === 0 ? 'var(--ok)' : '#f59e0b' }}>
-                      ⚡ {fundedAccounts.length} of {group.positions.length} accounts funded
+                      {fundedAccounts.length} of {group.positions.length} accounts funded
                     </strong>
                     <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>
                       (Total Margin: {totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : '—'})
@@ -2027,7 +2026,7 @@ function GroupPositionManageModal({
                   </div>
                   {skippedAccounts.length > 0 && (
                     <span style={{ fontSize: 11.5, color: 'var(--danger)', fontWeight: 600 }}>
-                      ⚠️ {skippedAccounts.length} underfunded account(s) will be skipped
+                      {skippedAccounts.length} underfunded account(s) will be skipped
                     </span>
                   )}
                 </div>
@@ -2076,10 +2075,10 @@ function GroupPositionManageModal({
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             {item.isFunded ? (
-                              <span className="status-badge-funded">✅ Funded</span>
+                              <span className="status-badge-funded">Funded</span>
                             ) : (
                               <span className="status-badge-skipped" title="Insufficient free cash — skipped during fan-out">
-                                ⚠️ Skipped
+                                Skipped
                               </span>
                             )}
                           </td>
@@ -2366,7 +2365,7 @@ function GroupPositionManageModal({
                 }}
               >
                 <h4 style={{ margin: '0 0 8px', color: 'var(--danger)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>⚠️</span> Full Market Exit Confirmation ({group.positions.length} Accounts)
+                  Full Market Exit Confirmation ({group.positions.length} Accounts)
                 </h4>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
                   Closing this group position will immediately execute a market order on CoinDCX for all <strong>{group.positions.length} accounts</strong> (Total Qty: <strong>{group.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>).
@@ -2389,7 +2388,7 @@ function GroupPositionManageModal({
                     style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 600 }}
                     onClick={() => setConfirmExit(true)}
                   >
-                    Close Group Position at Market ⚡
+                    Close Group Position at Market
                   </button>
                 </div>
               ) : (
@@ -2406,7 +2405,7 @@ function GroupPositionManageModal({
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--danger)', textAlign: 'right' }}>
-                    🚨 Are you absolutely sure? All {group.positions.length} real money positions will be closed immediately!
+                    Are you absolutely sure? All {group.positions.length} real money positions will be closed immediately!
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -2635,8 +2634,12 @@ export function Futures() {
             className="btn secondary btn-sm"
             disabled={refreshMut.isPending}
             onClick={() => refreshMut.mutate()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
-            {refreshMut.isPending ? 'Reading…' : '🔄 Sync'}
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: refreshMut.isPending ? 'spin 1s linear infinite' : 'none' }}>
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+            </svg>
+            {refreshMut.isPending ? 'Reading…' : 'Sync'}
           </button>
           <span className="muted" style={{ fontSize: 11.5 }}>
             {positions.data === undefined ? '' : new Date(positions.data.at).toLocaleTimeString('en-IN')}
@@ -2724,7 +2727,6 @@ export function Futures() {
 
       {positions.isSuccess && !hasAny && (
         <div className="empty-state">
-          <p className="empty-ico">📈</p>
           <p>No open futures positions.</p>
           <p className="muted">Perpetual positions across your accounts will appear here — with mark, liquidation and unrealised PnL — while they are open.</p>
         </div>

@@ -522,7 +522,7 @@ export function TradeTicket() {
             style={{ width: '100%', padding: '12px 16px', fontWeight: 700, fontSize: 13.5, borderRadius: 10 }}
             onClick={() => setRightPanelTab('trade')}
           >
-            ⚡ Place Order for {asset}/{quoteCurrency}
+            Place Order for {asset}/{quoteCurrency}
           </button>
         </div>
       </div>
@@ -536,7 +536,6 @@ export function TradeTicket() {
             className={`panel-tab-btn ${rightPanelTab === 'trade' ? 'active' : ''}`}
             onClick={() => setRightPanelTab('trade')}
           >
-            <span style={{ fontSize: 13 }}>⚡</span>
             <span>Order</span>
             <span className="panel-tab-asset-pill">{asset}/{quoteCurrency}</span>
           </button>
@@ -545,7 +544,6 @@ export function TradeTicket() {
             className={`panel-tab-btn mobile-only-tab ${rightPanelTab === 'chart' ? 'active' : ''}`}
             onClick={() => setRightPanelTab('chart')}
           >
-            <span style={{ fontSize: 13 }}>📈</span>
             <span>Chart</span>
           </button>
           <button
@@ -553,7 +551,6 @@ export function TradeTicket() {
             className={`panel-tab-btn ${rightPanelTab === 'watchlist' ? 'active' : ''}`}
             onClick={() => setRightPanelTab('watchlist')}
           >
-            <span style={{ fontSize: 13 }}>★</span>
             <span>Watchlist</span>
           </button>
         </div>
@@ -576,12 +573,16 @@ export function TradeTicket() {
                 fontSize: 11,
                 cursor: 'pointer',
                 opacity: groups.isFetching ? 0.5 : 0.8,
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
               onClick={() => void groups.refetch()}
               disabled={groups.isFetching}
               title="Refresh group balances from database"
             >
-              {groups.isFetching ? '⏳' : '🔄'}
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+              </svg>
             </button>
             <div style={{
               display: 'flex',
@@ -624,7 +625,7 @@ export function TradeTicket() {
             const isDefault = g.name === DEFAULT_GROUP_NAME;
             return (
               <option key={g.id} value={g.id}>
-                {isDefault ? '🌐' : '📁'} {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}{isDefault ? ' (All Accounts)' : ''}
+                {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}{isDefault ? ' (All Accounts)' : ''}
               </option>
             );
           })}
@@ -640,7 +641,7 @@ export function TradeTicket() {
             fontSize: 11.5,
             lineHeight: 1.4,
           }}>
-            🌐 <strong>Master Whole-Desk Trade:</strong> Order fans out to all active accounts. Each account&apos;s open position will be attributed to its assigned strategy group.
+            <strong>Master Whole-Desk Trade:</strong> Order fans out to all active accounts. Each account&apos;s open position will be attributed to its assigned strategy group.
           </div>
         )}
         {selectedGroup !== undefined && (() => {
@@ -989,7 +990,6 @@ export function TradeTicket() {
                       background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
                       color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
                     }}>
-                      <span>⚠️</span>
                       <span>Order value (~{notionalInUsdt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase size or leverage.</span>
                     </div>
                   )}
@@ -1042,7 +1042,6 @@ export function TradeTicket() {
                       background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
                       color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
                     }}>
-                      <span>⚠️</span>
                       <span>Order value (~{notionalAmt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase quantity.</span>
                     </div>
                   )}

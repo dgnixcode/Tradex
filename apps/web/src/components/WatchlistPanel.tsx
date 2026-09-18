@@ -414,7 +414,7 @@ export function WatchlistPanel({
               gap: 4,
             }}
           >
-            Trade {selectedAsset} ⚡
+            Trade {selectedAsset}
           </button>
         </div>
       )}

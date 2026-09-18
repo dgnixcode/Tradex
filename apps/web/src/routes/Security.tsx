@@ -121,7 +121,9 @@ export function Security() {
             marginBottom: 20,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 18 }}>🛡️</span>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ok, #10b981)' }}>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
               <h3 style={{ margin: 0, color: 'var(--ok, #10b981)', fontSize: 16 }}>
                 Two-Factor Authentication is Active
               </h3>
@@ -139,14 +141,14 @@ export function Security() {
                 className="btn secondary"
                 onClick={() => { clearMessages(); setMode('changing'); }}
               >
-                🔄 Change Authenticator App
+                Change Authenticator App
               </button>
               <button
                 type="button"
                 className="btn danger-outline"
                 onClick={() => { clearMessages(); setMode('disabling'); }}
               >
-                ⛔ Turn Off 2FA
+                Turn Off 2FA
               </button>
             </div>
           )}
