@@ -64,8 +64,8 @@ export function Landing() {
             </div>
 
             <h1 className="ref-hero-title">
-              Intelligent Wealth<br />
-              Management for<br />
+              Intelligent Wealth<br className="hide-mobile" />
+              Management for<br className="hide-mobile" />
               <span className="ref-hero-accent">What&rsquo;s Next</span>
             </h1>
 

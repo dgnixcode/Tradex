@@ -25,11 +25,11 @@ export function Model() {
       <section className="mk-section mk-block" style={{ paddingTop: '40px' }}>
         <div style={{ maxWidth: '1040px', margin: '0 auto' }}>
 
-          <div style={{ borderRadius: '18px', overflow: 'hidden', marginBottom: '40px', border: '1px solid rgba(16, 185, 129, 0.35)', boxShadow: '0 20px 45px rgba(0,0,0,0.5)' }}>
+          <div className="wm-subpage-banner-wrap">
             <img
               src="/images/algo_trading_desk.jpg"
               alt="Aza WealthKare Quantitative Algorithmic Execution Infrastructure"
-              style={{ width: '100%', maxHeight: '440px', objectFit: 'cover', display: 'block' }}
+              className="wm-subpage-banner-img"
             />
           </div>
           

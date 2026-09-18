@@ -78,7 +78,7 @@ export function Contact() {
         <div style={{ maxWidth: '1040px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '40px' }} className="wm-contact-grid">
           
           {/* Form Card */}
-          <div className="wm-pillar-card" style={{ padding: '36px' }}>
+          <div className="wm-pillar-card wm-subpage-content-card">
             {submitted ? (
               <div style={{ textAlign: 'center', padding: '30px 10px' }}>
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>

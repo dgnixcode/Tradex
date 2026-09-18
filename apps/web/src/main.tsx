@@ -32,7 +32,9 @@ import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
+import { NotFound } from './routes/NotFound.tsx';
 import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary.tsx';
 import './styles.css';
 
 // A single query client. Previews are never cached — a plan is priced against a
@@ -161,6 +163,16 @@ function PageTitleSync() {
       return;
     }
 
+    // Public 404 Not Found handling
+    if (!path.startsWith('/app')) {
+      const fullTitle = `404 Not Found · ${brand}`;
+      document.title = fullTitle;
+      setMeta('description', `The page you requested could not be found on ${brand}.`);
+      setMeta('og:title', fullTitle, true);
+      setMeta('robots', 'noindex, nofollow');
+      return;
+    }
+
     // Authenticated management console (/app/*)
     let pageTitle = brand;
     if (path === '/app' || path.startsWith('/app/trades')) {
@@ -220,6 +232,7 @@ function Root() {
 const router = createBrowserRouter([
   {
     element: <Root />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { path: '/', element: <Landing /> },
       { path: '/about', element: <About /> },
@@ -254,6 +267,7 @@ const router = createBrowserRouter([
           { path: 'inquiries', element: <Inquiries /> },
         ],
       },
+      { path: '*', element: <NotFound /> },
     ],
   },
 ]);

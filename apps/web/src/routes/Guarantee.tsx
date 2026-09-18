@@ -24,15 +24,15 @@ export function Guarantee() {
       <section className="mk-section mk-block" style={{ paddingTop: '40px' }}>
         <div style={{ maxWidth: '960px', margin: '0 auto' }}>
 
-          <div style={{ borderRadius: '18px', overflow: 'hidden', marginBottom: '40px', border: '1px solid rgba(16, 185, 129, 0.35)', boxShadow: '0 20px 45px rgba(0,0,0,0.5)' }}>
+          <div className="wm-subpage-banner-wrap">
             <img
               src="/images/crypto_vault_shield.jpg"
               alt="Aza WealthKare 100% Capital Protection Cryptographic Shield"
-              style={{ width: '100%', maxHeight: '440px', objectFit: 'cover', display: 'block' }}
+              className="wm-subpage-banner-img"
             />
           </div>
           
-          <div className="wm-pillar-card" style={{ padding: '36px', marginBottom: '32px' }}>
+          <div className="wm-pillar-card wm-subpage-content-card">
             <h2 style={{ fontSize: '26px', fontWeight: 700, marginBottom: '14px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
               Why Aza WealthKare Can Offer a 100% Principal Guarantee
             </h2>

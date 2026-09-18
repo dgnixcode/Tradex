@@ -79,19 +79,8 @@ export function MarketingFooter() {
       </div>
 
       {/* Direct Contact & Office Details Strip */}
-      <div style={{
-        maxWidth: '1200px',
-        margin: '28px auto 0',
-        padding: '18px 24px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '20px 32px',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        fontSize: '13px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="mk-footer-contact-strip">
+        <div className="mk-footer-contact-item">
           <span style={{ fontSize: '16px', color: '#25D366' }}>💬</span>
           <span style={{ color: '#94a3b8' }}>WhatsApp:</span>
           <a
@@ -104,7 +93,7 @@ export function MarketingFooter() {
           </a>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="mk-footer-contact-item">
           <span style={{ fontSize: '15px' }}>📞</span>
           <span style={{ color: '#94a3b8' }}>Desk:</span>
           <a href={`tel:${branding.phone}`} style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
@@ -112,7 +101,7 @@ export function MarketingFooter() {
           </a>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="mk-footer-contact-item">
           <span style={{ fontSize: '15px' }}>✉️</span>
           <span style={{ color: '#94a3b8' }}>Email:</span>
           <a href={`mailto:${branding.email}`} style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
@@ -120,7 +109,7 @@ export function MarketingFooter() {
           </a>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '420px' }}>
+        <div className="mk-footer-contact-item" style={{ maxWidth: '420px' }}>
           <span style={{ fontSize: '15px' }}>🏢</span>
           <span style={{ color: '#94a3b8' }}>Office:</span>
           <span style={{ color: '#e2e8f0', opacity: 0.95 }}>{branding.address}</span>
