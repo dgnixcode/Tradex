@@ -78,7 +78,7 @@ export function WatchlistPanel({
   });
 
   // Real-time SSE price streaming — merges diffs into the 'futures-prices' query cache
-  useLivePrices();
+  const { isStreaming } = useLivePrices();
 
   // Sync with localStorage
   useEffect(() => {
@@ -156,7 +156,11 @@ export function WatchlistPanel({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 15, color: '#f59e0b' }}>★</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', color: '#f59e0b' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" strokeWidth="1.5">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          </span>
           <span style={{ fontWeight: 700, fontSize: 13.5, color: '#f3f4f6', letterSpacing: '0.02em' }}>
             Watchlist
           </span>
@@ -171,23 +175,45 @@ export function WatchlistPanel({
           >
             {watchlist.length}
           </span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: '#0ecb81',
-              background: 'rgba(14, 203, 129, 0.12)',
-              border: '1px solid rgba(14, 203, 129, 0.25)',
-              borderRadius: 4,
-              padding: '1px 5px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              marginLeft: 2,
-            }}
-          >
-            <span style={{ fontSize: 7 }}>●</span> Live (3s)
-          </span>
+          {isStreaming ? (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#0ecb81',
+                background: 'rgba(14, 203, 129, 0.12)',
+                border: '1px solid rgba(14, 203, 129, 0.25)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginLeft: 2,
+              }}
+              title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+            >
+              <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginLeft: 2,
+              }}
+              title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
+            >
+              <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+            </span>
+          )}
         </div>
 
         <button

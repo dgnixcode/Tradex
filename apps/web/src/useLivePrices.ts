@@ -7,17 +7,22 @@
 // Falls back gracefully: if SSE connection fails or is not available,
 // the existing HTTP polling (refetchInterval: 1000) continues working.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FuturesPricesResponse, FuturesRtPriceItem } from './api.ts';
+
+export interface LivePricesStatus {
+  readonly isStreaming: boolean;
+}
 
 /**
  * Subscribe to real-time price diffs via SSE and merge them into the
  * `futures-prices` query cache. Call this once in a top-level component
  * (e.g. the Trade or Futures page) that needs live prices.
  */
-export function useLivePrices(): void {
+export function useLivePrices(): LivePricesStatus {
   const qc = useQueryClient();
+  const [isStreaming, setIsStreaming] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -36,7 +41,12 @@ export function useLivePrices(): void {
       const es = new EventSource('/api/futures/prices/stream');
       esRef.current = es;
 
+      es.onopen = () => {
+        if (active) setIsStreaming(true);
+      };
+
       es.onmessage = (event) => {
+        if (active) setIsStreaming(true);
         try {
           const data = JSON.parse(event.data) as {
             type: 'snapshot' | 'diff';
@@ -69,6 +79,7 @@ export function useLivePrices(): void {
 
       es.onerror = () => {
         // Connection lost — close and retry after a delay
+        if (active) setIsStreaming(false);
         es.close();
         esRef.current = null;
         if (active) {
@@ -81,6 +92,7 @@ export function useLivePrices(): void {
 
     return () => {
       active = false;
+      setIsStreaming(false);
       if (esRef.current !== null) {
         esRef.current.close();
         esRef.current = null;
@@ -91,4 +103,6 @@ export function useLivePrices(): void {
       }
     };
   }, [qc]);
+
+  return { isStreaming };
 }
