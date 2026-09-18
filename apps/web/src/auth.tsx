@@ -22,6 +22,8 @@ interface AuthContextValue {
   /** Create a workspace + owner and refresh the session. Rejects on failure. */
   signup: (input: SignupInput) => Promise<void>;
   logout: () => Promise<void>;
+  /** Refresh the current session state from the server. */
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -40,6 +42,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => { if (!cancelled) setState({ status: 'anonymous' }); });
     return () => { cancelled = true; };
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const session = await fetchSession();
+      setState(session === null ? { status: 'anonymous' } : { status: 'authenticated', session });
+    } catch {
+      // Keep existing state if network hiccup
+    }
   }, []);
 
   const login = useCallback(async (input: LoginInput) => {
@@ -62,7 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ status: 'anonymous' });
   }, []);
 
-  const value = useMemo<AuthContextValue>(() => ({ state, login, signup, logout }), [state, login, signup, logout]);
+  const value = useMemo<AuthContextValue>(
+    () => ({ state, login, signup, logout, refreshSession }),
+    [state, login, signup, logout, refreshSession],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

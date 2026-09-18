@@ -1104,9 +1104,10 @@ export function createHttpServer(deps: HttpDeps): Server {
     if (method === 'POST' && path === '/api/account/totp/begin') {
       // Enrolling your own 2FA is a self-service action; it does not touch another
       // user, so it needs only an authenticated session, not an owner action.
+      const body = (ctx.body ?? {}) as { currentCode?: string };
       const svc = new TotpService({ db: deps.db, tdb: forTenant(deps.db, principal.tenantId), kms: deps.kms });
       try {
-        const result = await svc.begin(principal.userId);
+        const result = await svc.begin(principal.userId, body.currentCode, deps.now?.() ?? Date.now());
         sendJson(ctx.res, 200, result);
       } catch (e) {
         if (e instanceof TotpServiceError) throw new HttpError(400, e.message);
@@ -1118,15 +1119,30 @@ export function createHttpServer(deps: HttpDeps): Server {
     // ---- POST /api/account/totp/confirm — prove a code, then enable ----
     if (method === 'POST' && path === '/api/account/totp/confirm') {
       const body = (ctx.body ?? {}) as { code?: string };
-      if (typeof body.code !== 'string') throw new HttpError(400, 'a code is required');
+      if (typeof body.code !== 'string' || body.code.trim() === '') throw new HttpError(400, 'a code is required');
       const svc = new TotpService({ db: deps.db, tdb: forTenant(deps.db, principal.tenantId), kms: deps.kms });
       try {
-        await svc.confirm(principal.userId, body.code, deps.now?.() ?? Date.now());
+        await svc.confirm(principal.userId, body.code.trim(), deps.now?.() ?? Date.now());
       } catch (e) {
         if (e instanceof TotpServiceError) throw new HttpError(400, e.message);
         throw e;
       }
       sendJson(ctx.res, 200, { enabled: true });
+      return;
+    }
+
+    // ---- POST /api/account/totp/disable — verify current code, then disable ----
+    if (method === 'POST' && path === '/api/account/totp/disable') {
+      const body = (ctx.body ?? {}) as { code?: string };
+      if (typeof body.code !== 'string' || body.code.trim() === '') throw new HttpError(400, 'your current 2FA code is required');
+      const svc = new TotpService({ db: deps.db, tdb: forTenant(deps.db, principal.tenantId), kms: deps.kms });
+      try {
+        await svc.disable(principal.userId, body.code.trim(), deps.now?.() ?? Date.now());
+      } catch (e) {
+        if (e instanceof TotpServiceError) throw new HttpError(400, e.message);
+        throw e;
+      }
+      sendJson(ctx.res, 200, { enabled: false });
       return;
     }
 

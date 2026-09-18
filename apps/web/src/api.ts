@@ -399,13 +399,20 @@ export interface BeginTotpResult {
   readonly otpauthUri: string;
 }
 
-/** Start enrolling the signed-in user's 2FA. Returns the one-time secret + URI. */
-export const beginTotp = (): Promise<BeginTotpResult> =>
-  request<BeginTotpResult>('/account/totp/begin', { method: 'POST', body: JSON.stringify({}) });
+/** Start enrolling the signed-in user's 2FA. Pass currentCode if 2FA is already enabled to reconfigure. */
+export const beginTotp = (currentCode?: string): Promise<BeginTotpResult> =>
+  request<BeginTotpResult>('/account/totp/begin', {
+    method: 'POST',
+    body: JSON.stringify(currentCode ? { currentCode } : {}),
+  });
 
 /** Prove a code from the authenticator, then enable 2FA. */
 export const confirmTotp = (code: string): Promise<{ enabled: boolean }> =>
   request<{ enabled: boolean }>('/account/totp/confirm', { method: 'POST', body: JSON.stringify({ code }) });
+
+/** Disable 2FA after proving identity with the current 6-digit code. */
+export const disableTotp = (code: string): Promise<{ enabled: boolean }> =>
+  request<{ enabled: boolean }>('/account/totp/disable', { method: 'POST', body: JSON.stringify({ code }) });
 
 // --- connect an exchange account (onboarding) --------------------------------
 

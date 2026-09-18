@@ -11,6 +11,7 @@ const ACTION_LABEL: Record<string, string> = {
   'trading.resume': 'Resumed trading',
   'limits.update': 'Changed limits',
   'account.totp.enable': 'Enabled 2FA',
+  'account.totp.disable': 'Disabled 2FA',
 };
 
 /** A compact summary of a change's before/after. */

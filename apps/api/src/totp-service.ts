@@ -24,7 +24,7 @@ export class TotpServiceError extends Error {
   override readonly name = 'TotpServiceError';
   constructor(
     message: string,
-    readonly reason: 'already_enabled' | 'no_pending' | 'bad_code',
+    readonly reason: 'already_enabled' | 'no_pending' | 'bad_code' | 'current_code_required',
   ) {
     super(message);
   }
@@ -46,13 +46,27 @@ export class TotpService {
 
   /**
    * Begin enrolment for the CURRENT user. Returns the secret and its otpauth URI
-   * (shown once). The sealed envelope is stored with totp_enabled false; a re-begin
-   * simply overwrites it — the user can restart until they confirm a code.
+   * (shown once). If 2FA is already enabled, the user must provide their current
+   * code to authorize re-enrolment. The freshly sealed envelope is stored with
+   * totp_enabled false until confirm() proves a code against the new secret.
    */
-  async begin(userId: string): Promise<BeginResult> {
+  async begin(userId: string, currentCode?: string, atMs?: number): Promise<BeginResult> {
     const row = await getUserTotpRow(this.deps.tdb, userId);
     if (row === null) throw new TotpServiceError('user not found', 'no_pending');
-    if (row.totpEnabled) throw new TotpServiceError('2FA is already enabled', 'already_enabled');
+
+    if (row.totpEnabled) {
+      if (currentCode === undefined || currentCode.trim() === '') {
+        throw new TotpServiceError('current 2FA code is required to change 2FA authenticator', 'current_code_required');
+      }
+      if (row.totpSecretCt === null) throw new TotpServiceError('no 2FA secret on record', 'no_pending');
+      const nowMs = atMs ?? Date.now();
+      const ok = await verifyTotpFromEnvelope(this.deps.kms, {
+        tenantId: row.tenantId,
+        userId,
+        keyVersion: KEY_VERSION,
+      }, row.totpSecretCt, currentCode.trim(), nowMs);
+      if (!ok) throw new TotpServiceError('current 2FA code is not valid', 'bad_code');
+    }
 
     const secret = generateTotpSecret();
     const sealed = await sealTotpSecret(this.deps.kms, {
@@ -81,7 +95,7 @@ export class TotpService {
       tenantId: row.tenantId,
       userId,
       keyVersion: KEY_VERSION,
-    }, row.totpSecretCt, code, atMs);
+    }, row.totpSecretCt, code.trim(), atMs);
     if (!ok) throw new TotpServiceError('that code is not valid', 'bad_code');
 
     await setUserTotp(this.deps.tdb, userId, Buffer.from(row.totpSecretCt), true);
@@ -94,6 +108,38 @@ export class TotpService {
       subjectId: userId,
       before: { totpEnabled: false },
       after: { totpEnabled: true },
+      occurredAt: new Date(atMs),
+    });
+  }
+
+  /**
+   * Disable 2FA for the CURRENT user after verifying their current 6-digit code.
+   * Clears the sealed envelope, flips totp_enabled to false, and records an audit event.
+   */
+  async disable(userId: string, code: string, atMs: number): Promise<void> {
+    const row = await getUserTotpRow(this.deps.tdb, userId);
+    if (row === null) throw new TotpServiceError('user not found', 'no_pending');
+    if (!row.totpEnabled || row.totpSecretCt === null) {
+      throw new TotpServiceError('2FA is not enabled on this account', 'no_pending');
+    }
+
+    const ok = await verifyTotpFromEnvelope(this.deps.kms, {
+      tenantId: row.tenantId,
+      userId,
+      keyVersion: KEY_VERSION,
+    }, row.totpSecretCt, code.trim(), atMs);
+    if (!ok) throw new TotpServiceError('that code is not valid', 'bad_code');
+
+    await setUserTotp(this.deps.tdb, userId, null, false);
+    await insertAuditEvent(this.deps.db, {
+      tenantId: row.tenantId,
+      actorUserId: userId,
+      actorProcess: 'api',
+      action: 'account.totp.disable',
+      subjectType: 'user',
+      subjectId: userId,
+      before: { totpEnabled: true },
+      after: { totpEnabled: false },
       occurredAt: new Date(atMs),
     });
   }
