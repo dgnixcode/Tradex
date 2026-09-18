@@ -63,9 +63,25 @@ export function startWsPriceFeed(): void {
     socket!.emit('join', { channelName: CHANNEL });
   });
 
+  let hasLoggedFirstUpdate = false;
+
   socket.on(EVENT, (response: unknown) => {
     try {
-      const data = response as { prices?: Record<string, Record<string, unknown>> };
+      let payload = response;
+      // CoinDCX often wraps payload in { data: ... }
+      if (typeof payload === 'object' && payload !== null && 'data' in payload) {
+        payload = (payload as { data: unknown }).data;
+      }
+      // If payload is a JSON string, parse it
+      if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+
+      const data = payload as { prices?: Record<string, Record<string, unknown>> };
       if (!data || typeof data.prices !== 'object' || data.prices === null) return;
 
       const diff: Record<string, FuturesRtPrice> = {};
@@ -90,6 +106,10 @@ export function startWsPriceFeed(): void {
       }
 
       if (count > 0) {
+        if (!hasLoggedFirstUpdate) {
+          console.log('[ws-prices] received live price stream update:', count, 'pairs, total cached pairs:', livePrices.size);
+          hasLoggedFirstUpdate = true;
+        }
         priceEmitter.emit('update', diff);
       }
     } catch {
