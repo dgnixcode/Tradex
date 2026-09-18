@@ -30,7 +30,7 @@ export function Brand({
   const hasCustomLogo = logoType !== 'default' && logo !== null && logo !== '';
 
   const sizeClass = size === 'sm' ? 'brand-sm' : size === 'lg' ? 'brand-lg' : '';
-  const classes = `brand has-custom-logo ${sizeClass} ${className}`.trim();
+  const classes = `brand ${hasCustomLogo ? 'has-custom-logo' : ''} ${sizeClass} ${className}`.trim();
 
   const isAzaDefault = name.toLowerCase().replace(/\s+/g, '').includes('azawealthkare');
 
@@ -55,10 +55,16 @@ export function Brand({
       {showName && <span className="brand-name">{name}</span>}
     </>
   ) : isAzaDefault ? (
-    <span className="brand-official-logo">
-      <img src="/images/logo-dark.png" alt="Aza WealthKare" className="brand-logo-img brand-logo-dark" />
-      <img src="/images/logo-white.png" alt="Aza WealthKare" className="brand-logo-img brand-logo-white" />
-    </span>
+    showName ? (
+      <span className="brand-official-logo">
+        <img src="/images/logo-dark.png" alt="Aza WealthKare" className="brand-logo-img brand-logo-dark" />
+        <img src="/images/logo-white.png" alt="Aza WealthKare" className="brand-logo-img brand-logo-white" />
+      </span>
+    ) : (
+      <span className="brand-official-emblem">
+        <img src="/images/icon.png" alt="Aza WealthKare" className="brand-emblem-img" />
+      </span>
+    )
   ) : (
     <AzaWordmark size={size} showName={showName} customName={name} />
   );
