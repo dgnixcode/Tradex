@@ -514,7 +514,9 @@ export async function fetchAnalyticsCsv(q: AnalyticsQuery = {}): Promise<{ text:
 export interface TradingAnalyticsQuery {
   readonly groupId?: string | undefined;
   readonly accountId?: string | undefined;
-  readonly timeframe?: 'today' | '7d' | '30d' | 'all' | undefined;
+  readonly timeframe?: 'today' | '7d' | '30d' | 'all' | 'custom' | undefined;
+  readonly fromMs?: number | undefined;
+  readonly toMs?: number | undefined;
 }
 
 export interface TradingKpis {
@@ -597,7 +599,7 @@ export interface TradingAnalyticsReport {
     readonly id: string | null;
     readonly name: string | null;
   };
-  readonly timeframe: 'today' | '7d' | '30d' | 'all';
+  readonly timeframe: 'today' | '7d' | '30d' | 'all' | 'custom';
   readonly fromMs: number;
   readonly toMs: number;
   readonly kpis: TradingKpis;

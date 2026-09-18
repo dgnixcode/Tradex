@@ -1105,10 +1105,14 @@ export function createHttpServer(deps: HttpDeps): Server {
     if (method === 'GET' && path === '/api/analytics/trading-overview') {
       requireAction(principal, 'view.dashboards');
       const sp = ctx.url.searchParams;
+      const fromParam = sp.get('fromMs') ?? sp.get('from');
+      const toParam = sp.get('toMs') ?? sp.get('to');
       const report = await buildTradingAnalytics(deps.db, principal.tenantId, {
         groupId: sp.get('groupId'),
         accountId: sp.get('accountId'),
-        timeframe: sp.get('timeframe') as 'today' | '7d' | '30d' | 'all' | null,
+        timeframe: sp.get('timeframe') as 'today' | '7d' | '30d' | 'all' | 'custom' | null,
+        fromMs: fromParam ? Number(fromParam) : undefined,
+        toMs: toParam ? Number(toParam) : undefined,
       });
       sendJson(ctx.res, 200, report);
       return;

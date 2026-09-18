@@ -15,9 +15,11 @@ import { buildFuturesPositions } from './positions.js';
 import type { FuturesPositionView } from './positions.js';
 
 export interface TradingAnalyticsQuery {
-  readonly groupId?: string | null;
-  readonly accountId?: string | null;
-  readonly timeframe?: 'today' | '7d' | '30d' | 'all' | null;
+  readonly groupId?: string | null | undefined;
+  readonly accountId?: string | null | undefined;
+  readonly timeframe?: 'today' | '7d' | '30d' | 'all' | 'custom' | null | undefined;
+  readonly fromMs?: number | null | undefined;
+  readonly toMs?: number | null | undefined;
 }
 
 export interface TradingKpis {
@@ -100,7 +102,7 @@ export interface TradingAnalyticsReport {
     readonly id: string | null;
     readonly name: string | null;
   };
-  readonly timeframe: 'today' | '7d' | '30d' | 'all';
+  readonly timeframe: 'today' | '7d' | '30d' | 'all' | 'custom';
   readonly fromMs: number;
   readonly toMs: number;
   readonly kpis: TradingKpis;
@@ -119,9 +121,19 @@ function addMinorValues(a: string, b: string): string {
   }
 }
 
-function resolveTimeframeWindow(timeframe?: string | null): { tf: 'today' | '7d' | '30d' | 'all'; fromMs: number; toMs: number } {
+function resolveTimeframeWindow(
+  timeframe?: string | null,
+  customFromMs?: number | null,
+  customToMs?: number | null,
+): { tf: 'today' | '7d' | '30d' | 'all' | 'custom'; fromMs: number; toMs: number } {
   const now = Date.now();
-  const tf = (timeframe === 'today' || timeframe === '7d' || timeframe === '30d' || timeframe === 'all')
+  if (timeframe === 'custom' && (customFromMs || customToMs)) {
+    const from = customFromMs && customFromMs > 0 ? customFromMs : 0;
+    const to = customToMs && customToMs > 0 ? customToMs : now;
+    return { tf: 'custom', fromMs: from, toMs: to };
+  }
+
+  const tf = (timeframe === 'today' || timeframe === '7d' || timeframe === '30d' || timeframe === 'all' || timeframe === 'custom')
     ? timeframe
     : 'all';
 
@@ -146,7 +158,7 @@ export async function buildTradingAnalytics(
 ): Promise<TradingAnalyticsReport> {
   const nowMs = Date.now();
   const tdb = forTenant(db, tenantId);
-  const { tf, fromMs, toMs } = resolveTimeframeWindow(query.timeframe);
+  const { tf, fromMs, toMs } = resolveTimeframeWindow(query.timeframe, query.fromMs, query.toMs);
 
   // 1. Fetch accounts and group mappings
   const allAccounts = await listAccounts(tdb);
@@ -266,6 +278,9 @@ export async function buildTradingAnalytics(
 
     if (fromMs > 0) {
       ordersQuery = ordersQuery.where('child_order.created_at' as never, '>=', new Date(fromMs) as never);
+    }
+    if (toMs > 0 && toMs < nowMs) {
+      ordersQuery = ordersQuery.where('child_order.created_at' as never, '<=', new Date(toMs) as never);
     }
 
     rawOrders = (await ordersQuery.limit(500).execute()) as unknown as Array<Record<string, unknown>>;

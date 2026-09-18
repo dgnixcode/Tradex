@@ -93,7 +93,7 @@ export async function ensureDefaultGroup(tdb: TenantDb): Promise<string> {
           weight_bp: null,
           max_notional_minor: null,
         })
-          .onConflict((oc) => oc.columns(['tenant_id', 'group_id', 'account_id']).doNothing() as never)
+          .onConflict((oc) => oc.columns(['group_id', 'account_id']).doNothing() as never)
           .execute();
       }
     }

@@ -70,7 +70,14 @@ export function AccountDetail() {
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
 
   const [activeTab, setActiveTab] = useState<'positions' | 'analytics' | 'overview' | 'actions'>('positions');
-  const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'all' | '30d' | '7d' | 'today'>('all');
+  const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'all' | '30d' | '7d' | 'today' | 'custom'>('all');
+  const [customFrom, setCustomFrom] = useState(() => {
+    const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  });
+  const [customTo, setCustomTo] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
 
   const [opError, setOpError] = useState<string | null>(null);
@@ -83,9 +90,12 @@ export function AccountDetail() {
     queryFn: () => fetchAccount(accountId),
   });
 
+  const fromMs = analyticsTimeframe === 'custom' && customFrom ? new Date(`${customFrom}T00:00:00Z`).getTime() : undefined;
+  const toMs = analyticsTimeframe === 'custom' && customTo ? new Date(`${customTo}T23:59:59.999Z`).getTime() : undefined;
+
   const tradingAnalytics = useQuery({
-    queryKey: ['trading-analytics', 'account', accountId, analyticsTimeframe],
-    queryFn: () => fetchTradingAnalytics({ accountId, timeframe: analyticsTimeframe }),
+    queryKey: ['trading-analytics', 'account', accountId, analyticsTimeframe, fromMs, toMs],
+    queryFn: () => fetchTradingAnalytics({ accountId, timeframe: analyticsTimeframe, fromMs, toMs }),
     enabled: activeTab === 'analytics',
     refetchInterval: 5000,
   });
@@ -679,7 +689,7 @@ export function AccountDetail() {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid var(--line)' }}>
-                  {(['all', '30d', '7d', 'today'] as const).map((tf) => (
+                  {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
                     <button
                       key={tf}
                       type="button"
@@ -692,10 +702,43 @@ export function AccountDetail() {
                       }}
                       onClick={() => setAnalyticsTimeframe(tf)}
                     >
-                      {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : 'Today'}
+                      {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : tf === 'today' ? 'Today' : '📅 Custom'}
                     </button>
                   ))}
                 </div>
+
+                {analyticsTimeframe === 'custom' && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 8px' }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>From:</span>
+                    <input
+                      type="date"
+                      value={customFrom}
+                      onChange={(e) => setCustomFrom(e.target.value)}
+                      style={{
+                        background: '#0d0f14',
+                        border: '1px solid var(--line)',
+                        color: 'var(--text)',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                        fontSize: 12,
+                      }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>To:</span>
+                    <input
+                      type="date"
+                      value={customTo}
+                      onChange={(e) => setCustomTo(e.target.value)}
+                      style={{
+                        background: '#0d0f14',
+                        border: '1px solid var(--line)',
+                        color: 'var(--text)',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                        fontSize: 12,
+                      }}
+                    />
+                  </div>
+                )}
 
                 <button
                   type="button"
