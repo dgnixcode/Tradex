@@ -244,29 +244,32 @@ export async function buildTradingAnalytics(
   const winRatePct = decidedPositions > 0 ? (winningPositions / decidedPositions) * 100 : null;
 
   // 5. Query child orders for execution analytics
-  let ordersQuery = tdb.selectFrom('child_order')
-    .innerJoin('exchange_account', 'exchange_account.id', 'child_order.account_id')
-    .select([
-      'child_order.id as id',
-      'child_order.account_id as accountId',
-      'exchange_account.name as accountName',
-      'child_order.pair as pair',
-      'child_order.market as market',
-      'child_order.state as state',
-      'child_order.filled_quantity as filledQuantity',
-      'child_order.avg_fill_price as avgFillPrice',
-      'child_order.notional_minor as notionalMinor',
-      'child_order.quote_currency as quoteCurrency',
-      'child_order.created_at as createdAt',
-    ] as unknown as never)
-    .where('child_order.account_id' as never, 'in', Array.from(targetAccountIds) as never)
-    .orderBy('child_order.created_at' as never, 'desc' as never);
+  let rawOrders: Array<Record<string, unknown>> = [];
+  if (targetAccountIds.size > 0) {
+    let ordersQuery = tdb.selectFrom('child_order')
+      .innerJoin('exchange_account', 'exchange_account.id', 'child_order.account_id')
+      .select([
+        'child_order.id as id',
+        'child_order.account_id as accountId',
+        'exchange_account.name as accountName',
+        'child_order.pair as pair',
+        'child_order.market as market',
+        'child_order.state as state',
+        'child_order.filled_quantity as filledQuantity',
+        'child_order.avg_fill_price as avgFillPrice',
+        'child_order.notional_minor as notionalMinor',
+        'child_order.quote_currency as quoteCurrency',
+        'child_order.created_at as createdAt',
+      ] as unknown as never)
+      .where('child_order.account_id' as never, 'in', Array.from(targetAccountIds) as never)
+      .orderBy('child_order.created_at' as never, 'desc' as never);
 
-  if (fromMs > 0) {
-    ordersQuery = ordersQuery.where('child_order.created_at' as never, '>=', new Date(fromMs) as never);
+    if (fromMs > 0) {
+      ordersQuery = ordersQuery.where('child_order.created_at' as never, '>=', new Date(fromMs) as never);
+    }
+
+    rawOrders = (await ordersQuery.limit(500).execute()) as unknown as Array<Record<string, unknown>>;
   }
-
-  const rawOrders = (await ordersQuery.limit(500).execute()) as unknown as Array<Record<string, unknown>>;
 
   let totalOrders = 0;
   let filledOrders = 0;
