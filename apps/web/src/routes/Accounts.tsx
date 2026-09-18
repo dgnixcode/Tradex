@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchAccountList } from '../api.ts';
@@ -37,6 +38,21 @@ export function Accounts() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccountList });
   const { state } = useAuth();
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
+  const [search, setSearch] = useState('');
+
+  const filteredAccounts = useMemo(() => {
+    if (!accounts.data) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return accounts.data;
+    return accounts.data.filter((a) => {
+      const nameMatch = a.name.toLowerCase().includes(q);
+      const groupMatch = (a.groupName ?? '').toLowerCase().includes(q);
+      const statusMatch = a.status.toLowerCase().includes(q) || (STATUS_LABEL[a.status] ?? '').toLowerCase().includes(q);
+      const currMatch = (a.allocatedCurrency ?? '').toLowerCase().includes(q);
+      const fundingMatch = a.fundingCurrencies.some((f) => f.toLowerCase().includes(q));
+      return nameMatch || groupMatch || statusMatch || currMatch || fundingMatch;
+    });
+  }, [accounts.data, search]);
 
   return (
     <div className="panel full-width-page">
@@ -85,53 +101,125 @@ export function Accounts() {
 
       {accounts.isSuccess && accounts.data.length > 0 && (
         <>
-          {/* Desktop Table View (> 768px) */}
-          <div className="table-scroll-container desktop-pos-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Account</th>
-                  <th>Status</th>
-                  <th>Strategy Group</th>
-                  <th>Allocated</th>
-                  <th>Funding</th>
-                  <th>Connected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.data.map((a) => (
-                  <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
-                    <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
-                    <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
-                    <td>
-                      {a.groupId && a.groupName ? (
-                        <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
-                          <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
-                            {a.groupName}
-                          </span>
-                        </Link>
-                      ) : (
-                        <span className="muted" style={{ fontSize: 12 }}>Unassigned</span>
-                      )}
-                    </td>
-                    <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
-                    <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
-                    <td>
-                      {a.confirmedAgainstMinor === null ? (
-                        <span className="muted">not activated</span>
-                      ) : (
-                        <span style={{ color: 'var(--ok)' }}>from the exchange</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Search and Counts Toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', minWidth: '260px', maxWidth: '380px', flex: 1 }}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search accounts by name, group, status..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="card-account-search"
+                style={{
+                  width: '100%',
+                  padding: '7px 30px 7px 32px',
+                  fontSize: '13px',
+                  boxSizing: 'border-box',
+                  borderRadius: '6px',
+                }}
+                aria-label="Search accounts"
+              />
+              {search.trim() !== '' && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                    fontSize: '13px',
+                    lineHeight: 1,
+                  }}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="muted" style={{ fontSize: '12.5px' }}>
+              {search.trim() !== ''
+                ? `Showing ${filteredAccounts.length} of ${accounts.data.length} account${accounts.data.length === 1 ? '' : 's'}`
+                : `${accounts.data.length} account${accounts.data.length === 1 ? '' : 's'} connected`}
+            </div>
           </div>
 
-          {/* Mobile Account Cards (<= 768px) */}
-          <div className="mobile-pos-cards">
-            {accounts.data.map((a) => (
+          {filteredAccounts.length === 0 ? (
+            <div className="empty-state" style={{ padding: '36px 16px', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No accounts match "{search}"</p>
+              <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try adjusting your search by account name, strategy group, or status.</p>
+              <button type="button" className="btn secondary btn-sm" onClick={() => setSearch('')}>
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Desktop Table View (> 768px) */}
+              <div className="table-scroll-container desktop-pos-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th>Status</th>
+                      <th>Strategy Group</th>
+                      <th>Allocated</th>
+                      <th>Funding</th>
+                      <th>Connected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAccounts.map((a) => (
+                      <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
+                        <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
+                        <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
+                        <td>
+                          {a.groupId && a.groupName ? (
+                            <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
+                              <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                                {a.groupName}
+                              </span>
+                            </Link>
+                          ) : (
+                            <span className="muted" style={{ fontSize: 12 }}>Unassigned</span>
+                          )}
+                        </td>
+                        <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
+                        <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
+                        <td>
+                          {a.confirmedAgainstMinor === null ? (
+                            <span className="muted">not activated</span>
+                          ) : (
+                            <span style={{ color: 'var(--ok)' }}>from the exchange</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Account Cards (<= 768px) */}
+              <div className="mobile-pos-cards">
+                {filteredAccounts.map((a) => (
               <div
                 key={`mobile-${a.id}`}
                 className="pos-mobile-card"
@@ -186,7 +274,7 @@ export function Accounts() {
                   <div className="pos-mobile-cell">
                     <span className="pos-mobile-label">Exchange Status</span>
                     <span className="pos-mobile-val" style={{ color: a.confirmedAgainstMinor ? 'var(--ok)' : 'var(--muted)' }}>
-                      {a.confirmedAgainstMinor !== null ? '✓ Activated' : 'Not activated'}
+                      {a.confirmedAgainstMinor !== null ? 'Activated' : 'Not activated'}
                     </span>
                   </div>
                 </div>
@@ -203,6 +291,8 @@ export function Accounts() {
           </div>
         </>
       )}
-    </div>
+    </>
+  )}
+</div>
   );
 }

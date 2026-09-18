@@ -79,7 +79,7 @@ export function GroupDetail() {
 
   const saveName = useMutation({
     mutationFn: () => updateGroup(groupId, { name, description: description === '' ? null : description }),
-    onSuccess: () => { setEditing(false); invalidate([['group', groupId], ['groups']]); },
+    onSuccess: () => { setEditing(false); invalidate([['group', groupId], ['groups'], ['accounts']]); },
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not save'),
   });
 
