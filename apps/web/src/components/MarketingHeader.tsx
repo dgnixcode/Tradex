@@ -6,15 +6,16 @@ import { Brand } from './Brand.tsx';
 interface NavLink {
   readonly to: string;
   readonly label: string;
+  readonly hasDropdown?: boolean;
 }
 
 const NAV: readonly NavLink[] = [
-  { to: '/about', label: 'About Us' },
-  { to: '/model', label: 'Investment Model' },
-  { to: '/guarantee', label: 'Capital Guarantee' },
-  { to: '/#calculator', label: 'ROI Calculator' },
-  { to: '/faq', label: 'FAQ' },
-  { to: '/contact', label: 'Contact Us' },
+  { to: '/', label: 'Home' },
+  { to: '/about', label: 'About' },
+  { to: '/model', label: 'Our Services', hasDropdown: true },
+  { to: '/guarantee', label: 'Digital Assets', hasDropdown: true },
+  { to: '/#calculator', label: 'Insights' },
+  { to: '/contact', label: 'Contact' },
 ];
 
 export function MarketingHeader() {
@@ -35,13 +36,26 @@ export function MarketingHeader() {
       <Brand to="/" />
 
       <nav className="mk-nav" aria-label="Primary">
-        {NAV.map((l) => (
-          l.to.startsWith('/#') ? (
-            <a key={l.to} href={l.to.substring(1)}>{l.label}</a>
+        {NAV.map((l) => {
+          const isHome = l.to === '/' && typeof window !== 'undefined' && (window.location.pathname === '/' || window.location.pathname === '');
+          const linkClass = `mk-nav-link ${isHome ? 'is-active' : ''}`;
+          const content = (
+            <>
+              <span>{l.label}</span>
+              {l.hasDropdown && (
+                <svg className="mk-nav-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 1l4 4 4-4" />
+                </svg>
+              )}
+            </>
+          );
+
+          return l.to.startsWith('/#') ? (
+            <a key={l.to} href={l.to.substring(1)} className={linkClass}>{content}</a>
           ) : (
-            <Link key={l.to} to={l.to}>{l.label}</Link>
-          )
-        ))}
+            <Link key={l.to} to={l.to} className={linkClass}>{content}</Link>
+          );
+        })}
       </nav>
 
       <div className="mk-header-actions">
@@ -58,8 +72,8 @@ export function MarketingHeader() {
             >
               Operator
             </Link>
-            <Link to="/contact" className="btn btn-sm wm-btn-primary mk-header-consult-btn">
-              Book Consultation
+            <Link to="/contact" className="btn btn-sm ref-header-cta-btn">
+              Get Started →
             </Link>
           </>
         )}

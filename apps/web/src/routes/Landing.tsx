@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { MarketingHeader } from '../components/MarketingHeader.tsx';
 import { MarketingFooter } from '../components/MarketingFooter.tsx';
 import { ProfitCalculator } from '../components/ProfitCalculator.tsx';
-import { HeroVisualCard } from '../components/HeroVisualCard.tsx';
 
 interface FaqItem {
   readonly q: string;
@@ -56,69 +55,207 @@ export function Landing() {
     <div className="landing landing-dark">
       <MarketingHeader />
 
-      {/* -------------------------------------------------- HERO SECTION */}
-      <div className="wm-hero-wrap">
-        <section className="wm-hero">
-          <div className="wm-hero-content">
-            <div className="wm-badge-row">
-              <span className="pill ok wm-hero-pill">
-                <span className="wm-hero-live-dot" />
-                <span>Non-Custodial Wealth Management</span>
-                <span className="wm-hero-pill-sep">·</span>
-                <span className="wm-hero-pill-bold">100% Capital Protection</span>
-              </span>
+      {/* -------------------------------------------------- REFERENCE HERO SECTION */}
+      <div className="ref-hero-wrap">
+        <section className="ref-hero">
+          <div className="ref-hero-content">
+            <div className="ref-hero-kicker">
+              WEALTH INTELLIGENCE FOR A BRIGHTER TOMORROW
             </div>
 
-            <h1 className="wm-hero-title">
-              Grow Your Wealth. <br />
-              <span className="wm-grad">Keep 100% Custody</span> in <br className="hide-mobile" />
-              Your Own Trading Account.
+            <h1 className="ref-hero-title">
+              Intelligent Wealth<br />
+              Management for<br />
+              <span className="ref-hero-accent">What&rsquo;s Next</span>
             </h1>
 
-            <p className="wm-hero-sub">
-              <strong>Aza WealthKare</strong> deploys institutional algorithmic execution directly inside your personal <strong>trading account</strong>.
-              Targeting <strong>3% to 5% monthly profit</strong> with an ironclad <strong>100% capital protection guarantee</strong>.
-              Zero third-party deposits — your capital never leaves your possession.
+            <p className="ref-hero-sub">
+              Aza WealthKare combines institutional expertise with modern technology to help you build, protect, and grow your wealth — targeting <strong>3% to 5% monthly profit</strong> with <strong>100% custody</strong> in your own trading account.
             </p>
 
-            <div className="wm-hero-ctas">
-              <Link to="/contact" className="btn btn-lg wm-btn-primary">
-                <span>Book a Consultation</span>
-                <span className="btn-arrow">→</span>
+            <div className="ref-hero-ctas">
+              <Link to="/contact" className="ref-btn-primary">
+                <span>Start Your Wealth Journey</span>
+                <span className="ref-btn-arrow">→</span>
               </Link>
-              <a href="#calculator" className="btn btn-lg secondary wm-btn-secondary">
-                <span>Calculate Your Growth</span>
-                <span className="btn-arrow">↓</span>
+              <a href="#calculator" className="ref-btn-secondary">
+                <span className="ref-play-icon" aria-hidden="true">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="6 4 20 12 6 20 6 4" />
+                  </svg>
+                </span>
+                <span>Watch Our Story</span>
               </a>
             </div>
 
-            {/* Trust stats bar: 4 cleanly proportioned columns, no awkward line drop */}
-            <div className="wm-trust-bar">
-              <div className="wm-trust-item">
-                <span className="wm-trust-val highlight">3% – 5%</span>
-                <span className="wm-trust-lbl">Target Monthly Profit</span>
+            {/* 4 Trust Stats matching reference image */}
+            <div className="ref-trust-stats-strip">
+              <div className="ref-trust-stat">
+                <div className="ref-stat-sub">Trusted by</div>
+                <div className="ref-stat-val">500+</div>
+                <div className="ref-stat-label">Clients</div>
               </div>
-              <div className="wm-trust-item">
-                <span className="wm-trust-val">100%</span>
-                <span className="wm-trust-lbl">Self-Custody In Account</span>
+
+              <div className="ref-stat-divider" />
+
+              <div className="ref-trust-stat">
+                <div className="ref-stat-val">₹2,500+ Cr</div>
+                <div className="ref-stat-label">Assets Advised</div>
               </div>
-              <div className="wm-trust-item">
-                <span className="wm-trust-val highlight-danger">0%</span>
-                <span className="wm-trust-lbl">Withdrawal Access</span>
+
+              <div className="ref-stat-divider" />
+
+              <div className="ref-trust-stat">
+                <div className="ref-stat-sub">Institutional</div>
+                <div className="ref-stat-label-bold">Grade Expertise</div>
               </div>
-              <div className="wm-trust-item">
-                <span className="wm-trust-val highlight-blue">100%</span>
-                <span className="wm-trust-lbl">Principal Guarantee</span>
+
+              <div className="ref-stat-divider" />
+
+              <div className="ref-trust-stat">
+                <div className="ref-stat-sub">Traditional &amp;</div>
+                <div className="ref-stat-label-bold">Digital Assets</div>
               </div>
             </div>
           </div>
-
-          {/* Hero Visual: Institutional Wealth Command Card */}
-          <div className="wm-hero-visual">
-            <HeroVisualCard />
-          </div>
         </section>
       </div>
+
+      {/* -------------------------------------------------- WHITE FEATURE BAR (Directly beneath hero) */}
+      <section className="ref-feature-bar-wrap" aria-label="Key Capabilities">
+        <div className="ref-feature-bar">
+          <div className="ref-feature-item">
+            <div className="ref-feature-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <div className="ref-feature-text">
+              <h3 className="ref-feature-title">Personalized Strategies</h3>
+              <p className="ref-feature-desc">Tailored to your goals</p>
+            </div>
+          </div>
+
+          <div className="ref-feature-sep" />
+
+          <div className="ref-feature-item">
+            <div className="ref-feature-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+            </div>
+            <div className="ref-feature-text">
+              <h3 className="ref-feature-title">Multi-Asset Expertise</h3>
+              <p className="ref-feature-desc">Traditional &amp; digital assets</p>
+            </div>
+          </div>
+
+          <div className="ref-feature-sep" />
+
+          <div className="ref-feature-item">
+            <div className="ref-feature-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <path d="m9 12 2 2 4-4" />
+              </svg>
+            </div>
+            <div className="ref-feature-text">
+              <h3 className="ref-feature-title">Risk-First Approach</h3>
+              <p className="ref-feature-desc">Protect what matters</p>
+            </div>
+          </div>
+
+          <div className="ref-feature-sep" />
+
+          <div className="ref-feature-item">
+            <div className="ref-feature-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 20h10" />
+                <path d="M10 20c0-4.4 3.6-8 8-8V4c-4.4 0-8 3.6-8 8" />
+                <path d="M4 17c0-3.3 2.7-6 6-6" />
+              </svg>
+            </div>
+            <div className="ref-feature-text">
+              <h3 className="ref-feature-title">Long-Term Partnership</h3>
+              <p className="ref-feature-desc">With you at every step</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* -------------------------------------------------- DARK NAVY TRUST RIBBON */}
+      <section className="ref-trust-ribbon-wrap" aria-label="Institutional Trust">
+        <div className="ref-trust-ribbon">
+          <div className="ref-ribbon-kicker">
+            OUR APPROACH IS TRUSTED BY VISIONARIES
+          </div>
+
+          <div className="ref-ribbon-main">
+            <div className="ref-ribbon-items">
+              <div className="ref-ribbon-item">
+                <svg className="ref-ribbon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 21h18" />
+                  <path d="M5 21V7l8-4v18" />
+                  <path d="M19 21V11l-6-4" />
+                  <path d="M9 9h1" />
+                  <path d="M9 13h1" />
+                  <path d="M9 17h1" />
+                </svg>
+                <span>FAMILY OFFICES</span>
+              </div>
+
+              <span className="ref-ribbon-sep" aria-hidden="true">|</span>
+
+              <div className="ref-ribbon-item">
+                <svg className="ref-ribbon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                <span>HNI INDIVIDUALS</span>
+              </div>
+
+              <span className="ref-ribbon-sep" aria-hidden="true">|</span>
+
+              <div className="ref-ribbon-item">
+                <svg className="ref-ribbon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 21h18" />
+                  <path d="M3 10h18" />
+                  <path d="M12 3 2 10h20Z" />
+                  <path d="M6 10v8" />
+                  <path d="M10 10v8" />
+                  <path d="M14 10v8" />
+                  <path d="M18 10v8" />
+                </svg>
+                <span>INSTITUTIONS</span>
+              </div>
+
+              <span className="ref-ribbon-sep" aria-hidden="true">|</span>
+
+              <div className="ref-ribbon-item">
+                <svg className="ref-ribbon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                  <polyline points="2 17 12 22 22 17" />
+                  <polyline points="2 12 12 17 22 12" />
+                </svg>
+                <span>FOUNDERS</span>
+              </div>
+            </div>
+
+            <div className="ref-ribbon-tag">
+              <span className="ref-ribbon-tag-line" />
+              <div className="ref-ribbon-tag-text">
+                <span>BUILDING</span>
+                <strong>GENERATIONS OF WEALTH</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* -------------------------------------------------- 3 PILLARS */}
       <section id="model" className="mk-section mk-block">
