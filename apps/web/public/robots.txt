@@ -1,0 +1,17 @@
+﻿# robots.txt for Aza WealthKare (https://azawealthkare.com)
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /model
+Allow: /guarantee
+Allow: /contact
+Allow: /faq
+Disallow: /app/
+Disallow: /app
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://azawealthkare.com/sitemap.xml

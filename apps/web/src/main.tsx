@@ -42,6 +42,98 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } },
 });
 
+interface RouteSeo {
+  readonly title: string;
+  readonly description: string;
+  readonly canonical: string;
+  readonly isPublic?: boolean;
+}
+
+const SEO_MAP: Record<string, RouteSeo> = {
+  '/': {
+    title: 'Aza WealthKare - Institutional Non-Custodial Crypto Wealth Management',
+    description: 'Aza WealthKare provides institutional-grade non-custodial crypto wealth management. Target 3% to 5% monthly compounding with 100% capital protection guarantee and zero withdrawal access to your funds.',
+    canonical: 'https://azawealthkare.com/',
+    isPublic: true,
+  },
+  '/about': {
+    title: 'About Us - Aza WealthKare Institutional Crypto Wealth Management',
+    description: 'Learn about Aza WealthKare, our non-custodial wealth creation philosophy, institutional trading desk, and commitment to zero counterparty custody risk.',
+    canonical: 'https://azawealthkare.com/about',
+    isPublic: true,
+  },
+  '/model': {
+    title: 'Investment Model & Strategy - Aza WealthKare',
+    description: 'Explore the Aza WealthKare quantitative investment methodology: delta-neutral hedging, basis spread arbitrage, and disciplined 3%–5% monthly compounding.',
+    canonical: 'https://azawealthkare.com/model',
+    isPublic: true,
+  },
+  '/guarantee': {
+    title: '100% Capital Protection Guarantee - Aza WealthKare',
+    description: 'Discover our 100% principal safety guarantee: 12 pre-trade safety gates, sub-millisecond bracket stop-losses, and strictly withdrawal-disabled access.',
+    canonical: 'https://azawealthkare.com/guarantee',
+    isPublic: true,
+  },
+  '/contact': {
+    title: 'Schedule a Private Wealth Consultation - Aza WealthKare',
+    description: 'Connect with an Aza WealthKare senior wealth advisor to structure your non-custodial crypto portfolio and activate automated quantitative management.',
+    canonical: 'https://azawealthkare.com/contact',
+    isPublic: true,
+  },
+  '/faq': {
+    title: 'Frequently Asked Questions (FAQ) - Aza WealthKare',
+    description: 'Comprehensive answers to all questions regarding non-custodial exchange connection, zero withdrawal permissions, 3%–5% returns, and capital protection.',
+    canonical: 'https://azawealthkare.com/faq',
+    isPublic: true,
+  },
+  '/login': {
+    title: 'Trading Desk Sign In · Aza WealthKare',
+    description: 'Authorized access gateway for Aza WealthKare algorithmic trading desks, risk telemetry, and portfolio operations.',
+    canonical: 'https://azawealthkare.com/login',
+    isPublic: false,
+  },
+  '/signup': {
+    title: 'Create Account · Aza WealthKare',
+    description: 'Create an authorized client account on Aza WealthKare.',
+    canonical: 'https://azawealthkare.com/signup',
+    isPublic: false,
+  },
+  '/forgot-password': {
+    title: 'Forgot Password · Aza WealthKare',
+    description: 'Cryptographic password reset for authorized trading desk accounts.',
+    canonical: 'https://azawealthkare.com/forgot-password',
+    isPublic: false,
+  },
+  '/reset-password': {
+    title: 'Reset Password · Aza WealthKare',
+    description: 'Set a new secure password for your trading desk account.',
+    canonical: 'https://azawealthkare.com/reset-password',
+    isPublic: false,
+  },
+};
+
+function setMeta(name: string, content: string, isProperty = false) {
+  const selector = isProperty ? `meta[property="${name}"]` : `meta[name="${name}"]`;
+  let el = document.querySelector(selector);
+  if (!el) {
+    el = document.createElement('meta');
+    if (isProperty) el.setAttribute('property', name);
+    else el.setAttribute('name', name);
+    document.head.appendChild(el);
+  }
+  el.setAttribute('content', content);
+}
+
+function setCanonical(href: string) {
+  let link = document.querySelector('link[rel="canonical"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.setAttribute('rel', 'canonical');
+    document.head.appendChild(link);
+  }
+  link.setAttribute('href', href);
+}
+
 function PageTitleSync() {
   const { branding } = useBranding();
   const location = useLocation();
@@ -50,31 +142,28 @@ function PageTitleSync() {
     const brand = branding.name || 'Aza WealthKare';
     const path = location.pathname;
 
-    let pageTitle = '';
-    if (path === '/') {
-      document.title = `${brand} - Institutional Crypto Wealth Management`;
-      const og = document.querySelector('meta[property="og:title"]');
-      if (og) og.setAttribute('content', document.title);
+    const matched = SEO_MAP[path];
+    if (matched) {
+      document.title = matched.title;
+      setMeta('description', matched.description);
+      setMeta('og:title', matched.title, true);
+      setMeta('og:description', matched.description, true);
+      setMeta('og:url', matched.canonical, true);
+      setCanonical(matched.canonical);
+      setMeta('twitter:title', matched.title);
+      setMeta('twitter:description', matched.description);
+      setMeta(
+        'robots',
+        matched.isPublic
+          ? 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'
+          : 'noindex, nofollow'
+      );
       return;
-    } else if (path === '/about') {
-      pageTitle = 'About Us';
-    } else if (path === '/model') {
-      pageTitle = 'Investment Model';
-    } else if (path === '/guarantee') {
-      pageTitle = '100% Capital Protection Guarantee';
-    } else if (path === '/contact') {
-      pageTitle = 'Schedule Wealth Consultation';
-    } else if (path === '/faq') {
-      pageTitle = 'Knowledge Base & FAQ';
-    } else if (path === '/login') {
-      pageTitle = 'Operator Portal Login';
-    } else if (path === '/signup') {
-      pageTitle = 'Create Account';
-    } else if (path === '/forgot-password') {
-      pageTitle = 'Forgot Password';
-    } else if (path === '/reset-password') {
-      pageTitle = 'Reset Password';
-    } else if (path === '/app' || path.startsWith('/app/trades')) {
+    }
+
+    // Authenticated management console (/app/*)
+    let pageTitle = brand;
+    if (path === '/app' || path.startsWith('/app/trades')) {
       pageTitle = 'Trade Execution Desk';
     } else if (path === '/app/inquiries') {
       pageTitle = 'Client Inquiries';
@@ -98,14 +187,13 @@ function PageTitleSync() {
       pageTitle = 'System Audit Log';
     } else if (path === '/app/settings') {
       pageTitle = 'Branding & Settings';
-    } else {
-      pageTitle = brand;
     }
 
-    document.title = `${pageTitle} · ${brand}`;
-
-    const ogTitle = document.querySelector('meta[property="og:title"]');
-    if (ogTitle) ogTitle.setAttribute('content', document.title);
+    const fullTitle = `${pageTitle} · ${brand}`;
+    document.title = fullTitle;
+    setMeta('description', `${brand} Operations Portal`);
+    setMeta('og:title', fullTitle, true);
+    setMeta('robots', 'noindex, nofollow');
   }, [location.pathname, branding.name]);
 
   return null;

@@ -33,13 +33,13 @@ export function Guarantee() {
           </div>
           
           <div className="wm-pillar-card" style={{ padding: '36px', marginBottom: '32px' }}>
-            <h2 style={{ fontSize: '26px', fontWeight: 850, marginBottom: '14px', color: '#ffffff' }}>
+            <h2 style={{ fontSize: '26px', fontWeight: 700, marginBottom: '14px', color: '#0b1a30', fontFamily: "'Playfair Display', Georgia, serif" }}>
               Why Aza WealthKare Can Offer a 100% Principal Guarantee
             </h2>
-            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', marginBottom: '16px' }}>
+            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#475569', marginBottom: '16px' }}>
               Unlike retail traders who hold losing positions in hope of a turnaround, Aza WealthKare operates with institutional algorithmic discipline. Every trade position is sized strictly as a small fraction of your portfolio and bracketed by non-negotiable stop-loss orders.
             </p>
-            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#94a3b8', margin: 0 }}>
+            <p style={{ fontSize: '15.5px', lineHeight: 1.7, color: '#475569', margin: 0 }}>
               Because your funds remain exclusively in your personal <strong>trading account</strong> with withdrawal permissions disabled, you face zero counterparty or credit risk with Aza WealthKare. You hold the ultimate keys to your money at every microsecond.
             </p>
           </div>
