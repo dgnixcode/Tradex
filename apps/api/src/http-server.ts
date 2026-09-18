@@ -48,6 +48,7 @@ import { SettingsService, SettingsServiceError } from './settings-service.js';
 import { buildFuturesPositions, venuePositionOwner } from './futures/positions.js';
 import { getFuturesRtPrices } from './futures/rt-prices.js';
 import type { FuturesRtPrice } from './futures/rt-prices.js';
+import { startWsPriceFeed, priceEmitter, isWsFeedConnected } from './futures/ws-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import { buildTradingAnalytics } from './futures/trading-analytics.js';
@@ -913,6 +914,70 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- GET /api/futures/prices/stream — SSE real-time price stream ----
+    if (method === 'GET' && path === '/api/futures/prices/stream') {
+      requireAction(principal, 'view.dashboards');
+
+      // Set SSE headers
+      ctx.res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering for SSE
+      });
+
+      // Send initial full snapshot
+      const initial = await getFuturesRtPrices();
+      const snapshot: Record<string, FuturesRtPrice> = {};
+      for (const [k, v] of initial.entries()) snapshot[k] = v;
+      ctx.res.write(`data: ${JSON.stringify({ type: 'snapshot', prices: snapshot, wsConnected: isWsFeedConnected(), observedAtMs: Date.now() })}\n\n`);
+
+      // Throttled diff relay: batch WS updates and push every 500ms
+      let pendingDiff: Record<string, FuturesRtPrice> = {};
+      let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+      const onUpdate = (diff: Record<string, FuturesRtPrice>) => {
+        Object.assign(pendingDiff, diff);
+      };
+
+      const flush = () => {
+        if (Object.keys(pendingDiff).length === 0) return;
+        try {
+          ctx.res.write(`data: ${JSON.stringify({ type: 'diff', prices: pendingDiff, observedAtMs: Date.now() })}\n\n`);
+        } catch {
+          // Client disconnected
+          cleanup();
+        }
+        pendingDiff = {};
+      };
+
+      const cleanup = () => {
+        priceEmitter.removeListener('update', onUpdate);
+        if (flushTimer !== null) { clearInterval(flushTimer); flushTimer = null; }
+      };
+
+      priceEmitter.on('update', onUpdate);
+      flushTimer = setInterval(flush, 500);
+
+      // Send heartbeat every 15s to keep connection alive
+      const heartbeat = setInterval(() => {
+        try {
+          ctx.res.write(`: heartbeat ${Date.now()}\n\n`);
+        } catch {
+          cleanup();
+          clearInterval(heartbeat);
+        }
+      }, 15000);
+
+      ctx.res.on('close', () => {
+        cleanup();
+        clearInterval(heartbeat);
+      });
+
+      // Do NOT call return — the response stays open
+      return;
+    }
+
     // ---- POST /api/futures/positions/refresh — re-mirror from the venue ----
     // Declared before the `:id/...` matchers so `refresh` is never read as an id.
     if (method === 'POST' && path === '/api/futures/positions/refresh') {
@@ -1744,6 +1809,13 @@ export function createHttpServer(deps: HttpDeps): Server {
     // Do not hold the process open for a sweep.
     resolverTimer.unref?.();
   }
+
+  // Start the persistent WebSocket feed from CoinDCX for real-time price streaming.
+  // Initial REST fetch seeds the in-memory map; WS takes over once connected.
+  void getFuturesRtPrices().then(() => startWsPriceFeed()).catch(() => {
+    // Start WS feed even if initial REST fetch fails
+    startWsPriceFeed();
+  });
 
   const server = createServer((req, res) => {
     void (async () => {

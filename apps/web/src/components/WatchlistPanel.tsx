@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchFuturesPrices, type AssetOption } from '../api.ts';
+import { useLivePrices } from '../useLivePrices.ts';
 
 const STORAGE_KEY = 'tradex_watchlist_v1';
 const DEFAULT_COINS = ['BTC', 'ETH', 'SOL', 'DASH', 'ZEC', 'DOGE', 'XRP', 'AVAX', 'BNB'];
@@ -66,13 +67,18 @@ export function WatchlistPanel({
   const [search, setSearch] = useState('');
   const [showAddMenu, setShowAddMenu] = useState(false);
 
-  // Poll bulk real-time futures prices every 3 seconds (cached on backend, zero IP risk)
+  // Poll bulk real-time futures prices every 1 second (cached on backend, zero IP risk).
+  // SSE streaming via useLivePrices() merges live diffs directly into this query cache,
+  // so the poll acts as a fallback when the SSE connection is down.
   const { data: pricesData } = useQuery({
     queryKey: ['futures-prices'],
     queryFn: fetchFuturesPrices,
-    refetchInterval: 3000,
-    staleTime: 1500,
+    refetchInterval: 1000,
+    staleTime: 500,
   });
+
+  // Real-time SSE price streaming — merges diffs into the 'futures-prices' query cache
+  useLivePrices();
 
   // Sync with localStorage
   useEffect(() => {

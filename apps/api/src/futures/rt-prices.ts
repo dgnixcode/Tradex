@@ -1,5 +1,10 @@
 // Real-time futures market prices from CoinDCX's public unauthenticated ticker feed.
 // Single endpoint returns all 536 pairs with live mark price (mp) and last traded price (ls).
+//
+// When the WebSocket feed is connected (ws-prices.ts), this returns the live in-memory
+// map directly (sub-100ms freshness).  Falls back to REST polling with a 0.5s cache.
+
+import { isWsFeedConnected, getLivePrices, seedPrices } from './ws-prices.js';
 
 export interface FuturesRtPrice {
   readonly markPrice: string;
@@ -9,9 +14,16 @@ export interface FuturesRtPrice {
 
 let cachedPrices: Map<string, FuturesRtPrice> | null = null;
 let lastFetchMs = 0;
-const CACHE_TTL_MS = 1500; // 1.5 second cache
+const CACHE_TTL_MS = 500; // 0.5 second cache — fast refresh for live trading
 
 export async function getFuturesRtPrices(baseUrl = 'https://public.coindcx.com'): Promise<Map<string, FuturesRtPrice>> {
+  // If WebSocket feed is connected and has data, return the live map directly
+  const live = getLivePrices();
+  if (isWsFeedConnected() && live.size > 0) {
+    return live;
+  }
+
+  // Fallback: REST polling with cache
   const now = Date.now();
   if (cachedPrices !== null && (now - lastFetchMs) < CACHE_TTL_MS) {
     return cachedPrices;
@@ -42,6 +54,8 @@ export async function getFuturesRtPrices(baseUrl = 'https://public.coindcx.com')
       }
       cachedPrices = map;
       lastFetchMs = now;
+      // Seed the WS live map so it has initial data when WS connects
+      seedPrices(map);
       return map;
     }
   } catch {

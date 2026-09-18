@@ -2451,7 +2451,7 @@ export function Futures() {
   const positions = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
-    refetchInterval: 3000,
+    refetchInterval: 1500,
   });
 
   const refreshMut = useMutation({

@@ -5,7 +5,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "start": "node --env-file-if-exists=../../.env server.mjs"
   },
@@ -20,6 +25,7 @@
     "@tradex/metrics": "*",
     "@tradex/money": "*",
     "@tradex/secret": "*",
-    "@tradex/sizing": "*"
+    "@tradex/sizing": "*",
+    "socket.io-client": "^4.8.3"
   }
 }
