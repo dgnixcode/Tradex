@@ -3232,19 +3232,32 @@ body:has(.panel-dark)::before {
 }
 
 .brand-official-logo .brand-logo-img {
-  height: 48px;
+  height: 52px;
   width: auto;
-  max-width: 290px;
+  max-width: 260px;
   object-fit: contain;
+  display: block;
+  image-rendering: -webkit-optimize-contrast;
+  transform: translateZ(0);
   transition: height 0.2s ease;
 }
 
 .brand-lg .brand-official-logo .brand-logo-img {
-  height: 56px;
+  height: 60px;
 }
 
 .brand-sm .brand-official-logo .brand-logo-img {
-  height: 36px;
+  height: 40px;
+}
+
+.mk-header .brand-official-logo .brand-logo-img {
+  height: 52px;
+}
+
+@media (max-width: 768px) {
+  .mk-header .brand-official-logo .brand-logo-img {
+    height: 42px;
+  }
 }
 
 /* Header and light containers: show dark logo */
