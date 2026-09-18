@@ -259,6 +259,8 @@ export interface GroupDetail extends GroupHeader {
   readonly members: readonly GroupMember[];
 }
 
+export const DEFAULT_GROUP_NAME = 'Default (All Accounts)';
+
 /** Fetch one group with all its members. */
 export const fetchGroup = (groupId: string): Promise<GroupDetail> =>
   request<GroupDetail>(`/groups/${groupId}`);
@@ -278,11 +280,11 @@ export const updateGroup = (groupId: string, patch: { name?: string; description
 export const archiveGroup = (groupId: string): Promise<{ ok: boolean }> =>
   request<{ ok: boolean }>(`/groups/${groupId}`, { method: 'DELETE' });
 
-/** Add an account to a group. Throws ApiError on duplicate_member / member_limit_reached. */
-export const addGroupMember = (groupId: string, accountId: string): Promise<{ ok: boolean }> =>
+/** Add an account to a group. Throws ApiError on duplicate_member / account_already_in_group. */
+export const addGroupMember = (groupId: string, accountId: string, reassign?: boolean): Promise<{ ok: boolean }> =>
   request<{ ok: boolean }>(`/groups/${groupId}/members`, {
     method: 'POST',
-    body: JSON.stringify({ accountId }),
+    body: JSON.stringify({ accountId, reassign }),
   });
 
 /** Enable or disable a member. A disabled member is skipped by the fan-out. */

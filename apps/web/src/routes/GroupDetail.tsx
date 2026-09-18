@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  addGroupMember, archiveGroup, fetchAccountList, fetchGroup,
+  addGroupMember, archiveGroup, DEFAULT_GROUP_NAME, fetchAccountList, fetchGroup,
   removeGroupMember, setGroupMemberEnabled, updateGroup,
 } from '../api.ts';
 import type { GroupDetail as GroupDetailData } from '../api.ts';
@@ -49,6 +49,7 @@ export function GroupDetail() {
   };
 
   const detail: GroupDetailData | undefined = group.data;
+  const isDefaultGroup = detail?.name === DEFAULT_GROUP_NAME;
 
   const invalidate = (keys: string[][]) => {
     for (const key of keys) void queryClient.invalidateQueries({ queryKey: key });
@@ -67,8 +68,13 @@ export function GroupDetail() {
   });
 
   const addMember = useMutation({
-    mutationFn: (accountId: string) => addGroupMember(groupId, accountId),
-    onSuccess: () => { setPickAccount(''); invalidate([['group', groupId], ['groups'], ['accounts']]); },
+    mutationFn: (args: { accountId: string; reassign?: boolean }) =>
+      addGroupMember(groupId, args.accountId, args.reassign),
+    onSuccess: () => {
+      setPickAccount('');
+      setOpError(null);
+      invalidate([['group', groupId], ['groups'], ['accounts']]);
+    },
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not add the account'),
   });
 
@@ -85,11 +91,15 @@ export function GroupDetail() {
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not remove the member'),
   });
 
-  // Accounts that can still be added: not already a member.
+  // Accounts that can still be added: not already a member of THIS group.
   const memberIds = useMemo(() => new Set(detail?.members.map((m) => m.accountId) ?? []), [detail]);
   const addable = useMemo(
     () => (accounts.data ?? []).filter((a) => !memberIds.has(a.id) && a.status === 'active'),
     [accounts.data, memberIds],
+  );
+  const selectedAddableAccount = useMemo(
+    () => (accounts.data ?? []).find((a) => a.id === pickAccount),
+    [accounts.data, pickAccount],
   );
 
   if (group.isLoading) return <div className="panel">Loading group…</div>;
@@ -101,7 +111,14 @@ export function GroupDetail() {
       {/* header / rename */}
       <div className="panel">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {editing ? (
+          {isDefaultGroup ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0 }}>{detail.name}</h2>
+              <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                🌐 Master System Group
+              </span>
+            </div>
+          ) : editing ? (
             <form
               className="rename-form"
               onSubmit={(e) => { e.preventDefault(); saveName.mutate(); }}
@@ -118,25 +135,35 @@ export function GroupDetail() {
           )}
           <span className="spacer" style={{ flex: 1 }} />
           <Link to="/app/groups" className="btn secondary btn-sm">← All groups</Link>
-          {confirmArchive ? (
-            <span className="inline-confirm">
-              <span className="muted">Archive this group?</span>
-              <button className="btn danger btn-sm" disabled={archive.isPending} onClick={() => archive.mutate()}>
-                {archive.isPending ? 'Archiving…' : 'Yes, archive'}
-              </button>
-              <button className="btn ghost btn-sm" onClick={() => setConfirmArchive(false)}>Cancel</button>
-            </span>
-          ) : (
-            <button className="btn danger-outline btn-sm" onClick={() => setConfirmArchive(true)}>Archive</button>
+          {!isDefaultGroup && (
+            confirmArchive ? (
+              <span className="inline-confirm">
+                <span className="muted">Archive this group?</span>
+                <button className="btn danger btn-sm" disabled={archive.isPending} onClick={() => archive.mutate()}>
+                  {archive.isPending ? 'Archiving…' : 'Yes, archive'}
+                </button>
+                <button className="btn ghost btn-sm" onClick={() => setConfirmArchive(false)}>Cancel</button>
+              </span>
+            ) : (
+              <button className="btn danger-outline btn-sm" onClick={() => setConfirmArchive(true)}>Archive</button>
+            )
           )}
         </div>
-        {editing && (
-          <div className="field" style={{ marginTop: 14 }}>
-            <label htmlFor="desc">Description</label>
-            <input id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" />
-          </div>
+        {isDefaultGroup ? (
+          <p className="muted" style={{ marginBottom: 0, marginTop: 8 }}>
+            Master group automatically containing all connected exchange accounts. Use this to execute whole-desk macro trades across every account simultaneously.
+          </p>
+        ) : (
+          <>
+            {editing && (
+              <div className="field" style={{ marginTop: 14 }}>
+                <label htmlFor="desc">Description</label>
+                <input id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" />
+              </div>
+            )}
+            {detail.description !== null && !editing && <p className="muted" style={{ marginBottom: 0 }}>{detail.description}</p>}
+          </>
         )}
-        {detail.description !== null && !editing && <p className="muted" style={{ marginBottom: 0 }}>{detail.description}</p>}
         {opError !== null && <div className="error" style={{ marginTop: 10 }}>{opError}</div>}
       </div>
 
@@ -179,13 +206,15 @@ export function GroupDetail() {
                         >
                           {m.enabled ? 'Disable' : 'Enable'}
                         </button>
-                        <button
-                          className="btn ghost btn-sm danger-text"
-                          disabled={removeMember.isPending}
-                          onClick={() => removeMember.mutate(m.accountId)}
-                        >
-                          Remove
-                        </button>
+                        {!isDefaultGroup && (
+                          <button
+                            className="btn ghost btn-sm danger-text"
+                            disabled={removeMember.isPending}
+                            onClick={() => removeMember.mutate(m.accountId)}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -212,7 +241,7 @@ export function GroupDetail() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isDefaultGroup ? '1fr' : '1fr 1fr', gap: 8, marginTop: 6 }}>
                     <button
                       type="button"
                       className="btn secondary btn-sm"
@@ -222,15 +251,17 @@ export function GroupDetail() {
                     >
                       {m.enabled ? 'Disable Trade' : 'Enable Trade'}
                     </button>
-                    <button
-                      type="button"
-                      className="btn ghost btn-sm danger-text"
-                      style={{ padding: '8px', fontSize: 12, border: '1px solid rgba(239,68,68,0.3)' }}
-                      disabled={removeMember.isPending}
-                      onClick={() => removeMember.mutate(m.accountId)}
-                    >
-                      Remove
-                    </button>
+                    {!isDefaultGroup && (
+                      <button
+                        type="button"
+                        className="btn ghost btn-sm danger-text"
+                        style={{ padding: '8px', fontSize: 12, border: '1px solid rgba(239,68,68,0.3)' }}
+                        disabled={removeMember.isPending}
+                        onClick={() => removeMember.mutate(m.accountId)}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -240,7 +271,11 @@ export function GroupDetail() {
 
         {/* add member */}
         <div className="add-member" style={{ marginTop: 18 }}>
-          {accounts.isLoading ? (
+          {isDefaultGroup ? (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              🌐 All connected exchange accounts are automatically enrolled in this master group.
+            </p>
+          ) : accounts.isLoading ? (
             <span className="muted">Loading accounts…</span>
           ) : addable.length === 0 ? (
             <p className="muted" style={{ margin: 0 }}>
@@ -249,20 +284,41 @@ export function GroupDetail() {
                 : 'Every account is already in this group.'}
             </p>
           ) : (
-            <form
-              className="add-member-form"
-              onSubmit={(e) => { e.preventDefault(); if (pickAccount !== '') addMember.mutate(pickAccount); }}
-            >
-              <select value={pickAccount} onChange={(e) => setPickAccount(e.target.value)} aria-label="Account to add">
-                <option value="">Add an account…</option>
-                {addable.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
-              <button className="btn btn-sm" type="submit" disabled={pickAccount === '' || addMember.isPending}>
-                {addMember.isPending ? 'Adding…' : 'Add'}
-              </button>
-            </form>
+            <div>
+              <form
+                className="add-member-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (pickAccount !== '') addMember.mutate({ accountId: pickAccount, reassign: true });
+                }}
+              >
+                <select value={pickAccount} onChange={(e) => setPickAccount(e.target.value)} aria-label="Account to add">
+                  <option value="">Add an account…</option>
+                  {addable.map((a) => {
+                    const assigned = a.groupName ? ` (In: ${a.groupName})` : ' (Available)';
+                    return (
+                      <option key={a.id} value={a.id}>{a.name}{assigned}</option>
+                    );
+                  })}
+                </select>
+                <button className="btn btn-sm" type="submit" disabled={pickAccount === '' || addMember.isPending}>
+                  {addMember.isPending ? 'Adding…' : selectedAddableAccount?.groupName ? 'Reassign & Add' : 'Add'}
+                </button>
+              </form>
+              {selectedAddableAccount?.groupName && (
+                <div style={{
+                  marginTop: 10,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(234, 179, 8, 0.1)',
+                  border: '1px solid rgba(234, 179, 8, 0.3)',
+                  color: '#facc15',
+                  fontSize: 12.5,
+                }}>
+                  ⚠️ <strong>Reassignment:</strong> <code>{selectedAddableAccount.name}</code> is currently assigned to <strong>📁 {selectedAddableAccount.groupName}</strong>. Adding it here will reassign it to this group (1 account = 1 strategy group).
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

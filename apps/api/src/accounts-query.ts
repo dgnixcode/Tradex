@@ -13,7 +13,7 @@
 // field into a list payload. The credential's health surfaces as the account
 // status (`suspended` when its key has failed), not as credential columns.
 
-import { accountHistoryCounts } from '@tradex/db';
+import { accountHistoryCounts, DEFAULT_GROUP_NAME } from '@tradex/db';
 import type { SupportedQuote } from '@tradex/db';
 import type { TenantDb } from '@tradex/db';
 
@@ -28,6 +28,9 @@ export interface AccountListItem {
   /** When the basis above was confirmed. Null until this account was activated. */
   readonly confirmedAgainstMinor: string | null;
   readonly fundingCurrencies: readonly SupportedQuote[];
+  /** Custom strategy group the account belongs to, if assigned. */
+  readonly groupId: string | null;
+  readonly groupName: string | null;
 }
 
 /**
@@ -46,19 +49,37 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
     .orderBy('created_at', 'desc' as never)
     .execute();
 
-  return (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
-    id: r['id'] as string,
-    name: r['name'] as string,
-    status: r['status'] as AccountListItem['status'],
-    allocatedCurrency: (r['allocated_currency'] as SupportedQuote | null) ?? null,
-    allocatedCapitalMinor: r['allocated_capital_minor'] === null
-      ? null
-      : String(r['allocated_capital_minor']),
-    confirmedAgainstMinor: r['allocated_confirmed_against_minor'] === null
-      ? null
-      : String(r['allocated_confirmed_against_minor']),
-    fundingCurrencies: (r['funding_currencies'] as SupportedQuote[]) ?? [],
-  }));
+  const memberships = await tdb.selectFrom('group_member')
+    .innerJoin('account_group', 'account_group.id', 'group_member.group_id')
+    .select([
+      'group_member.account_id as accountId',
+      'account_group.id as groupId',
+      'account_group.name as groupName',
+    ] as unknown as never)
+    .where('account_group.archived_at' as never, 'is', null as never)
+    .where('account_group.name' as never, '<>', DEFAULT_GROUP_NAME as never)
+    .execute() as unknown as ReadonlyArray<{ accountId: string; groupId: string; groupName: string }>;
+
+  const groupMap = new Map(memberships.map((m) => [m.accountId, m]));
+
+  return (rows as unknown as Array<Record<string, unknown>>).map((r) => {
+    const grp = groupMap.get(r['id'] as string);
+    return {
+      id: r['id'] as string,
+      name: r['name'] as string,
+      status: r['status'] as AccountListItem['status'],
+      allocatedCurrency: (r['allocated_currency'] as SupportedQuote | null) ?? null,
+      allocatedCapitalMinor: r['allocated_capital_minor'] === null
+        ? null
+        : String(r['allocated_capital_minor']),
+      confirmedAgainstMinor: r['allocated_confirmed_against_minor'] === null
+        ? null
+        : String(r['allocated_confirmed_against_minor']),
+      fundingCurrencies: (r['funding_currencies'] as SupportedQuote[]) ?? [],
+      groupId: grp?.groupId ?? null,
+      groupName: grp?.groupName ?? null,
+    };
+  });
 }
 
 /** A single account for the detail view, or null if it is not this tenant's. */

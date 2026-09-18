@@ -89,6 +89,7 @@ export function Accounts() {
                 <tr>
                   <th>Account</th>
                   <th>Status</th>
+                  <th>Strategy Group</th>
                   <th>Allocated</th>
                   <th>Funding</th>
                   <th>Connected</th>
@@ -99,6 +100,17 @@ export function Accounts() {
                   <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
                     <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
                     <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
+                    <td>
+                      {a.groupId && a.groupName ? (
+                        <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
+                          <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                            📁 {a.groupName}
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="muted" style={{ fontSize: 12 }}>Unassigned</span>
+                      )}
+                    </td>
                     <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
                     <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
                     <td>
@@ -148,11 +160,26 @@ export function Accounts() {
 
                 <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <div className="pos-mobile-cell">
+                    <span className="pos-mobile-label">Strategy Group</span>
+                    <span className="pos-mobile-val">
+                      {a.groupId && a.groupName ? (
+                        <Link to={`/app/groups/${a.groupId}`} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}>
+                          📁 {a.groupName}
+                        </Link>
+                      ) : (
+                        <span className="muted">Unassigned</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="pos-mobile-cell">
                     <span className="pos-mobile-label">Funding Currencies</span>
                     <span className="pos-mobile-val">
                       {a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : 'None'}
                     </span>
                   </div>
+                </div>
+
+                <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr', marginTop: 4 }}>
                   <div className="pos-mobile-cell">
                     <span className="pos-mobile-label">Exchange Status</span>
                     <span className="pos-mobile-val" style={{ color: a.confirmedAgainstMinor ? 'var(--ok)' : 'var(--muted)' }}>

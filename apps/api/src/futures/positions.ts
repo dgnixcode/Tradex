@@ -11,7 +11,7 @@
 // happens here.
 
 import type { DB, TenantDb } from '@tradex/db';
-import { forTenant } from '@tradex/db';
+import { forTenant, DEFAULT_GROUP_NAME } from '@tradex/db';
 import { buildFuturesViews } from '@tradex/futures-positions';
 import { listAccounts } from '../accounts-query.js';
 import type { FuturesPositionRow, FuturesPositionView, Quote } from '@tradex/futures-positions';
@@ -123,11 +123,15 @@ export async function buildFuturesPositions(
         .execute() as unknown as ReadonlyArray<{ accountId: string; groupName: string }>
     : [];
 
-  const groupsByAccount = new Map<string, string[]>();
+  const groupsByAccount = new Map<string, { custom: string | null; default: string | null }>();
   for (const m of memberships) {
-    const list = groupsByAccount.get(m.accountId) ?? [];
-    list.push(m.groupName);
-    groupsByAccount.set(m.accountId, list);
+    const existing = groupsByAccount.get(m.accountId) ?? { custom: null, default: null };
+    if (m.groupName === DEFAULT_GROUP_NAME) {
+      existing.default = m.groupName;
+    } else {
+      existing.custom = m.groupName;
+    }
+    groupsByAccount.set(m.accountId, existing);
   }
 
   const raw = await readFuturesPositions(tdb, accountIds);
@@ -139,10 +143,12 @@ export async function buildFuturesPositions(
       const live = prices.get(r.pair);
       const markPrice = live?.markPrice ?? r.markPrice;
       const markObservedAtMs = live ? nowMs : (r.markObservedAt === null ? null : r.markObservedAt.getTime());
+      const grp = groupsByAccount.get(r.accountId);
+      const groupName = grp?.custom ?? grp?.default ?? null;
       return {
         accountId: r.accountId,
         accountName: nameOf.get(r.accountId) ?? r.accountId.slice(0, 8),
-        groupName: groupsByAccount.get(r.accountId)?.join(', ') ?? null,
+        groupName,
         pair: r.pair,
         marginCurrency: r.marginCurrency as Quote,
         venuePositionId: r.venuePositionId,

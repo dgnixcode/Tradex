@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
 import type { AssetOption, GroupSummary, PlanRequest } from '../api.ts';
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
@@ -620,12 +620,29 @@ export function TradeTicket() {
         </div>
         <select id="group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
           <option value="">Select a group…</option>
-          {groups.data?.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}
-            </option>
-          ))}
+          {groups.data?.map((g) => {
+            const isDefault = g.name === DEFAULT_GROUP_NAME;
+            return (
+              <option key={g.id} value={g.id}>
+                {isDefault ? '🌐' : '📁'} {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}{isDefault ? ' (All Accounts)' : ''}
+              </option>
+            );
+          })}
         </select>
+        {selectedGroup !== undefined && selectedGroup.name === DEFAULT_GROUP_NAME && (
+          <div style={{
+            marginTop: 6,
+            padding: '6px 10px',
+            borderRadius: 6,
+            background: 'rgba(59, 130, 246, 0.08)',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            color: '#93c5fd',
+            fontSize: 11.5,
+            lineHeight: 1.4,
+          }}>
+            🌐 <strong>Master Whole-Desk Trade:</strong> Order fans out to all active accounts. Each account&apos;s open position will be attributed to its assigned strategy group.
+          </div>
+        )}
         {selectedGroup !== undefined && (() => {
           const inr = selectedGroup.allocatedByCurrency.INR;
           const usdt = selectedGroup.allocatedByCurrency.USDT;

@@ -689,11 +689,25 @@ export function AccountDetail() {
                   <td>{when(a.createdAt)}</td>
                 </tr>
                 <tr>
-                  <td className="muted" style={{ width: 220 }}>Groups</td>
+                  <td className="muted" style={{ width: 220 }}>Strategy Group</td>
                   <td>
-                    {a.groupCount === 0
-                      ? <span className="muted">in no group</span>
-                      : a.groupNames.join(', ')}
+                    {a.groupName && a.groupId ? (
+                      <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
+                        <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                          📁 {a.groupName}
+                        </span>
+                      </Link>
+                    ) : (
+                      <span className="muted">Unassigned</span>
+                    )}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="muted" style={{ width: 220 }}>Master Desk</td>
+                  <td>
+                    <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                      🌐 Default (All Accounts)
+                    </span>
                   </td>
                 </tr>
               </tbody>

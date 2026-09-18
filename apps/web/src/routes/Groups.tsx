@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createGroup, fetchGroups } from '../api.ts';
+import { createGroup, DEFAULT_GROUP_NAME, fetchGroups } from '../api.ts';
 import type { GroupSummary } from '../api.ts';
 
 // The Groups management list (T04.2 surface). Shows every group with its member
@@ -58,7 +58,14 @@ export function Groups() {
 
       {/* create form */}
       <form
-        onSubmit={(e) => { e.preventDefault(); if (name.trim() !== '') create.mutate(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim().toLowerCase() === DEFAULT_GROUP_NAME.toLowerCase()) {
+            setError(`"${DEFAULT_GROUP_NAME}" is reserved for the system master group.`);
+            return;
+          }
+          if (name.trim() !== '') create.mutate();
+        }}
         className="create-group-form"
       >
         <input
@@ -94,16 +101,35 @@ export function Groups() {
 
       {groups.isSuccess && groups.data.length > 0 && (
         <div className="group-grid">
-          {groups.data.map((g) => (
-            <Link key={g.id} to={`/app/groups/${g.id}`} className="group-card">
-              <div className="group-card-head">
-                <span className="group-card-name">{g.name}</span>
-                <span className="group-card-count">{g.enabledCount} of {g.memberCount} enabled</span>
-              </div>
-              {g.description !== null && <p className="muted group-card-desc">{g.description}</p>}
-              <div className="group-card-cap">{formatCapital(g)}</div>
-            </Link>
-          ))}
+          {groups.data.map((g) => {
+            const isDefault = g.name === DEFAULT_GROUP_NAME;
+            return (
+              <Link
+                key={g.id}
+                to={`/app/groups/${g.id}`}
+                className="group-card"
+                style={isDefault ? { borderColor: 'rgba(59, 130, 246, 0.4)', background: 'linear-gradient(180deg, rgba(59, 130, 246, 0.04) 0%, rgba(17, 19, 24, 1) 100%)' } : undefined}
+              >
+                <div className="group-card-head">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span className="group-card-name">{isDefault ? '🌐 ' : '📁 '}{g.name}</span>
+                    {isDefault && (
+                      <span className="badge" style={{ fontSize: 10, background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                        Master Desk
+                      </span>
+                    )}
+                  </div>
+                  <span className="group-card-count">{g.enabledCount} of {g.memberCount} enabled</span>
+                </div>
+                {isDefault ? (
+                  <p className="muted group-card-desc">Master system group containing all connected accounts for whole-desk execution.</p>
+                ) : (
+                  g.description !== null && <p className="muted group-card-desc">{g.description}</p>
+                )}
+                <div className="group-card-cap">{formatCapital(g)}</div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

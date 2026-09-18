@@ -362,6 +362,8 @@ export function createHttpServer(deps: HttpDeps): Server {
     switch (reason) {
       case 'group_not_found': return 404;
       case 'duplicate_member': return 409;
+      case 'account_already_in_group': return 409;
+      case 'cannot_archive_default_group': return 400;
       case 'member_limit_reached':
       case 'group_limit_reached': return 409;
       case 'account_not_live': return 409;
@@ -1326,10 +1328,14 @@ export function createHttpServer(deps: HttpDeps): Server {
     const membersAddMatch = /^\/api\/groups\/([0-9a-f-]{36})\/members$/.exec(path);
     if (method === 'POST' && membersAddMatch !== null) {
       requireAction(principal, 'group.write');
-      const body = (ctx.body ?? {}) as { accountId?: string };
+      const body = (ctx.body ?? {}) as { accountId?: string; reassign?: unknown };
       if (typeof body.accountId !== 'string') throw new HttpError(400, 'accountId is required');
       const tdb = forTenant(deps.db, principal.tenantId);
-      await runGroupOp(() => addMember(tdb, { groupId: membersAddMatch[1] as string, accountId: body.accountId as string }));
+      await runGroupOp(() => addMember(tdb, {
+        groupId: membersAddMatch[1] as string,
+        accountId: body.accountId as string,
+        reassign: body.reassign === true,
+      }));
       sendJson(ctx.res, 201, { ok: true });
       return;
     }

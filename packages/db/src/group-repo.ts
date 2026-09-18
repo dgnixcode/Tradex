@@ -29,10 +29,77 @@ export class GroupRepoError extends Error {
     /** A stable, UI-safe reason so a caller can branch without string-matching. */
     readonly reason:
       | 'blank_name' | 'group_limit_reached' | 'member_limit_reached'
-      | 'duplicate_member' | 'group_not_found' | 'account_not_live' | 'no_limit_row',
+      | 'duplicate_member' | 'group_not_found' | 'account_not_live' | 'no_limit_row'
+      | 'account_already_in_group' | 'cannot_archive_default_group',
   ) {
     super(message);
   }
+}
+
+/** Standard name of the permanent system group containing all connected accounts. */
+export const DEFAULT_GROUP_NAME = 'Default (All Accounts)';
+
+/**
+ * Ensures the system master 'Default (All Accounts)' group exists and contains all active accounts.
+ * Returns the default group's id.
+ */
+export async function ensureDefaultGroup(tdb: TenantDb): Promise<string> {
+  return tdb.transaction(async (tx) => {
+    // 1. Find or create the default group
+    const defaultGroup = await tx.selectFrom('account_group')
+      .select(['id', 'name'])
+      .where('name' as never, '=', DEFAULT_GROUP_NAME as never)
+      .where('archived_at' as never, 'is', null as never)
+      .executeTakeFirst() as { id: string; name: string } | undefined;
+
+    let defaultGroupId: string;
+    if (defaultGroup === undefined) {
+      const inserted = await tx.insertInto('account_group', {
+        name: DEFAULT_GROUP_NAME,
+        description: 'Master system group containing all connected exchange accounts.',
+        created_by: null,
+      })
+        .returning('id')
+        .executeTakeFirst();
+      if (inserted === undefined) throw new GroupRepoError('failed to create default group', 'group_not_found');
+      defaultGroupId = (inserted as { id: string }).id;
+    } else {
+      defaultGroupId = defaultGroup.id;
+    }
+
+    // 2. Fetch all active exchange accounts
+    const activeAccounts = await tx.selectFrom('exchange_account')
+      .select('id')
+      .where('status' as never, '<>', 'disconnected' as never)
+      .execute() as ReadonlyArray<{ id: string }>;
+
+    if (activeAccounts.length > 0) {
+      // 3. Fetch existing members of the default group
+      const existingMembers = await tx.selectFrom('group_member')
+        .select('account_id as accountId')
+        .where('group_id' as never, '=', defaultGroupId as never)
+        .execute() as ReadonlyArray<{ accountId: string }>;
+
+      const memberSet = new Set(existingMembers.map((m) => m.accountId));
+      const missingAccounts = activeAccounts.filter((a) => !memberSet.has(a.id));
+
+      // 4. Enroll any missing accounts into the default group
+      for (const missing of missingAccounts) {
+        await tx.insertInto('group_member', {
+          group_id: defaultGroupId,
+          account_id: missing.id,
+          display_order: 0,
+          enabled: true,
+          weight_bp: null,
+          max_notional_minor: null,
+        })
+          .onConflict((oc) => oc.columns(['tenant_id', 'group_id', 'account_id']).doNothing() as never)
+          .execute();
+      }
+    }
+
+    return defaultGroupId;
+  });
 }
 
 export interface NewGroup {
@@ -49,6 +116,9 @@ export interface NewGroup {
 export async function createGroup(tdb: TenantDb, group: NewGroup): Promise<string> {
   const name = group.name.trim();
   if (name === '') throw new GroupRepoError('a group needs a name', 'blank_name');
+  if (name.toLowerCase() === DEFAULT_GROUP_NAME.toLowerCase()) {
+    throw new GroupRepoError(`"${DEFAULT_GROUP_NAME}" is reserved for the master system group`, 'blank_name');
+  }
 
   return tdb.transaction(async (tx) => {
     const limitRow = await tx.selectFrom('tenant_limit')
@@ -94,6 +164,9 @@ export async function updateGroup(
   if (patch.name !== undefined) {
     const name = patch.name.trim();
     if (name === '') throw new GroupRepoError('a group needs a name', 'blank_name');
+    if (name.toLowerCase() === DEFAULT_GROUP_NAME.toLowerCase()) {
+      throw new GroupRepoError(`"${DEFAULT_GROUP_NAME}" is reserved for the master system group`, 'blank_name');
+    }
     set['name'] = name;
   }
   if (patch.description !== undefined) set['description'] = patch.description;
@@ -110,6 +183,17 @@ export async function updateGroup(
 
 /** Archive a group. Membership rows stay (ON DELETE RESTRICT and audit continuity). */
 export async function archiveGroup(tdb: TenantDb, groupId: string, atMs?: number): Promise<void> {
+  const target = await tdb.byId('account_group', groupId)
+    .select(['id', 'name'])
+    .where('archived_at' as never, 'is', null as never)
+    .executeTakeFirst() as { id: string; name: string } | undefined;
+  if (target === undefined) {
+    throw new GroupRepoError(`group ${groupId} was not found or is already archived`, 'group_not_found');
+  }
+  if (target.name === DEFAULT_GROUP_NAME) {
+    throw new GroupRepoError('the master default group cannot be archived', 'cannot_archive_default_group');
+  }
+
   const at = new Date(atMs ?? Date.now());
   const updated = await tdb.updateTable('account_group')
     .set({ archived_at: at } as never)
@@ -128,23 +212,25 @@ export interface MemberInput {
   /** Created but UNUSED in v1. */
   readonly weightBp?: number | undefined;
   readonly maxNotionalMinor?: string | undefined;
+  /** If true, cleanly reassigns the account from any previous custom strategy group. */
+  readonly reassign?: boolean | undefined;
 }
 
 /**
- * Add an account to a group, refusing once the group is at its
- * `max_accounts_per_group` cap. The account_group row is locked FOR UPDATE first
- * so concurrent adds to the same group serialise; the PK is the backstop for a
- * concurrent add of the SAME account.
+ * Add an account to a group, enforcing that an account can belong to at most
+ * ONE custom strategy group (in addition to the permanent master Default group).
+ * If reassign is true and the account belongs to another custom group, it is
+ * atomically transferred to the new group.
  */
 export async function addMember(tdb: TenantDb, member: MemberInput): Promise<void> {
   await tdb.transaction(async (tx) => {
     // Lock the group row: this both proves the group exists in this tenant and is
     // not archived, and serialises every concurrent membership add to it.
     const group = await tx.byId('account_group', member.groupId)
-      .select('id')
+      .select(['id', 'name'])
       .where('archived_at' as never, 'is', null as never)
       .forUpdate()
-      .executeTakeFirst();
+      .executeTakeFirst() as { id: string; name: string } | undefined;
     if (group === undefined) {
       throw new GroupRepoError(`group ${member.groupId} was not found or is archived`, 'group_not_found');
     }
@@ -152,43 +238,72 @@ export async function addMember(tdb: TenantDb, member: MemberInput): Promise<voi
     // The account must be live in this tenant. The composite FK would reject a
     // cross-tenant account, but a disconnected one is a clearer message here.
     const account = await tx.byId('exchange_account', member.accountId)
-      .select('id')
+      .select(['id', 'name'])
       .where('status' as never, '<>', 'disconnected' as never)
-      .executeTakeFirst();
+      .executeTakeFirst() as { id: string; name: string } | undefined;
     if (account === undefined) {
       throw new GroupRepoError(`account ${member.accountId} was not found or is disconnected`, 'account_not_live');
     }
 
-    const already = await tx.selectFrom('group_member')
+    const alreadyInThis = await tx.selectFrom('group_member')
       .select('account_id')
       .where('group_id' as never, '=', member.groupId as never)
       .where('account_id' as never, '=', member.accountId as never)
       .executeTakeFirst();
-    if (already !== undefined) {
+    if (alreadyInThis !== undefined) {
       throw new GroupRepoError(
-        `account ${member.accountId} is already a member of this group`,
+        `account "${account.name}" is already a member of this group`,
         'duplicate_member',
       );
     }
 
-    const limitRow = await tx.selectFrom('tenant_limit')
-      .select('max_accounts_per_group')
-      .executeTakeFirst();
-    if (limitRow === undefined) {
-      throw new GroupRepoError('this tenant has no tenant_limit row — it was not provisioned', 'no_limit_row');
-    }
-    const maxPerGroup = (limitRow as { max_accounts_per_group: number }).max_accounts_per_group;
+    // Single Custom Strategy Group Rule:
+    // If the target group is a custom strategy group (NOT the master Default group),
+    // check if the account already belongs to another active custom strategy group.
+    if (group.name !== DEFAULT_GROUP_NAME) {
+      const existingCustomGroup = await tx.selectFrom('group_member')
+        .innerJoin('account_group', 'account_group.id', 'group_member.group_id')
+        .select(['account_group.id as groupId', 'account_group.name as groupName'])
+        .where('group_member.account_id' as never, '=', member.accountId as never)
+        .where('account_group.archived_at' as never, 'is', null as never)
+        .where('account_group.name' as never, '<>', DEFAULT_GROUP_NAME as never)
+        .where('account_group.id' as never, '<>', member.groupId as never)
+        .executeTakeFirst() as { groupId: string; groupName: string } | undefined;
 
-    const countRow = await tx.selectFrom('group_member')
-      .select(({ fn }) => fn.countAll<string>().as('n'))
-      .where('group_id' as never, '=', member.groupId as never)
-      .executeTakeFirstOrThrow();
-    const current = Number((countRow as { n: string }).n);
-    if (current >= maxPerGroup) {
-      throw new GroupRepoError(
-        `this group already has ${current} of its ${maxPerGroup} allowed accounts`,
-        'member_limit_reached',
-      );
+      if (existingCustomGroup !== undefined) {
+        if (member.reassign !== true) {
+          throw new GroupRepoError(
+            `Account "${account.name}" is already assigned to group "${existingCustomGroup.groupName}". An account can belong to only one custom strategy group.`,
+            'account_already_in_group',
+          );
+        }
+        // If reassign is true, cleanly remove from previous custom group
+        await tx.deleteFrom('group_member')
+          .where('group_id' as never, '=', existingCustomGroup.groupId as never)
+          .where('account_id' as never, '=', member.accountId as never)
+          .execute();
+      }
+
+      // Check max_accounts_per_group limit for custom groups
+      const limitRow = await tx.selectFrom('tenant_limit')
+        .select('max_accounts_per_group')
+        .executeTakeFirst();
+      if (limitRow === undefined) {
+        throw new GroupRepoError('this tenant has no tenant_limit row — it was not provisioned', 'no_limit_row');
+      }
+      const maxPerGroup = (limitRow as { max_accounts_per_group: number }).max_accounts_per_group;
+
+      const countRow = await tx.selectFrom('group_member')
+        .select(({ fn }) => fn.countAll<string>().as('n'))
+        .where('group_id' as never, '=', member.groupId as never)
+        .executeTakeFirstOrThrow();
+      const current = Number((countRow as { n: string }).n);
+      if (current >= maxPerGroup) {
+        throw new GroupRepoError(
+          `this group already has ${current} of its ${maxPerGroup} allowed accounts`,
+          'member_limit_reached',
+        );
+      }
     }
 
     await tx.insertInto('group_member', {
@@ -204,6 +319,13 @@ export async function addMember(tdb: TenantDb, member: MemberInput): Promise<voi
 
 /** Remove an account from a group. Idempotent-ish: absent membership is not an error. */
 export async function removeMember(tdb: TenantDb, groupId: string, accountId: string): Promise<void> {
+  const group = await tdb.byId('account_group', groupId)
+    .select(['id', 'name'])
+    .executeTakeFirst() as { id: string; name: string } | undefined;
+  if (group?.name === DEFAULT_GROUP_NAME) {
+    throw new GroupRepoError('accounts cannot be removed from the master default group; disconnect the account to remove it', 'cannot_archive_default_group');
+  }
+
   await tdb.deleteFrom('group_member')
     .where('group_id' as never, '=', groupId as never)
     .where('account_id' as never, '=', accountId as never)
@@ -267,11 +389,18 @@ function projectToScale(minor: string, from: number, to: number): string {
  * when no balance row exists.
  */
 export async function listGroups(tdb: TenantDb): Promise<readonly GroupSummary[]> {
+  await ensureDefaultGroup(tdb);
+
   const groups = await tdb.selectFrom('account_group')
     .select(['id', 'name', 'description'])
     .where('archived_at' as never, 'is', null as never)
-    .orderBy('name' as never)
     .execute();
+
+  const sortedGroups = [...groups].sort((a, b) => {
+    if (a.name === DEFAULT_GROUP_NAME) return -1;
+    if (b.name === DEFAULT_GROUP_NAME) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   const memberRows = await tdb.selectFrom('group_member')
     .innerJoin('exchange_account', 'exchange_account.id', 'group_member.account_id')
@@ -309,7 +438,7 @@ export async function listGroups(tdb: TenantDb): Promise<readonly GroupSummary[]
   }
 
   const summaries: GroupSummary[] = [];
-  for (const g of groups as ReadonlyArray<{ id: string; name: string; description: string | null }>) {
+  for (const g of sortedGroups as ReadonlyArray<{ id: string; name: string; description: string | null }>) {
     const groupMembers = memberRows.filter((m) => m.groupId === g.id);
     const allocated: Record<SupportedQuote, bigint> = { INR: 0n, USDT: 0n };
     let enabledCount = 0;
