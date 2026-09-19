@@ -162,9 +162,11 @@ interface Props {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onLogout: () => void;
+  readonly impersonating?: boolean;
+  readonly onRevertMaster?: () => void;
 }
 
-export function AppSidebar({ role, open, onClose, onLogout }: Props) {
+export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRevertMaster }: Props) {
   const { pathname } = useLocation();
 
   return (
@@ -223,6 +225,32 @@ export function AppSidebar({ role, open, onClose, onLogout }: Props) {
 
         {/* Footer Logout */}
         <div className="thin-sidebar-foot">
+          {impersonating && (
+            <button
+              type="button"
+              className="thin-logout-btn"
+              style={{
+                marginBottom: '8px',
+                color: '#8fb6ff',
+                borderColor: 'rgba(143, 182, 255, 0.3)',
+                background: 'rgba(76, 141, 255, 0.08)',
+              }}
+              title="Return to Master Panel"
+              onClick={() => {
+                onClose();
+                onRevertMaster?.();
+              }}
+            >
+              <span className="thin-sb-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <polyline points="10 17 15 12 10 7" />
+                  <line x1="15" y1="12" x2="3" y2="12" />
+                </svg>
+              </span>
+              <span className="logout-text">Master Desk</span>
+            </button>
+          )}
           <div className="drawer-role-badge">
             <span className="drawer-role-label">Role</span>
             <span className="drawer-role-value">{role || 'Authorized'}</span>

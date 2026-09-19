@@ -887,7 +887,7 @@ export function Settings() {
                 {/* Sound Tone Selector */}
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13 }}>
-                    Chime Synthesizer Tone
+                    Alert Sound Tone
                   </label>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <select
@@ -899,6 +899,7 @@ export function Settings() {
                       }}
                       style={{ flex: 1, padding: '8px 12px', fontSize: 13, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 6 }}
                     >
+                      <option value="siren">Emergency Siren (High-Fidelity MP3 - Recommended)</option>
                       <option value="harmonic">Harmonic Chime (Melodic Tri-Tone)</option>
                       <option value="bell">Crystal Bell (Resonant Clear Tone)</option>
                       <option value="pulse">Alert Pulse (Dual Attention Tone)</option>
@@ -915,7 +916,7 @@ export function Settings() {
                     </button>
                   </div>
                   <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>
-                    Custom synthesized polyphonic sound generated via Web Audio API.
+                    Emergency MP3 siren audio with Web Audio synthesizer fallback.
                   </span>
                 </div>
 

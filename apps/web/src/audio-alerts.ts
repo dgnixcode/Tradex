@@ -1,7 +1,7 @@
-// Web Audio API Synthesizer and Persistent Position Movement Alerts Configuration.
-// Synthesizes pleasant, rich, polyphonic audio tones without any external audio files.
+// Web Audio API Synthesizer and Audio Alert Engine.
+// Supports both high-fidelity MP3 siren audio (/siren-alert.mp3) and polyphonic Web Audio API synthesis.
 
-export type AlertSoundType = 'harmonic' | 'bell' | 'pulse';
+export type AlertSoundType = 'siren' | 'harmonic' | 'bell' | 'pulse';
 
 export interface CoinAlertRule {
   readonly coin: string;
@@ -31,7 +31,7 @@ export const DEFAULT_POSITION_ALERT_CONFIG: PositionAlertConfig = {
   downThresholdPct: 5,
   upAlertEnabled: true,
   upThresholdPct: 10,
-  soundType: 'harmonic',
+  soundType: 'siren',
   volume: 0.8,
   repeatIntervalSeconds: 3,
   coinScope: 'all',
@@ -83,7 +83,7 @@ export function loadPositionAlertConfig(): PositionAlertConfig {
       downThresholdPct: typeof parsed.downThresholdPct === 'number' && Number.isFinite(parsed.downThresholdPct) && parsed.downThresholdPct > 0 ? parsed.downThresholdPct : DEFAULT_POSITION_ALERT_CONFIG.downThresholdPct,
       upAlertEnabled: typeof parsed.upAlertEnabled === 'boolean' ? parsed.upAlertEnabled : DEFAULT_POSITION_ALERT_CONFIG.upAlertEnabled,
       upThresholdPct: typeof parsed.upThresholdPct === 'number' && Number.isFinite(parsed.upThresholdPct) && parsed.upThresholdPct > 0 ? parsed.upThresholdPct : DEFAULT_POSITION_ALERT_CONFIG.upThresholdPct,
-      soundType: parsed.soundType === 'bell' || parsed.soundType === 'pulse' || parsed.soundType === 'harmonic' ? parsed.soundType : DEFAULT_POSITION_ALERT_CONFIG.soundType,
+      soundType: parsed.soundType === 'siren' || parsed.soundType === 'bell' || parsed.soundType === 'pulse' || parsed.soundType === 'harmonic' ? parsed.soundType : DEFAULT_POSITION_ALERT_CONFIG.soundType,
       volume: typeof parsed.volume === 'number' && Number.isFinite(parsed.volume) ? Math.max(0, Math.min(1, parsed.volume)) : DEFAULT_POSITION_ALERT_CONFIG.volume,
       repeatIntervalSeconds: typeof parsed.repeatIntervalSeconds === 'number' && Number.isFinite(parsed.repeatIntervalSeconds) && parsed.repeatIntervalSeconds >= 1 ? parsed.repeatIntervalSeconds : DEFAULT_POSITION_ALERT_CONFIG.repeatIntervalSeconds,
       coinScope,
@@ -109,6 +109,9 @@ class AlertSoundEngine {
   private ctx: AudioContext | null = null;
   private isLooping = false;
   private loopTimer: number | null = null;
+  private sirenAudio: HTMLAudioElement | null = null;
+  private sampleAudio: HTMLAudioElement | null = null;
+  private sampleStopTimer: number | null = null;
 
   private getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
@@ -121,12 +124,59 @@ class AlertSoundEngine {
     return this.ctx;
   }
 
-  playChime(soundType: AlertSoundType = 'harmonic', volume = 0.8): void {
+  private stopSampleAudio(): void {
+    if (this.sampleStopTimer !== null) {
+      clearTimeout(this.sampleStopTimer);
+      this.sampleStopTimer = null;
+    }
+    if (this.sampleAudio) {
+      try {
+        this.sampleAudio.pause();
+        this.sampleAudio.currentTime = 0;
+      } catch {
+        // Ignore pause issues
+      }
+      this.sampleAudio = null;
+    }
+  }
+
+  playChime(soundType: AlertSoundType = 'siren', volume = 0.8): void {
+    const clampedVolume = Math.max(0.01, Math.min(1, volume));
+
+    if (soundType === 'siren') {
+      this.stopSampleAudio();
+      try {
+        if (typeof Audio !== 'undefined') {
+          const audio = new Audio('/siren-alert.mp3');
+          audio.volume = clampedVolume;
+          this.sampleAudio = audio;
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              // Browser autoplay policy or missing audio file fallback
+              this.playSynthesizedChime('pulse', clampedVolume);
+            });
+          }
+          // Sample plays for 4.5 seconds for a clear, crisp preview
+          this.sampleStopTimer = window.setTimeout(() => {
+            this.stopSampleAudio();
+          }, 4500);
+          return;
+        }
+      } catch {
+        // Fallback to Web Audio synthesis if HTML Audio throws
+      }
+    }
+
+    this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
+  }
+
+  private playSynthesizedChime(soundType: 'harmonic' | 'bell' | 'pulse', volume: number): void {
     try {
       const ctx = this.getContext();
       const now = ctx.currentTime;
       const masterGain = ctx.createGain();
-      masterGain.gain.setValueAtTime(Math.max(0.01, Math.min(1, volume)), now);
+      masterGain.gain.setValueAtTime(volume, now);
       masterGain.connect(ctx.destination);
 
       if (soundType === 'harmonic') {
@@ -198,10 +248,39 @@ class AlertSoundEngine {
   startAlertLoop(soundType: AlertSoundType, volume: number, intervalMs = 3000): void {
     if (this.isLooping) return;
     this.isLooping = true;
-    this.playChime(soundType, volume);
+    const clampedVolume = Math.max(0.01, Math.min(1, volume));
+
+    if (soundType === 'siren') {
+      this.stopSampleAudio();
+      try {
+        if (typeof Audio !== 'undefined') {
+          const audio = new Audio('/siren-alert.mp3');
+          audio.volume = clampedVolume;
+          audio.loop = true;
+          this.sirenAudio = audio;
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              // Fallback to synthesized repeating chime if autoplay restricted or failed
+              this.playSynthesizedChime('pulse', clampedVolume);
+              this.loopTimer = window.setInterval(() => {
+                if (this.isLooping) {
+                  this.playSynthesizedChime('pulse', clampedVolume);
+                }
+              }, Math.max(1000, intervalMs));
+            });
+          }
+          return;
+        }
+      } catch {
+        // Fallback to loop timer
+      }
+    }
+
+    this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
     this.loopTimer = window.setInterval(() => {
       if (this.isLooping) {
-        this.playChime(soundType, volume);
+        this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
       }
     }, Math.max(1000, intervalMs));
   }
@@ -212,6 +291,16 @@ class AlertSoundEngine {
       clearInterval(this.loopTimer);
       this.loopTimer = null;
     }
+    if (this.sirenAudio) {
+      try {
+        this.sirenAudio.pause();
+        this.sirenAudio.currentTime = 0;
+      } catch {
+        // Ignore
+      }
+      this.sirenAudio = null;
+    }
+    this.stopSampleAudio();
   }
 
   isPlaying(): boolean {
@@ -220,3 +309,4 @@ class AlertSoundEngine {
 }
 
 export const alertSound = new AlertSoundEngine();
+

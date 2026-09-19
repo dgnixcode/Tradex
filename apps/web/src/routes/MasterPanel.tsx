@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth.tsx';
-import { fetchMasterUsers, impersonateUser } from '../api.ts';
+import { fetchMasterUsers, impersonateUser, revertMasterSession } from '../api.ts';
 import type { MasterUserRow } from '../api.ts';
 import { Brand } from '../components/Brand.tsx';
 
@@ -19,6 +19,26 @@ export function MasterPanel() {
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonateError, setImpersonateError] = useState<string | null>(null);
 
+  const [isReverting, setIsReverting] = useState(false);
+
+  // If visiting /app/master while impersonating a tenant, automatically revert session back to master
+  useEffect(() => {
+    if (state.status === 'authenticated' && state.session.impersonating && !isReverting) {
+      setIsReverting(true);
+      void (async () => {
+        try {
+          await revertMasterSession();
+          await refreshSession();
+          queryClient.clear();
+        } catch {
+          // Keep state if network issue
+        } finally {
+          setIsReverting(false);
+        }
+      })();
+    }
+  }, [state, refreshSession, queryClient, isReverting]);
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['masterUsers'],
     queryFn: () => fetchMasterUsers(),
@@ -31,6 +51,16 @@ export function MasterPanel() {
   }
 
   if (state.status === 'authenticated' && !state.session.isMaster) {
+    if (state.session.impersonating || isReverting) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div className="spinner" style={{ margin: '0 auto 16px', width: 36, height: 36 }} />
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Returning to Master Panel...</div>
+          </div>
+        </div>
+      );
+    }
     return <Navigate to="/app" replace />;
   }
 
@@ -609,25 +639,11 @@ export function MasterPanel() {
               Confirm User Account Impersonation
             </div>
 
-            <p style={{ color: 'var(--text-dim)', fontSize: '14px', lineHeight: '1.6', margin: '0 0 18px' }}>
+            <p style={{ color: 'var(--text-dim)', fontSize: '14px', lineHeight: '1.6', margin: '0 0 20px' }}>
               You are about to securely access workspace{' '}
               <strong style={{ color: 'var(--text)' }}>{selectedUser.tenantName}</strong> as user{' '}
               <strong style={{ color: '#8fb6ff' }}>{selectedUser.email}</strong>.
             </p>
-
-            <div
-              style={{
-                background: 'var(--bg-2)',
-                border: '1px solid var(--line)',
-                borderRadius: '8px',
-                padding: '12px 16px',
-                fontSize: '12.5px',
-                color: 'var(--muted)',
-                marginBottom: '20px',
-              }}
-            >
-              <strong>Security &amp; Audit Notice:</strong> This direct access operation is recorded in the tenant audit log with your master administrator identity. You can return to the Master Panel at any time via the top banner.
-            </div>
 
             {impersonateError && (
               <div

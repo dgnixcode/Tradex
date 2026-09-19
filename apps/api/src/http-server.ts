@@ -867,23 +867,6 @@ export function createHttpServer(deps: HttpDeps): Server {
         throw new HttpError(400, 'cannot impersonate a disabled user account');
       }
 
-      // Record audit event in target tenant
-      await deps.db.insertInto('audit_event')
-        .values({
-          tenant_id: target.tenant_id,
-          actor_user_id: principal.userId,
-          actor_process: 'master_admin',
-          action: 'master.impersonate',
-          subject_type: 'app_user',
-          subject_id: target.id,
-          after: {
-            masterEmail: principal.email,
-            targetEmail: target.email,
-            impersonatedAt: new Date().toISOString(),
-          },
-        } as never)
-        .execute();
-
       // Issue target user session
       const nowMs = (deps.now ?? (() => Date.now()))();
       const token = generateSessionToken();
@@ -918,22 +901,6 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (masterPrincipal === null || !masterPrincipal.isMaster || masterPrincipal.email !== 'dgnix.com@gmail.com') {
         throw new HttpError(403, 'invalid master credentials in backup session');
       }
-
-      // Record audit event in current tenant
-      await deps.db.insertInto('audit_event')
-        .values({
-          tenant_id: principal.tenantId,
-          actor_user_id: masterPrincipal.userId,
-          actor_process: 'master_admin',
-          action: 'master.revert',
-          subject_type: 'app_user',
-          subject_id: principal.userId,
-          after: {
-            masterEmail: masterPrincipal.email,
-            revertedAt: new Date().toISOString(),
-          },
-        } as never)
-        .execute();
 
       sendJson(ctx.res, 200, { ok: true, dest: '/app/master' }, {
         'set-cookie': [

@@ -12,7 +12,6 @@ export function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [reverting, setReverting] = useState(false);
 
   const onLogout = async () => {
     await logout();
@@ -20,13 +19,12 @@ export function App() {
   };
 
   const onRevertMaster = async () => {
-    setReverting(true);
     try {
       await revertMasterSession();
       await refreshSession();
       navigate('/app/master', { replace: true });
     } catch {
-      setReverting(false);
+      // Revert failure
     }
   };
 
@@ -103,63 +101,6 @@ export function App() {
 
   return (
     <div className="panel-dark">
-      {state.status === 'authenticated' && state.session.impersonating && (
-        <div
-          style={{
-            background: 'linear-gradient(90deg, #7c6bff 0%, #4c8dff 100%)',
-            color: '#ffffff',
-            padding: '8px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: '13px',
-            fontWeight: 600,
-            zIndex: 1000,
-            position: 'sticky',
-            top: 0,
-            boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span
-              style={{
-                background: 'rgba(0,0,0,0.25)',
-                padding: '3px 8px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                fontWeight: 700,
-              }}
-            >
-              Master Mode Active
-            </span>
-            <span>
-              Impersonating workspace as <strong>{state.session.email}</strong>
-            </span>
-          </div>
-
-          <button
-            type="button"
-            disabled={reverting}
-            onClick={onRevertMaster}
-            style={{
-              background: '#ffffff',
-              color: '#1a1f2c',
-              border: 'none',
-              borderRadius: '4px',
-              padding: '4px 12px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: reverting ? 'wait' : 'pointer',
-              opacity: reverting ? 0.7 : 1,
-            }}
-          >
-            {reverting ? 'Returning...' : 'Return to Master Panel'}
-          </button>
-        </div>
-      )}
-
       {/* Mobile Top Header (<= 860px) */}
       <header className="panel-mobile-header">
         <button
@@ -206,6 +147,8 @@ export function App() {
           open={menuOpen}
           onClose={() => setMenuOpen(false)}
           onLogout={onLogout}
+          impersonating={state.status === 'authenticated' && Boolean(state.session.impersonating)}
+          onRevertMaster={onRevertMaster}
         />
         <main className="app-main">
           <div className="app-content">
