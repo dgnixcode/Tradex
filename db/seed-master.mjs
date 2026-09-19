@@ -25,7 +25,7 @@ function generateSecurePassword(length = 24) {
   return result;
 }
 
-const plainPassword = process.argv[2] || generateSecurePassword(24);
+const plainPassword = process.env['MASTER_PASSWORD'] || process.argv[2] || generateSecurePassword(24);
 
 const pool = new pg.Pool({ connectionString: url, max: 2 });
 
