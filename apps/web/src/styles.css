@@ -8564,6 +8564,168 @@ body:has(.panel-dark)::before {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* ─── Specific Coins Alert Scope & Rules ─── */
+.alert-scope-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
 
+.alert-scope-card {
+  background: #111520;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
 
+.alert-scope-card:hover {
+  background: #151b2a;
+  border-color: #334155;
+}
 
+.alert-scope-card.active {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+.alert-scope-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: all 0.15s ease;
+}
+
+.alert-scope-card.active .alert-scope-radio {
+  border-color: #3b82f6;
+}
+
+.alert-scope-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: all 0.15s ease;
+}
+
+.alert-scope-card.active .alert-scope-radio-dot {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.alert-coins-panel {
+  background: #0d111c;
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+
+.alert-coin-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.alert-coin-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  background: #171f33;
+  color: #f1f5f9;
+  border: 1px solid #28354d;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.alert-coin-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.alert-chip-btn {
+  background: #171f33;
+  border: 1px solid #28354d;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.alert-chip-btn:hover {
+  background: #1e2942;
+  color: #f1f5f9;
+  border-color: #3b82f6;
+}
+
+.alert-coin-card {
+  background: #141a29;
+  border: 1px solid #232d42;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.alert-coin-card:hover {
+  border-color: #334155;
+}
+
+.alert-coin-badge {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+
+.alert-tag-remove {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.alert-tag-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}

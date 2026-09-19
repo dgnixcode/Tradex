@@ -3,6 +3,14 @@
 
 export type AlertSoundType = 'harmonic' | 'bell' | 'pulse';
 
+export interface CoinAlertRule {
+  readonly coin: string;
+  readonly downThresholdPct?: number | null;
+  readonly upThresholdPct?: number | null;
+  readonly targetPriceBelow?: number | null;
+  readonly targetPriceAbove?: number | null;
+}
+
 export interface PositionAlertConfig {
   readonly enabled: boolean;
   readonly downAlertEnabled: boolean;
@@ -12,6 +20,9 @@ export interface PositionAlertConfig {
   readonly soundType: AlertSoundType;
   readonly volume: number;
   readonly repeatIntervalSeconds: number;
+  readonly coinScope: 'all' | 'specific';
+  readonly specificCoins: readonly string[];
+  readonly coinRules?: Record<string, CoinAlertRule>;
 }
 
 export const DEFAULT_POSITION_ALERT_CONFIG: PositionAlertConfig = {
@@ -23,6 +34,9 @@ export const DEFAULT_POSITION_ALERT_CONFIG: PositionAlertConfig = {
   soundType: 'harmonic',
   volume: 0.8,
   repeatIntervalSeconds: 3,
+  coinScope: 'all',
+  specificCoins: [],
+  coinRules: {},
 };
 
 const STORAGE_KEY = 'tradex_position_alerts_config';
@@ -35,6 +49,34 @@ export function loadPositionAlertConfig(): PositionAlertConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_POSITION_ALERT_CONFIG;
     const parsed = JSON.parse(raw) as Partial<PositionAlertConfig>;
+
+    const coinScope: 'all' | 'specific' = parsed.coinScope === 'specific' ? 'specific' : 'all';
+    const specificCoins: string[] = Array.isArray(parsed.specificCoins)
+      ? Array.from(
+          new Set(
+            parsed.specificCoins
+              .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+              .map((c) => c.trim().toUpperCase())
+          )
+        )
+      : [];
+
+    const coinRules: Record<string, CoinAlertRule> = {};
+    if (parsed.coinRules && typeof parsed.coinRules === 'object') {
+      for (const [k, r] of Object.entries(parsed.coinRules)) {
+        if (r && typeof r === 'object') {
+          const coin = k.trim().toUpperCase();
+          coinRules[coin] = {
+            coin,
+            downThresholdPct: typeof r.downThresholdPct === 'number' && Number.isFinite(r.downThresholdPct) && r.downThresholdPct > 0 ? r.downThresholdPct : null,
+            upThresholdPct: typeof r.upThresholdPct === 'number' && Number.isFinite(r.upThresholdPct) && r.upThresholdPct > 0 ? r.upThresholdPct : null,
+            targetPriceBelow: typeof r.targetPriceBelow === 'number' && Number.isFinite(r.targetPriceBelow) && r.targetPriceBelow > 0 ? r.targetPriceBelow : null,
+            targetPriceAbove: typeof r.targetPriceAbove === 'number' && Number.isFinite(r.targetPriceAbove) && r.targetPriceAbove > 0 ? r.targetPriceAbove : null,
+          };
+        }
+      }
+    }
+
     return {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : DEFAULT_POSITION_ALERT_CONFIG.enabled,
       downAlertEnabled: typeof parsed.downAlertEnabled === 'boolean' ? parsed.downAlertEnabled : DEFAULT_POSITION_ALERT_CONFIG.downAlertEnabled,
@@ -44,6 +86,9 @@ export function loadPositionAlertConfig(): PositionAlertConfig {
       soundType: parsed.soundType === 'bell' || parsed.soundType === 'pulse' || parsed.soundType === 'harmonic' ? parsed.soundType : DEFAULT_POSITION_ALERT_CONFIG.soundType,
       volume: typeof parsed.volume === 'number' && Number.isFinite(parsed.volume) ? Math.max(0, Math.min(1, parsed.volume)) : DEFAULT_POSITION_ALERT_CONFIG.volume,
       repeatIntervalSeconds: typeof parsed.repeatIntervalSeconds === 'number' && Number.isFinite(parsed.repeatIntervalSeconds) && parsed.repeatIntervalSeconds >= 1 ? parsed.repeatIntervalSeconds : DEFAULT_POSITION_ALERT_CONFIG.repeatIntervalSeconds,
+      coinScope,
+      specificCoins,
+      coinRules,
     };
   } catch {
     return DEFAULT_POSITION_ALERT_CONFIG;

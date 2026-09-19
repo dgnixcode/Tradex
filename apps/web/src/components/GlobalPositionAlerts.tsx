@@ -18,6 +18,8 @@ interface BreachedGroup {
   readonly roePct: number;
   readonly direction: 'down' | 'up';
   readonly thresholdPct: number;
+  readonly markPrice?: number | null;
+  readonly triggerReason: string;
 }
 
 export function GlobalPositionAlerts() {
@@ -67,11 +69,33 @@ export function GlobalPositionAlerts() {
     const currentActiveKeys = new Set<string>();
 
     for (const g of groups) {
-      const roe = calcGroupRoePct(g);
-      if (roe === null) continue;
+      const assetUpper = g.asset.toUpperCase();
 
-      // Downward drop breach
-      if (config.downAlertEnabled && roe <= -Math.abs(config.downThresholdPct)) {
+      // Check coin scope filter:
+      if (config.coinScope === 'specific') {
+        const isSelected = config.specificCoins.some((c) => c.toUpperCase() === assetUpper);
+        if (!isSelected) {
+          // Ignore coins not in the designated specific coins list
+          continue;
+        }
+      }
+
+      const roe = calcGroupRoePct(g);
+      const coinRule = config.coinRules?.[assetUpper];
+
+      // Effective thresholds (custom override or master)
+      const effectiveDownPct = typeof coinRule?.downThresholdPct === 'number' && coinRule.downThresholdPct > 0
+        ? coinRule.downThresholdPct
+        : config.downThresholdPct;
+      const effectiveUpPct = typeof coinRule?.upThresholdPct === 'number' && coinRule.upThresholdPct > 0
+        ? coinRule.upThresholdPct
+        : config.upThresholdPct;
+
+      const markPrices = g.positions.map((p) => Number(p.markPrice)).filter((v) => Number.isFinite(v) && v > 0);
+      const currentMarkPrice = markPrices.length > 0 ? markPrices[0]! : null;
+
+      // 1. Downward ROE drop breach
+      if (config.downAlertEnabled && roe !== null && roe <= -Math.abs(effectiveDownPct)) {
         const breachKey = `${g.key}:down`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
@@ -82,11 +106,13 @@ export function GlobalPositionAlerts() {
           groupNames: g.groupNames,
           roePct: roe,
           direction: 'down',
-          thresholdPct: config.downThresholdPct,
+          thresholdPct: effectiveDownPct,
+          markPrice: currentMarkPrice,
+          triggerReason: `Return dropped to ${roe.toFixed(2)}% (Threshold: -${effectiveDownPct}%)`,
         });
       }
-      // Upward rise breach
-      else if (config.upAlertEnabled && roe >= Math.abs(config.upThresholdPct)) {
+      // 2. Upward ROE rise breach
+      else if (config.upAlertEnabled && roe !== null && roe >= Math.abs(effectiveUpPct)) {
         const breachKey = `${g.key}:up`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
@@ -97,7 +123,43 @@ export function GlobalPositionAlerts() {
           groupNames: g.groupNames,
           roePct: roe,
           direction: 'up',
-          thresholdPct: config.upThresholdPct,
+          thresholdPct: effectiveUpPct,
+          markPrice: currentMarkPrice,
+          triggerReason: `Return rose to +${roe.toFixed(2)}% (Threshold: +${effectiveUpPct}%)`,
+        });
+      }
+      // 3. Target price floor breach (if configured for this coin)
+      else if (currentMarkPrice !== null && coinRule?.targetPriceBelow && currentMarkPrice <= coinRule.targetPriceBelow) {
+        const breachKey = `${g.key}:price-below`;
+        currentActiveKeys.add(breachKey);
+        newBreaches.push({
+          groupKey: g.key,
+          asset: g.asset,
+          pair: g.pair,
+          side: g.side,
+          groupNames: g.groupNames,
+          roePct: roe ?? 0,
+          direction: 'down',
+          thresholdPct: effectiveDownPct,
+          markPrice: currentMarkPrice,
+          triggerReason: `Mark price (${currentMarkPrice}) dropped below target price (${coinRule.targetPriceBelow})`,
+        });
+      }
+      // 4. Target price ceiling breach (if configured for this coin)
+      else if (currentMarkPrice !== null && coinRule?.targetPriceAbove && currentMarkPrice >= coinRule.targetPriceAbove) {
+        const breachKey = `${g.key}:price-above`;
+        currentActiveKeys.add(breachKey);
+        newBreaches.push({
+          groupKey: g.key,
+          asset: g.asset,
+          pair: g.pair,
+          side: g.side,
+          groupNames: g.groupNames,
+          roePct: roe ?? 0,
+          direction: 'up',
+          thresholdPct: effectiveUpPct,
+          markPrice: currentMarkPrice,
+          triggerReason: `Mark price (${currentMarkPrice}) rose above target price (${coinRule.targetPriceAbove})`,
         });
       }
     }
@@ -277,7 +339,7 @@ export function GlobalPositionAlerts() {
                     )}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                    Threshold: {isDown ? `-${b.thresholdPct}%` : `+${b.thresholdPct}%`}
+                    {b.triggerReason || (isDown ? `Threshold: -${b.thresholdPct}%` : `Threshold: +${b.thresholdPct}%`)}
                   </div>
                 </div>
 

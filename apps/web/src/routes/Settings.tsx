@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -14,6 +14,7 @@ import {
   loadPositionAlertConfig,
   savePositionAlertConfig,
   type AlertSoundType,
+  type CoinAlertRule,
   type PositionAlertConfig,
 } from '../audio-alerts.ts';
 import { useAuth } from '../auth.tsx';
@@ -35,6 +36,7 @@ type SettingsCategory = 'alerts' | 'branding' | 'contact' | 'security';
 const PRESET_ICONS = ['◆', '◈', '▲', '✦', '◉', '■', '❖', '✚', 'Ω', '§'];
 const DOWN_PRESETS = [3, 5, 10, 15, 20];
 const UP_PRESETS = [5, 10, 15, 20, 30];
+const POPULAR_COINS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'BNB', 'AVAX', 'ADA', 'NEAR', 'PEPE'] as const;
 
 export function Settings() {
   const qc = useQueryClient();
@@ -64,6 +66,59 @@ export function Settings() {
   });
 
   const positionGroups = buildGroups(livePositions.data?.views ?? []);
+
+  // Specific coins alert state & helpers
+  const [newCoinInput, setNewCoinInput] = useState('');
+  const [coinInputError, setCoinInputError] = useState<string | null>(null);
+
+  const activePositionCoins = useMemo(
+    () => Array.from(new Set(positionGroups.map((g) => g.asset.toUpperCase()))),
+    [positionGroups]
+  );
+
+  const handleAddSpecificCoin = (coinRaw: string) => {
+    const symbol = coinRaw.trim().toUpperCase();
+    if (!symbol) return;
+    if (alertConfig.specificCoins.includes(symbol)) {
+      setCoinInputError(`${symbol} is already in your specific coins watchlist.`);
+      return;
+    }
+    setCoinInputError(null);
+    setAlertConfig((prev) => ({
+      ...prev,
+      specificCoins: [...prev.specificCoins, symbol],
+    }));
+    setNewCoinInput('');
+  };
+
+  const handleRemoveSpecificCoin = (symbol: string) => {
+    setAlertConfig((prev) => {
+      const nextSpecific = prev.specificCoins.filter((c) => c !== symbol);
+      const nextRules = { ...(prev.coinRules || {}) };
+      delete nextRules[symbol];
+      return {
+        ...prev,
+        specificCoins: nextSpecific,
+        coinRules: nextRules,
+      };
+    });
+  };
+
+  const handleUpdateCoinRule = (symbol: string, ruleUpdate: Partial<CoinAlertRule>) => {
+    setAlertConfig((prev) => {
+      const existing = prev.coinRules?.[symbol] || { coin: symbol };
+      return {
+        ...prev,
+        coinRules: {
+          ...(prev.coinRules || {}),
+          [symbol]: {
+            ...existing,
+            ...ruleUpdate,
+          },
+        },
+      };
+    });
+  };
 
   // Stop any testing loop when unmounting or switching tabs
   useEffect(() => {
@@ -550,6 +605,280 @@ export function Settings() {
               </div>
             </div>
 
+            {/* Coin Scope & Specific Coins Selection */}
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 18, marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Alert Coin Target &amp; Specific Coins</h4>
+                  <p className="muted" style={{ margin: '3px 0 0', fontSize: 12.5 }}>
+                    Configure whether alerts trigger for all traded coins, or exclusively for designated specific coins.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="badge" style={{ fontSize: 12, fontWeight: 700, background: alertConfig.coinScope === 'specific' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.06)', color: alertConfig.coinScope === 'specific' ? '#60a5fa' : 'var(--muted)', borderColor: alertConfig.coinScope === 'specific' ? '#3b82f6' : 'var(--line)' }}>
+                    {alertConfig.coinScope === 'specific' ? `${alertConfig.specificCoins.length} Specific Coins Active` : 'All Traded Coins Active'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Scope Selector: All Coins vs Specific Coins */}
+              <div className="alert-scope-selector">
+                <div
+                  className={`alert-scope-card ${alertConfig.coinScope === 'all' ? 'active' : ''}`}
+                  onClick={() => setAlertConfig((prev) => ({ ...prev, coinScope: 'all' }))}
+                >
+                  <div className="alert-scope-radio">
+                    <div className="alert-scope-radio-dot" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: '#f1f5f9' }}>
+                      All Traded Coins (Default)
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                      Monitors every open position group across all coins and symbols.
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`alert-scope-card ${alertConfig.coinScope === 'specific' ? 'active' : ''}`}
+                  onClick={() => setAlertConfig((prev) => ({ ...prev, coinScope: 'specific' }))}
+                >
+                  <div className="alert-scope-radio">
+                    <div className="alert-scope-radio-dot" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: '#f1f5f9' }}>
+                      Specific Coins Only
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                      Only sound alerts for designated coins in your alert watchlist below.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Specific Coins Watchlist & Management Panel */}
+              <div className="alert-coins-panel">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: '#e2e8f0' }}>
+                    Specific Coins Watchlist
+                  </div>
+                  {alertConfig.specificCoins.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={() => setAlertConfig((prev) => ({ ...prev, specificCoins: [], coinRules: {} }))}
+                      style={{ fontSize: 11.5, padding: '2px 8px' }}
+                    >
+                      Clear All Coins
+                    </button>
+                  )}
+                </div>
+
+                {/* Add Coin Row */}
+                <div className="alert-coin-add-row">
+                  <input
+                    type="text"
+                    className="alert-coin-input"
+                    placeholder="Enter coin symbol (e.g. BTC, ETH, SOL, DOGE)..."
+                    value={newCoinInput}
+                    onChange={(e) => {
+                      setNewCoinInput(e.target.value.toUpperCase());
+                      setCoinInputError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddSpecificCoin(newCoinInput);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => handleAddSpecificCoin(newCoinInput)}
+                    disabled={!newCoinInput.trim()}
+                    style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700 }}
+                  >
+                    + Add Coin
+                  </button>
+                </div>
+
+                {coinInputError && (
+                  <div style={{ color: '#ef4444', fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+                    {coinInputError}
+                  </div>
+                )}
+
+                {/* Quick Add Suggestions */}
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {activePositionCoins.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>From Active Positions:</span>
+                      {activePositionCoins.map((coin) => {
+                        const isAdded = alertConfig.specificCoins.includes(coin);
+                        return (
+                          <button
+                            key={coin}
+                            type="button"
+                            className="alert-chip-btn"
+                            disabled={isAdded}
+                            onClick={() => handleAddSpecificCoin(coin)}
+                            style={{ opacity: isAdded ? 0.5 : 1, cursor: isAdded ? 'default' : 'pointer' }}
+                          >
+                            <span>{isAdded ? '✓' : '+'}</span>
+                            <span>{coin}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>Popular:</span>
+                    {POPULAR_COINS.map((coin) => {
+                      const isAdded = alertConfig.specificCoins.includes(coin);
+                      return (
+                        <button
+                          key={coin}
+                          type="button"
+                          className="alert-chip-btn"
+                          disabled={isAdded}
+                          onClick={() => handleAddSpecificCoin(coin)}
+                          style={{ opacity: isAdded ? 0.5 : 1, cursor: isAdded ? 'default' : 'pointer' }}
+                        >
+                          <span>{isAdded ? '✓' : '+'}</span>
+                          <span>{coin}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Configured Specific Coins Cards */}
+                {alertConfig.specificCoins.length === 0 ? (
+                  <div style={{ marginTop: 14, padding: '14px', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6, border: '1px dashed #28354d', color: 'var(--muted)', fontSize: 12.5 }}>
+                    {alertConfig.coinScope === 'specific' ? (
+                      <span style={{ color: '#f59e0b', fontWeight: 600 }}>
+                        No specific coins added yet. Please add at least one coin above, or switch to "All Traded Coins" so alerts can sound.
+                      </span>
+                    ) : (
+                      <span>No specific coin filters configured. Alerts will monitor all open positions by default.</span>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                    {alertConfig.specificCoins.map((coin) => {
+                      const rule = alertConfig.coinRules?.[coin];
+                      const hasCustomThreshold = (rule?.downThresholdPct !== null && rule?.downThresholdPct !== undefined) || (rule?.upThresholdPct !== null && rule?.upThresholdPct !== undefined);
+                      const hasPriceTarget = (rule?.targetPriceBelow !== null && rule?.targetPriceBelow !== undefined) || (rule?.targetPriceAbove !== null && rule?.targetPriceAbove !== undefined);
+
+                      return (
+                        <div key={coin} className="alert-coin-card">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="alert-coin-badge">{coin}</span>
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                                {hasCustomThreshold || hasPriceTarget ? 'Custom Rules' : `Default (-${alertConfig.downThresholdPct}% / +${alertConfig.upThresholdPct}%)`}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="alert-tag-remove"
+                              onClick={() => handleRemoveSpecificCoin(coin)}
+                              title={`Remove ${coin}`}
+                              aria-label={`Remove ${coin}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+
+                          {/* Quick Custom Threshold Inputs */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ color: '#ef4444', fontWeight: 600 }}>Drop Alert (%):</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ color: '#ef4444', fontWeight: 700 }}>-</span>
+                                <input
+                                  type="number"
+                                  min="0.5"
+                                  max="1000"
+                                  step="0.5"
+                                  placeholder={String(alertConfig.downThresholdPct)}
+                                  value={rule?.downThresholdPct ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? null : Math.max(0.1, Number(e.target.value) || 1);
+                                    handleUpdateCoinRule(coin, { downThresholdPct: val });
+                                  }}
+                                  style={{ width: 65, padding: '3px 6px', fontSize: 12, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 4 }}
+                                />
+                                <span>%</span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ color: '#10b981', fontWeight: 600 }}>Rise Alert (%):</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ color: '#10b981', fontWeight: 700 }}>+</span>
+                                <input
+                                  type="number"
+                                  min="0.5"
+                                  max="1000"
+                                  step="0.5"
+                                  placeholder={String(alertConfig.upThresholdPct)}
+                                  value={rule?.upThresholdPct ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? null : Math.max(0.1, Number(e.target.value) || 1);
+                                    handleUpdateCoinRule(coin, { upThresholdPct: val });
+                                  }}
+                                  style={{ width: 65, padding: '3px 6px', fontSize: 12, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 4 }}
+                                />
+                                <span>%</span>
+                              </div>
+                            </div>
+
+                            {/* Target Price Alerts */}
+                            <div style={{ borderTop: '1px solid #1e293b', paddingTop: 6, marginTop: 2, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>Price Floor (&lt;=):</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="Optional price"
+                                  value={rule?.targetPriceBelow ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? null : Number(e.target.value) || null;
+                                    handleUpdateCoinRule(coin, { targetPriceBelow: val });
+                                  }}
+                                  style={{ width: 95, padding: '3px 6px', fontSize: 11.5, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 4 }}
+                                />
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>Price Ceiling (&gt;=):</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="Optional price"
+                                  value={rule?.targetPriceAbove ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? null : Number(e.target.value) || null;
+                                    handleUpdateCoinRule(coin, { targetPriceAbove: val });
+                                  }}
+                                  style={{ width: 95, padding: '3px 6px', fontSize: 11.5, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 4 }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Audio Synthesis & Sound Controls */}
             <div style={{ borderTop: '1px solid var(--line)', paddingTop: 18, marginTop: 10 }}>
               <h4 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Audio Tone &amp; Volume Customization</h4>
@@ -700,18 +1029,36 @@ export function Settings() {
                       <tr>
                         <th>Asset &amp; Pair</th>
                         <th>Side</th>
-                        <th>Accounts</th>
+                        <th>Mark Price</th>
                         <th>Current Group ROE</th>
+                        <th>Alert Scope</th>
                         <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {positionGroups.map((g) => {
+                        const assetUpper = g.asset.toUpperCase();
+                        const isCoinMonitored = alertConfig.coinScope === 'all' || alertConfig.specificCoins.some((c) => c.toUpperCase() === assetUpper);
+                        const coinRule = alertConfig.coinRules?.[assetUpper];
+
+                        const effectiveDown = typeof coinRule?.downThresholdPct === 'number' && coinRule.downThresholdPct > 0
+                          ? coinRule.downThresholdPct
+                          : alertConfig.downThresholdPct;
+                        const effectiveUp = typeof coinRule?.upThresholdPct === 'number' && coinRule.upThresholdPct > 0
+                          ? coinRule.upThresholdPct
+                          : alertConfig.upThresholdPct;
+
+                        const markPrices = g.positions.map((p) => Number(p.markPrice)).filter((v) => Number.isFinite(v) && v > 0);
+                        const currentMarkPrice = markPrices.length > 0 ? markPrices[0]! : null;
+
                         const roe = calcGroupRoePct(g);
-                        const isDownBreach = alertConfig.downAlertEnabled && roe !== null && roe <= -Math.abs(alertConfig.downThresholdPct);
-                        const isUpBreach = alertConfig.upAlertEnabled && roe !== null && roe >= Math.abs(alertConfig.upThresholdPct);
+                        const isDownBreach = isCoinMonitored && alertConfig.downAlertEnabled && roe !== null && roe <= -Math.abs(effectiveDown);
+                        const isUpBreach = isCoinMonitored && alertConfig.upAlertEnabled && roe !== null && roe >= Math.abs(effectiveUp);
+                        const isPriceBelowBreach = isCoinMonitored && currentMarkPrice !== null && coinRule?.targetPriceBelow && currentMarkPrice <= coinRule.targetPriceBelow;
+                        const isPriceAboveBreach = isCoinMonitored && currentMarkPrice !== null && coinRule?.targetPriceAbove && currentMarkPrice >= coinRule.targetPriceAbove;
+
                         return (
-                          <tr key={g.key}>
+                          <tr key={g.key} style={{ opacity: isCoinMonitored ? 1 : 0.6 }}>
                             <td>
                               <span style={{ fontWeight: 700, color: '#f1f5f9' }}>{g.asset}</span>
                               <span className="muted" style={{ fontSize: 11.5, marginLeft: 6 }}>{g.pair}</span>
@@ -731,7 +1078,9 @@ export function Settings() {
                                 {g.side}
                               </span>
                             </td>
-                            <td>{g.positions.length} ({g.groupNames.join(', ') || 'Default'})</td>
+                            <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                              {currentMarkPrice !== null ? currentMarkPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '—'}
+                            </td>
                             <td style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                               {roe === null ? (
                                 '—'
@@ -742,13 +1091,40 @@ export function Settings() {
                               )}
                             </td>
                             <td>
-                              {isDownBreach ? (
+                              {alertConfig.coinScope === 'all' ? (
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: 'rgba(59, 130, 246, 0.12)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                                  All Coins (-{effectiveDown}% / +{effectiveUp}%)
+                                </span>
+                              ) : isCoinMonitored ? (
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: 'rgba(59, 130, 246, 0.18)', color: '#93c5fd', border: '1px solid #3b82f6' }}>
+                                  Specific Coin (-{effectiveDown}% / +{effectiveUp}%)
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.05)', color: '#94a3b8', border: '1px solid #334155' }}>
+                                  Ignored (Not in Specific List)
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {!isCoinMonitored ? (
+                                <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                                  Filtered out
+                                </span>
+                              ) : isDownBreach ? (
                                 <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <span>▼</span> Alert: Down Breach
                                 </span>
                               ) : isUpBreach ? (
                                 <span style={{ color: '#10b981', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <span>▲</span> Alert: Up Breach
+                                </span>
+                              ) : isPriceBelowBreach ? (
+                                <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <span>▼</span> Alert: Price Floor
+                                </span>
+                              ) : isPriceAboveBreach ? (
+                                <span style={{ color: '#10b981', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <span>▲</span> Alert: Price Ceiling
                                 </span>
                               ) : (
                                 <span style={{ color: 'var(--muted)', fontSize: 12 }}>
