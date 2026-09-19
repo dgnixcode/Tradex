@@ -21,8 +21,8 @@ import { useAuth } from '../auth.tsx';
 import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
 import {
   PositionManageModal,
+  QuickExitModal,
   addMinors,
-  bufferColor,
   calcRoePct,
   fmtMinor,
   fmtPrice,
@@ -80,6 +80,7 @@ export function AccountDetail() {
     return new Date().toISOString().slice(0, 10);
   });
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
+  const [quickExitPosition, setQuickExitPosition] = useState<FuturesPositionRow | null>(null);
 
   const [opError, setOpError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -247,6 +248,12 @@ export function AccountDetail() {
     const views = futuresPositions.data?.views ?? [];
     return views.find((r) => r.venuePositionId === managingPosition.venuePositionId) ?? managingPosition;
   }, [futuresPositions.data?.views, managingPosition]);
+
+  const liveQuickExitPosition = useMemo(() => {
+    if (quickExitPosition === null) return null;
+    const views = futuresPositions.data?.views ?? [];
+    return views.find((r) => r.venuePositionId === quickExitPosition.venuePositionId) ?? quickExitPosition;
+  }, [futuresPositions.data?.views, quickExitPosition]);
 
   // Aggregate unrealised PnL for this account
   const totalAccountPnl = useMemo(() => {
@@ -609,10 +616,12 @@ export function AccountDetail() {
                             <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>
                               {fmtPrice(p.markPrice)}
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', color: bufferColor(p.liqBufferBp) }}>
-                              {fmtPrice(p.liquidationPrice)}
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
+                                {fmtPrice(p.liquidationPrice)}
+                              </span>
                               {p.liqBufferBp !== null && (
-                                <span className="muted" style={{ display: 'block', fontSize: 10.5 }}>
+                                <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#ca8a04', marginTop: 1 }}>
                                   {(p.liqBufferBp / 100).toFixed(1)}% buf
                                 </span>
                               )}
@@ -622,12 +631,27 @@ export function AccountDetail() {
                                 ? fmtMinor(p.lockedMarginMinor, p.marginCurrency)
                                 : '—'}
                             </td>
-                            <td className={`mono ${pnlClass(p.unrealisedPnlMinor)}`} style={{ textAlign: 'right', fontWeight: 600 }}>
-                              {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              <div style={{
+                                fontSize: 14.5,
+                                fontWeight: 700,
+                                color: (p.unrealisedPnlMinor && p.unrealisedPnlMinor.startsWith('-'))
+                                  ? '#ef4444'
+                                  : (p.unrealisedPnlMinor && p.unrealisedPnlMinor !== '0' && p.unrealisedPnlMinor !== '')
+                                    ? '#10b981'
+                                    : 'var(--text-dim)',
+                              }}>
+                                {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
+                              </div>
                               {roe !== null && (
-                                <span style={{ display: 'block', fontSize: 11, fontWeight: 500 }}>
+                                <div style={{
+                                  fontSize: 12.5,
+                                  fontWeight: 700,
+                                  marginTop: 2,
+                                  color: roe < 0 ? '#ef4444' : '#10b981',
+                                }}>
                                   {roeText(roe).trim()}
-                                </span>
+                                </div>
                               )}
                             </td>
                             <td>
@@ -641,25 +665,49 @@ export function AccountDetail() {
                               )}
                             </td>
                             <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                              <button
-                                type="button"
-                                className="btn btn-sm secondary"
-                                style={{
-                                  fontSize: 11.5,
-                                  padding: '3px 10px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  fontWeight: 600,
-                                }}
-                                onClick={() => {
-                                  setManagingPosition(p);
-                                  setOpError(null);
-                                  setSyncNote(null);
-                                }}
-                              >
-                                Manage
-                              </button>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm secondary"
+                                  style={{
+                                    fontSize: 11.5,
+                                    padding: '3px 10px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    fontWeight: 600,
+                                  }}
+                                  onClick={() => {
+                                    setManagingPosition(p);
+                                    setOpError(null);
+                                    setSyncNote(null);
+                                  }}
+                                >
+                                  Manage
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm quick-exit-btn"
+                                  style={{
+                                    fontSize: 11.5,
+                                    padding: '3px 8px',
+                                    borderRadius: 'var(--radius-sm)',
+                                  }}
+                                  onClick={() => {
+                                    setQuickExitPosition(p);
+                                    setOpError(null);
+                                    setSyncNote(null);
+                                  }}
+                                  title={`Quick exit position for ${p.pair}`}
+                                >
+                                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                    <polyline points="16 17 21 12 16 7" />
+                                    <line x1="21" y1="12" x2="9" y2="12" />
+                                  </svg>
+                                  Exit
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -683,11 +731,28 @@ export function AccountDetail() {
                             {p.groupName && <div className="pos-mobile-grp-badge">{p.groupName}</div>}
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div className={`pos-mobile-pnl ${pnlClass(p.unrealisedPnlMinor)}`}>
+                            <div style={{
+                              fontSize: 16,
+                              fontWeight: 800,
+                              color: (p.unrealisedPnlMinor && p.unrealisedPnlMinor.startsWith('-'))
+                                ? '#ef4444'
+                                : (p.unrealisedPnlMinor && p.unrealisedPnlMinor !== '0')
+                                  ? '#10b981'
+                                  : 'var(--text-dim)',
+                            }}>
                               {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
                             </div>
                             {roe !== null && (
-                              <span className="pos-mobile-roe-pill" style={{ color: roe >= 0 ? 'var(--ok)' : 'var(--danger)' }}>
+                              <span
+                                className="pos-mobile-roe-pill"
+                                style={{
+                                  fontSize: 12.5,
+                                  fontWeight: 700,
+                                  color: roe >= 0 ? '#10b981' : '#ef4444',
+                                  background: roe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                  border: `1px solid ${roe >= 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                }}
+                              >
                                 {roeText(roe).trim()}
                               </span>
                             )}
@@ -720,10 +785,15 @@ export function AccountDetail() {
                             <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</span>
                           </div>
                           <div className="pos-mobile-cell">
-                            <span className="pos-mobile-label">Liq Buffer</span>
-                            <span className="pos-mobile-val mono" style={{ color: bufferColor(p.liqBufferBp) }}>
-                              {p.liqBufferBp !== null ? `${(p.liqBufferBp / 100).toFixed(1)}%` : fmtPrice(p.liquidationPrice)}
+                            <span className="pos-mobile-label">Liq Price</span>
+                            <span className="pos-mobile-val mono" style={{ color: '#facc15', fontWeight: 700, fontSize: 14 }}>
+                              {fmtPrice(p.liquidationPrice)}
                             </span>
+                            {p.liqBufferBp !== null && (
+                              <span style={{ fontSize: 10.5, fontWeight: 600, color: '#ca8a04', display: 'block' }}>
+                                {(p.liqBufferBp / 100).toFixed(1)}% buf
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -740,18 +810,44 @@ export function AccountDetail() {
                             )}
                           </div>
 
-                          <button
-                            type="button"
-                            className="btn btn-sm secondary"
-                            style={{ width: '100%', marginTop: 8, padding: '8px', fontSize: 12.5, fontWeight: 700, borderRadius: 8 }}
-                            onClick={() => {
-                              setManagingPosition(p);
-                              setOpError(null);
-                              setSyncNote(null);
-                            }}
-                          >
-                            Manage Position
-                          </button>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm secondary"
+                              style={{ flex: 1, padding: '8px', fontSize: 12, fontWeight: 700, borderRadius: 8 }}
+                              onClick={() => {
+                                setManagingPosition(p);
+                                setOpError(null);
+                                setSyncNote(null);
+                              }}
+                            >
+                              Manage Position
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm quick-exit-btn"
+                              style={{
+                                flex: 1,
+                                padding: '8px',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                borderRadius: 8,
+                                justifyContent: 'center',
+                              }}
+                              onClick={() => {
+                                setQuickExitPosition(p);
+                                setOpError(null);
+                                setSyncNote(null);
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                <polyline points="16 17 21 12 16 7" />
+                                <line x1="21" y1="12" x2="9" y2="12" />
+                              </svg>
+                              Quick Exit
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1350,6 +1446,15 @@ export function AccountDetail() {
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}
           isProtecting={protMut.isPending}
+        />
+      )}
+
+      {/* ── Quick Exit Confirmation Modal (One-Click Exit with Confirmation) ── */}
+      {liveQuickExitPosition !== null && (
+        <QuickExitModal
+          target={{ type: 'account', position: liveQuickExitPosition }}
+          onClose={() => setQuickExitPosition(null)}
+          onRefreshPositions={invalidate}
         />
       )}
     </div>

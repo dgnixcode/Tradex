@@ -1049,8 +1049,37 @@ tr.skipped td { color: var(--muted); }
 }
 
 /* ── Positions page ── */
-.pnl-profit { color: var(--ok); }
-.pnl-loss   { color: var(--danger); }
+.pnl-profit { color: #10b981; font-weight: 700; }
+.pnl-loss   { color: #ef4444; font-weight: 700; }
+
+.liq-price-yellow {
+  color: #facc15 !important;
+  font-weight: 700 !important;
+  font-size: 14.5px !important;
+}
+
+.quick-exit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  font-weight: 600;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.quick-exit-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+}
+
+.quick-exit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .positions-summary {
   display: flex;
