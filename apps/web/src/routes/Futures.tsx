@@ -117,6 +117,30 @@ function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'sh
   return Math.abs(pct);
 }
 
+/**
+ * Execute an async worker over items concurrently with a bounded pool size,
+ * ensuring high throughput while keeping the UI responsive.
+ */
+export async function mapConcurrent<T>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  const cap = Math.min(items.length, Math.max(1, concurrency));
+  let nextIdx = 0;
+
+  const worker = async () => {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      const item = items[idx]!;
+      await fn(item, idx);
+    }
+  };
+
+  const workers = Array.from({ length: cap }, () => worker());
+  await Promise.all(workers);
+}
+
 /* ─── grouped position type ─── */
 
 export interface PositionGroup {
@@ -1735,17 +1759,19 @@ function GroupPositionManageModal({
     const errors: string[] = [];
 
     const bp = Math.round(increasePct * 100);
-    for (let i = 0; i < fundedAccounts.length; i++) {
-      const item = fundedAccounts[i]!;
-      setProgress({ current: i + 1, total: fundedAccounts.length, accountName: item.position.accountName });
+    let completed = 0;
+    await mapConcurrent(fundedAccounts, 12, async (item) => {
       try {
         await adjustFuturesPosition(item.position.venuePositionId, 'increase', bp);
         succeeded++;
       } catch (err) {
         failed++;
         errors.push(`${item.position.accountName}: ${(err as Error).message}`);
+      } finally {
+        completed++;
+        setProgress({ current: completed, total: fundedAccounts.length, accountName: item.position.accountName });
       }
-    }
+    });
 
     setIsExecuting(false);
     setProgress(null);
@@ -1775,17 +1801,19 @@ function GroupPositionManageModal({
     const errors: string[] = [];
 
     const bp = Math.round(reducePct * 100);
-    for (let i = 0; i < group.positions.length; i++) {
-      const pos = group.positions[i]!;
-      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+    let completed = 0;
+    await mapConcurrent(group.positions, 12, async (pos) => {
       try {
         await adjustFuturesPosition(pos.venuePositionId, 'reduce', bp);
         succeeded++;
       } catch (err) {
         failed++;
         errors.push(`${pos.accountName}: ${(err as Error).message}`);
+      } finally {
+        completed++;
+        setProgress({ current: completed, total: group.positions.length, accountName: pos.accountName });
       }
-    }
+    });
 
     setIsExecuting(false);
     setProgress(null);
@@ -1814,9 +1842,8 @@ function GroupPositionManageModal({
     let failed = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < group.positions.length; i++) {
-      const pos = group.positions[i]!;
-      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+    let completed = 0;
+    await mapConcurrent(group.positions, 12, async (pos) => {
       try {
         await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
         succeeded++;
@@ -1828,8 +1855,11 @@ function GroupPositionManageModal({
           failed++;
           errors.push(`${pos.accountName}: ${msg}`);
         }
+      } finally {
+        completed++;
+        setProgress({ current: completed, total: group.positions.length, accountName: pos.accountName });
       }
-    }
+    });
 
     setIsExecuting(false);
     setProgress(null);
@@ -1858,9 +1888,8 @@ function GroupPositionManageModal({
     let succeeded = 0;
     let failed = 0;
 
-    for (let i = 0; i < group.positions.length; i++) {
-      const pos = group.positions[i]!;
-      setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+    let completed = 0;
+    await mapConcurrent(group.positions, 12, async (pos) => {
       try {
         const refPrice = pos.avgEntryPrice !== null ? Number(pos.avgEntryPrice) : NaN;
         const sideOk = pos.side === 'long' || pos.side === 'short';
@@ -1889,8 +1918,11 @@ function GroupPositionManageModal({
         succeeded++;
       } catch {
         failed++;
+      } finally {
+        completed++;
+        setProgress({ current: completed, total: group.positions.length, accountName: pos.accountName });
       }
-    }
+    });
 
     setIsExecuting(false);
     setProgress(null);
@@ -2635,9 +2667,8 @@ export function QuickExitModal({
       let failed = 0;
       const errors: string[] = [];
 
-      for (let i = 0; i < group.positions.length; i++) {
-        const pos = group.positions[i]!;
-        setProgress({ current: i + 1, total: group.positions.length, accountName: pos.accountName });
+      let completed = 0;
+      await mapConcurrent(group.positions, 12, async (pos) => {
         try {
           await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
           succeeded++;
@@ -2649,8 +2680,11 @@ export function QuickExitModal({
             failed++;
             errors.push(`${pos.accountName}: ${msg}`);
           }
+        } finally {
+          completed++;
+          setProgress({ current: completed, total: group.positions.length, accountName: pos.accountName });
         }
-      }
+      });
 
       setIsExecuting(false);
       setProgress(null);
