@@ -1344,6 +1344,13 @@ export function createHttpServer(deps: HttpDeps): Server {
         throw new HttpError(400, 'accountId is required');
       }
       await runAccountOp(() => onboardingFor(principal.tenantId).confirm({ accountId: body.accountId as string }));
+      if (deps.refreshPositions !== undefined) {
+        try {
+          await deps.refreshPositions({ tenantId: principal.tenantId });
+        } catch (e) {
+          console.error('[onboarding] initial positions mirror failed:', e instanceof Error ? e.message : String(e));
+        }
+      }
       sendJson(ctx.res, 200, { ok: true });
       return;
     }
@@ -1400,6 +1407,13 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (method === 'POST' && verb === 'confirm') {
         requireAction(principal, 'credential.write');
         await runAccountOp(() => onboardingFor(principal.tenantId).confirm({ accountId }));
+        if (deps.refreshPositions !== undefined) {
+          try {
+            await deps.refreshPositions({ tenantId: principal.tenantId });
+          } catch (e) {
+            console.error('[onboarding] initial positions mirror failed:', e instanceof Error ? e.message : String(e));
+          }
+        }
         sendJson(ctx.res, 200, { ok: true });
         return;
       }

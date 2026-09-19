@@ -408,6 +408,11 @@ const accountSync = async ({ tenantId, accountId }) => {
         capitalMinor: realFree,
       });
     }
+    try {
+      await mirrorAccounts(tenantId, [accountId]);
+    } catch (e) {
+      console.error(`[accountSync] positions mirror failed for account ${accountId}:`, e instanceof Error ? e.message : String(e));
+    }
     return {
       currencies: funding,
       balances: balances.length,
