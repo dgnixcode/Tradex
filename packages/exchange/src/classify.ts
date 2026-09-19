@@ -28,6 +28,7 @@ const BUSINESS_PREFIXES: ReadonlyArray<readonly [RegExp, string]> = [
   [/min(imum)?\s+notional/i, 'below_min_notional'],
   [/quantity\s+should\s+be\s+greater/i, 'below_min_quantity'],
   [/quantity\s+for\s+(limit|market)\s+variant/i, 'above_max_quantity'],
+  [/quantity\s+should\s+be\s+divisible/i, 'quantity_not_on_step'],
   [/price\s+is\s+out\s+of\s+permissible\s+range/i, 'price_out_of_range'],
   [/please\s+enter\s+a\s+value\s+(lower|higher)/i, 'price_out_of_band'],
   [/price\s+should\s+be\s+divisible/i, 'price_not_on_tick'],

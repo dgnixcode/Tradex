@@ -72,6 +72,7 @@ describe('business rejections are never retried', () => {
     ['Minimum order value should be 5 USDT', 'below_min_notional'],
     ['Quantity should be greater than 0.001', 'below_min_quantity'],
     ['Quantity for market variant orders should be less than 9500.0', 'above_max_quantity'],
+    ['Quantity should be divisible by 0.01', 'quantity_not_on_step'],
     ['Price is out of permissible range', 'price_out_of_range'],
     ['Please enter a value lower than 8100000', 'price_out_of_band'],
     ['Price should be divisible by 0.01', 'price_not_on_tick'],

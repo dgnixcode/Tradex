@@ -728,7 +728,9 @@ export async function fetchFuturesInstrument(
     ? (parsed[0] as unknown)
     : (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>)['data'])
       ? ((parsed as Record<string, unknown>)['data'] as unknown[])[0]
-      : parsed);
+      : (parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>)['instrument'] !== undefined
+        ? (parsed as Record<string, unknown>)['instrument']
+        : parsed));
   if (row === null || typeof row !== 'object' || Array.isArray(row)) {
     return { ok: false, failure: classify({ status: 200, message: 'instrument response was not an object' }) };
   }
@@ -739,16 +741,16 @@ export async function fetchFuturesInstrument(
     baseAsset: s('underlying_currency_short_name', s('position_currency_short_name')),
     quoteAsset: s('quote_currency_short_name'),
     marginCurrency: (s('margin_currency_short_name', marginCurrency) === 'INR' ? 'INR' : 'USDT'),
-    contractSize: s('contract_size', '1'),
+    contractSize: s('contract_size', s('unit_contract_value', '1')),
     priceIncrement: s('price_increment', '0'),
     quantityIncrement: s('quantity_increment', '0'),
-    minQuantity: s('min_quantity', '0'),
+    minQuantity: s('min_quantity', s('min_trade_size', '0')),
     maxQuantity: s('max_quantity', '0'),
     minNotional: s('min_notional', '0'),
     maxMarketOrderQuantity: s('max_market_order_quantity', '0'),
     makerFee: s('maker_fee', '0'),
     takerFee: s('taker_fee', '0'),
-    fundingFrequencyHours: Number.parseInt(s('funding_frequency_hours', '8'), 10) || 8,
+    fundingFrequencyHours: Number.parseInt(s('funding_frequency', s('funding_frequency_hours', '8')), 10) || 8,
     exitOnly: r['exit_only'] === true,
     leverageTiers: [],
   };

@@ -419,7 +419,21 @@ const accountSync = async ({ tenantId, accountId }) => {
     };
   };
 
-Object.assign(enginePorts, { accountSync, refreshPositions });
+  const futuresInstrumentCache = new Map();
+  async function getFuturesInstrumentCached(pair, marginCurrency) {
+    const cacheKey = `${pair}|${marginCurrency}`;
+    const cached = futuresInstrumentCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < 300_000) {
+      return cached.result;
+    }
+    const result = await fetchFuturesInstrument(pair, marginCurrency, { baseUrl: VENUE_BASE });
+    if (result.ok) {
+      futuresInstrumentCache.set(cacheKey, { at: Date.now(), result });
+    }
+    return result;
+  }
+
+Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached });
 
 if (sending) {
   /**
@@ -438,11 +452,48 @@ if (sending) {
     workerId: process.env['TRADEX_CODE_VERSION'] ?? 'dev',
     // L3 — signed at call time, never earlier: the venue rejects a body over 10s.
     create: async (intent) => {
+      let sendQuantity = intent.quantity;
+      try {
+        const inst = await getFuturesInstrumentCached(intent.pair, spec.marginCurrency);
+        if (inst && inst.ok && inst.instrument && inst.instrument.quantityIncrement && inst.instrument.quantityIncrement !== '0') {
+          const stepStr = inst.instrument.quantityIncrement;
+          const dot = stepStr.indexOf('.');
+          const precision = dot >= 0 ? stepStr.length - dot - 1 : 0;
+          const factor = 10n ** BigInt(precision);
+          const stepNum = Number(stepStr);
+          const qNum = Number(sendQuantity);
+          if (Number.isFinite(stepNum) && stepNum > 0 && Number.isFinite(qNum) && qNum > 0) {
+            const stepInt = BigInt(Math.round(stepNum * Math.pow(10, precision)));
+            const qInt = BigInt(Math.floor(qNum * Math.pow(10, precision)));
+            if (stepInt > 0n) {
+              const flooredInt = (qInt / stepInt) * stepInt;
+              const whole = (flooredInt / factor).toString();
+              const frac = (flooredInt % factor).toString().padStart(precision, '0');
+              const floored = precision > 0 ? `${whole}.${frac}` : whole;
+              if (floored !== sendQuantity && Number(floored) > 0) {
+                console.warn(`[futures-order] Quantized quantity for ${intent.pair} from ${sendQuantity} to ${floored} (step: ${stepStr})`);
+                sendQuantity = floored;
+                intent.quantity = floored;
+                if (intent.childOrderId) {
+                  db.updateTable('child_order')
+                    .set({ final_quantity: floored })
+                    .where('id', '=', intent.childOrderId)
+                    .execute()
+                    .catch((err) => console.error('[futures-order] failed to update quantized quantity on child_order:', err));
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[futures-order] failed to verify instrument step for ${intent.pair}:`, e);
+      }
+
       const placed = await submitFuturesOrderSigned(sign, {
         pair: intent.pair,
         side: intent.side,
         orderType: intent.orderType,
-        quantity: intent.quantity,
+        quantity: sendQuantity,
         ...(intent.price !== null ? { price: intent.price } : {}),
         leverage: spec.leverage,
         marginCurrency: spec.marginCurrency,

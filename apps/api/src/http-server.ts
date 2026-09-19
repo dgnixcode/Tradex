@@ -104,7 +104,7 @@ export interface FuturesTpSlPort {
   }>;
 }
 import type { Kysely } from 'kysely';
-import type { MarketRef, OrderBook } from '@tradex/exchange';
+import type { FuturesInstrument, MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
 import type { SecondFactorVerifier } from './login-service.js';
 import { SignupService } from './signup-service.js';
@@ -188,6 +188,8 @@ export interface HttpDeps {
    * a venue read and a decrypt on every page load would not be.
    */
   readonly refreshPositions?: ((args: { tenantId: string }) => Promise<{ readonly accounts: number; readonly positions: number }>) | undefined;
+  /** Phase-15 futures instrument rules for accurate quantity steps and min notionals. */
+  readonly getFuturesInstrument?: ((pair: string, marginCurrency: 'INR' | 'USDT') => Promise<{ readonly ok: boolean; readonly instrument?: FuturesInstrument } | null>) | undefined;
   /**
    * How often to sweep for legs that still need resolving, in ms. 0 or absent
    * disables the sweep (the default, so no test grows a timer).
@@ -313,6 +315,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       getOrderBook: deps.getOrderBook,
       codeVersion: deps.codeVersion,
       ...(deps.holdings !== undefined ? { holdings: deps.holdings } : {}),
+      ...(deps.getFuturesInstrument !== undefined ? { getFuturesInstrument: deps.getFuturesInstrument } : {}),
       ...(deps.now !== undefined ? { now: deps.now } : {}),
     });
 

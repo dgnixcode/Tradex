@@ -31,9 +31,9 @@
 //    venue call; there is no placeOrder path from here.
 
 import { randomBytes } from 'node:crypto';
-import { add, cmp, div, mul } from '@tradex/money';
-import { freeBalanceMinor } from '@tradex/exchange';
-import type { Balance, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
+import { add, cmp, div, mul, scaledFromString } from '@tradex/money';
+import { freeBalanceMinor, futuresPairOf } from '@tradex/exchange';
+import type { Balance, FuturesInstrument, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
   dailySpentMinor, getChildOrders, getEnabledMembers, getGroupTrade, hasInFlightOrder,
@@ -145,6 +145,8 @@ export interface PlanningDeps {
    *  preview for sell_all / pct_position (T09.2). When absent, preview sizes from
    *  the projected account_balance rows only (the send still re-reads). */
   readonly holdings?: ((accountId: string) => Promise<readonly Balance[]>) | undefined;
+  /** Phase-15 futures instrument rules (step, precision, min quantity, min notional). */
+  readonly getFuturesInstrument?: ((pair: string, marginCurrency: 'INR' | 'USDT') => Promise<{ readonly ok: boolean; readonly instrument?: FuturesInstrument } | null>) | undefined;
   /** The running code version, stamped on every trade for R7 quarantine (20). */
   readonly codeVersion: string;
   /** Whether this tenant is in dry-run (rung 0). True everywhere in this phase. */
@@ -205,7 +207,52 @@ export class PlanningService {
     const version = await latestMarketMetadataVersion(this.deps.db);
     if (version === null) throw new PlanningError('no market metadata has been ingested yet', 'no_market_data');
     const allRules = await loadMarketRules(this.deps.db, version);
-    const candidates = allRules.filter((r) => r.market.asset === req.asset);
+    let candidates = allRules.filter((r) => r.market.asset === req.asset);
+
+    // When planning futures, enrich candidates with live futures instrument rules
+    // (exact quantity_increment step, precision, and min quantity) rather than spot.
+    if (req.isFutures && this.deps.getFuturesInstrument !== undefined) {
+      const quote: 'INR' | 'USDT' = quoteFor(req) === 'INR' ? 'INR' : 'USDT';
+      const marginCurrency = (req.marginCurrency ?? 'INR') as 'INR' | 'USDT';
+      const futuresPair = futuresPairOf({ asset: req.asset, quote }, marginCurrency);
+      try {
+        const instRes = await this.deps.getFuturesInstrument(futuresPair, marginCurrency);
+        if (instRes?.ok && instRes.instrument && instRes.instrument.quantityIncrement && instRes.instrument.quantityIncrement !== '0') {
+          const step = instRes.instrument.quantityIncrement;
+          const dot = step.indexOf('.');
+          const qPrecision = dot >= 0 ? step.length - dot - 1 : 0;
+          const pStep = instRes.instrument.priceIncrement;
+          const pDot = pStep ? pStep.indexOf('.') : -1;
+          const pPrecision = pDot >= 0 ? pStep.length - pDot - 1 : 0;
+          const minNotionalVal = instRes.instrument.minNotional || '0';
+          const quoteScale = quote === 'USDT' ? 8 : 2;
+          const minNotionalMinor = minNotionalVal !== '0'
+            ? scaledFromString(minNotionalVal, quoteScale).v.toString()
+            : '0';
+
+          candidates = candidates.map((r) => {
+            if (r.market.quote === quote) {
+              return {
+                ...r,
+                quantityStep: step,
+                quantityPrecision: qPrecision,
+                pricePrecision: pPrecision > 0 ? pPrecision : r.pricePrecision,
+                minQuantity: instRes.instrument?.minQuantity && instRes.instrument.minQuantity !== '0'
+                  ? instRes.instrument.minQuantity
+                  : r.minQuantity,
+                maxQuantity: instRes.instrument?.maxQuantity && instRes.instrument.maxQuantity !== '0'
+                  ? instRes.instrument.maxQuantity
+                  : r.maxQuantity,
+                minNotionalMinor: minNotionalMinor !== '0' ? minNotionalMinor : r.minNotionalMinor,
+              };
+            }
+            return r;
+          });
+        }
+      } catch (err) {
+        console.warn(`[planning] could not fetch futures instrument rules for ${futuresPair}:`, err);
+      }
+    }
 
     const platform = await readPlatformFlags(this.deps.db);
     const caps = await readTenantCaps(this.deps.tdb);
