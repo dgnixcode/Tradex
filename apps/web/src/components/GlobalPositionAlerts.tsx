@@ -28,6 +28,18 @@ export function GlobalPositionAlerts() {
   const [activeBreaches, setActiveBreaches] = useState<readonly BreachedGroup[]>([]);
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
   const [dismissedVisually, setDismissedVisually] = useState(false);
+  const [, setSoundTick] = useState(0);
+
+  // Listen for audio engine sound state changes
+  useEffect(() => {
+    const handleSoundState = () => {
+      setSoundTick((t) => t + 1);
+    };
+    window.addEventListener('tradex-alert-sound-state', handleSoundState);
+    return () => {
+      window.removeEventListener('tradex-alert-sound-state', handleSoundState);
+    };
+  }, []);
 
   // Listen for config changes from Settings page
   useEffect(() => {
@@ -211,7 +223,10 @@ export function GlobalPositionAlerts() {
     };
   }, []);
 
-  const handleStopAlert = () => {
+  const handleStopAlert = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     alertSound.stopAlertLoop();
     setIsAlarmPlaying(false);
     setAcknowledgedKeys((prev) => {
@@ -228,6 +243,7 @@ export function GlobalPositionAlerts() {
   }
 
   const hasDownBreach = activeBreaches.some((b) => b.direction === 'down');
+  const isSoundActive = alertSound.isActivelySounding();
 
   return (
     <div
@@ -235,13 +251,7 @@ export function GlobalPositionAlerts() {
       role="alert"
       aria-live="assertive"
       onClick={() => {
-        if (isAlarmPlaying && !alertSound.isActivelySounding()) {
-          alertSound.startAlertLoop(
-            config.soundType,
-            config.volume,
-            config.repeatIntervalSeconds * 1000
-          );
-        }
+        alertSound.unlockAndPlay();
       }}
     >
       <div className="alert-top-banner-inner">
@@ -259,13 +269,18 @@ export function GlobalPositionAlerts() {
               {hasDownBreach ? 'POSITION DROP ALERT' : 'POSITION PROFIT TARGET'}
             </span>
             {isAlarmPlaying && (
-              <span className="alert-banner-sound-pill" title="Alarm actively sounding">
+              <span
+                className="alert-banner-sound-pill"
+                title={isSoundActive ? 'Alarm actively sounding' : 'Click anywhere to un-mute alarm sound'}
+              >
                 <span className="audio-test-indicator">
                   <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
                   <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
                   <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
                 </span>
-                <span className="alert-banner-sound-text">SOUNDING</span>
+                <span className="alert-banner-sound-text">
+                  {isSoundActive ? 'SOUNDING' : 'CLICK TO UNMUTE'}
+                </span>
               </span>
             )}
           </div>
@@ -303,7 +318,7 @@ export function GlobalPositionAlerts() {
             <button
               type="button"
               className="alert-stop-sound-btn"
-              onClick={handleStopAlert}
+              onClick={(e) => handleStopAlert(e)}
               title="Stop sounding siren alert immediately"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -318,9 +333,10 @@ export function GlobalPositionAlerts() {
           <Link
             to="/app/positions"
             className="alert-view-positions-btn"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               if (isAlarmPlaying) {
-                handleStopAlert();
+                handleStopAlert(e);
               }
             }}
           >
@@ -331,7 +347,10 @@ export function GlobalPositionAlerts() {
             <button
               type="button"
               className="alert-dismiss-btn"
-              onClick={() => setDismissedVisually(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDismissedVisually(true);
+              }}
               title="Dismiss notification"
               aria-label="Dismiss notification"
             >
