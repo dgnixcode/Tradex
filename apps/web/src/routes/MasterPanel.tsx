@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth.tsx';
@@ -21,24 +21,6 @@ export function MasterPanel() {
 
   const [isReverting, setIsReverting] = useState(false);
 
-  // If visiting /app/master while impersonating a tenant, automatically revert session back to master
-  useEffect(() => {
-    if (state.status === 'authenticated' && state.session.impersonating && !isReverting) {
-      setIsReverting(true);
-      void (async () => {
-        try {
-          await revertMasterSession();
-          await refreshSession();
-          queryClient.clear();
-        } catch {
-          // Keep state if network issue
-        } finally {
-          setIsReverting(false);
-        }
-      })();
-    }
-  }, [state, refreshSession, queryClient, isReverting]);
-
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['masterUsers'],
     queryFn: () => fetchMasterUsers(),
@@ -51,12 +33,40 @@ export function MasterPanel() {
   }
 
   if (state.status === 'authenticated' && !state.session.isMaster) {
-    if (state.session.impersonating || isReverting) {
+    if (state.session.impersonating) {
       return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div className="spinner" style={{ margin: '0 auto 16px', width: 36, height: 36 }} />
-            <div style={{ fontSize: 15, fontWeight: 600 }}>Returning to Master Panel...</div>
+          <div style={{ textAlign: 'center', maxWidth: 440, padding: 32, background: 'var(--card-bg, #151b28)', border: '1px solid var(--line, #243046)', borderRadius: 14 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>Impersonated Session Active</h3>
+            <p style={{ margin: '0 0 24px', color: 'var(--muted, #94a3b8)', fontSize: 13.5, lineHeight: 1.5 }}>
+              You are currently viewing workspace as <strong>{state.session.email}</strong>.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={isReverting}
+                onClick={async () => {
+                  setIsReverting(true);
+                  try {
+                    await revertMasterSession();
+                    await refreshSession();
+                    queryClient.clear();
+                  } finally {
+                    setIsReverting(false);
+                  }
+                }}
+              >
+                {isReverting ? 'Returning...' : 'Return to Master Panel'}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => navigate('/app')}
+              >
+                Go to Workspace
+              </button>
+            </div>
           </div>
         </div>
       );
