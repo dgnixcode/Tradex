@@ -81,7 +81,7 @@ export function Security() {
   };
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <h2>Security</h2>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         Two-factor authentication for your own Tradex login — never the exchange&rsquo;s. It is what

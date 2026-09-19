@@ -231,7 +231,7 @@ export function MasterPanel() {
       </header>
 
       {/* Main Content Area */}
-      <main style={{ maxWidth: '1400px', margin: '0 auto', padding: '28px 24px' }}>
+      <main style={{ maxWidth: '100%', margin: '0', padding: '28px 24px', boxSizing: 'border-box' }}>
         {/* Metric Cards */}
         <div
           style={{

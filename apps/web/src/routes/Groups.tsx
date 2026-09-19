@@ -198,7 +198,7 @@ export function Groups() {
   });
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <h2>Groups</h2>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         Named subsets of your accounts. A group trade fans out across its enabled members.

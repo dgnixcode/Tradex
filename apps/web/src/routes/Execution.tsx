@@ -187,7 +187,7 @@ export function Execution() {
   const canRetry = failed > 0 && allSettled && !retry.isPending;
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Live execution</h2>
         <span className="mono muted">{plan.groupTradeId.slice(0, 8)}…</span>

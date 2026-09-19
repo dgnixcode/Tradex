@@ -81,7 +81,7 @@ export function ConnectAccount() {
 
   if (step === 'done') {
     return (
-      <div className="panel">
+      <div className="panel full-width-page">
         <h2>Account connected</h2>
         <div className="spread-warning" style={{ borderColor: 'var(--ok)', color: 'var(--ok)', borderStyle: 'solid' }}>
           <strong>{accountName}</strong> is now active and ready to group and trade.
@@ -94,7 +94,7 @@ export function ConnectAccount() {
   if (step === 'reconcile' && reconcile !== null) {
     const real = formatMinor(reconcile.realFreeMinor, quoteScaleOf(reconcile.allocatedCurrency), reconcile.allocatedCurrency);
     return (
-      <div className="panel">
+      <div className="panel full-width-page">
         <h2>Review {accountName}</h2>
         <p className="sub muted" style={{ marginTop: -8 }}>
           The key works. Everything below was read from the exchange just now — nothing here was
@@ -163,7 +163,7 @@ export function ConnectAccount() {
   const canValidate = accountName.trim() !== '' && apiKey.length >= 8 && apiSecret.length >= 8;
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <h2>Connect an exchange account</h2>
       <p className="sub muted" style={{ marginTop: -8 }}>
         Paste an API key from your exchange. It is sealed immediately — never stored or shown in plaintext — and

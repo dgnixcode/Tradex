@@ -124,12 +124,12 @@ export function GroupDetail() {
     [accounts.data, pickAccount],
   );
 
-  if (group.isLoading) return <div className="panel">Loading group…</div>;
-  if (group.isError) return <div className="panel error">{(group.error as Error).message}</div>;
-  if (detail === undefined) return <div className="panel">No such group.</div>;
+  if (group.isLoading) return <div className="panel full-width-page">Loading group…</div>;
+  if (group.isError) return <div className="panel error full-width-page">{(group.error as Error).message}</div>;
+  if (detail === undefined) return <div className="panel full-width-page">No such group.</div>;
 
   return (
-    <div>
+    <div className="full-width-page">
       {/* header / rename */}
       <div className="panel">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

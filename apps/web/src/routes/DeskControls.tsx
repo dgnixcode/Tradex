@@ -56,7 +56,7 @@ export function DeskControls() {
   const paused = data?.tenant.tradingPaused === true;
 
   return (
-    <div>
+    <div className="full-width-page">
       <div className="panel">
         <h2>Desk controls</h2>
         <p className="sub muted" style={{ marginTop: -8 }}>

@@ -81,7 +81,7 @@ export function Inquiries() {
   };
 
   return (
-    <div className="full-width-page" style={{ maxWidth: '1280px', margin: '0 auto' }}>
+    <div className="full-width-page">
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
         <div>

@@ -1795,23 +1795,14 @@ body:has(.panel-dark)::before {
   background: #000000;
 }
 
-/* Other non-terminal panels get clean padding */
-.panel-dark .app-content > *:not(.trading-terminal-layout) {
-  padding: 24px 32px;
-  max-width: 1300px;
-  margin: 0 auto;
-  overflow-y: auto;
-  height: 100%;
-  box-sizing: border-box;
-}
-
-/* Full width pages (e.g. Accounts, AccountDetail, Positions) */
+/* All non-terminal pages get clean full-width padding */
+.panel-dark .app-content > *:not(.trading-terminal-layout),
 .panel-dark .app-content > .full-width-page,
 .panel-dark .app-content > *:not(.trading-terminal-layout).full-width-page {
+  padding: 24px 32px;
   max-width: 100% !important;
   width: 100% !important;
   margin: 0 !important;
-  padding: 24px 32px !important;
   box-sizing: border-box;
   overflow-y: auto;
   height: 100%;

@@ -387,7 +387,7 @@ export function Settings() {
   const whatsappTestUrl = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(`Hello ${name || DEFAULT_BRAND_NAME}, I would like to inquire about your trading and wealth management desk.`)}`;
 
   return (
-    <div className="panel">
+    <div className="panel full-width-page">
       <h2 style={{ margin: 0 }}>Desk Settings &amp; Configuration</h2>
       <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
         Manage real-time position movement audio alerts, institutional branding, client contact channels, and security.
