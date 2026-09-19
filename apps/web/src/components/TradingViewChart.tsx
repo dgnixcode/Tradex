@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, memo } from 'react';
 
 interface TradingViewChartProps {
   readonly asset: string;
@@ -22,24 +22,18 @@ function resolveTradingViewSymbol(asset: string, quote = 'USDT'): string {
   return `BINANCE:${cleanAsset}USDT`;
 }
 
-interface SingleChartProps {
-  readonly symbol: string;
-  readonly theme: 'dark' | 'light';
-  readonly visible: boolean;
-}
-
-const SingleTradingViewChart = memo(function SingleTradingViewChart({
-  symbol,
-  theme,
-  visible,
-}: SingleChartProps) {
+export const TradingViewChart = memo(function TradingViewChart({
+  asset,
+  quoteCurrency = 'USDT',
+  theme = 'dark',
+  height = '100%',
+}: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const initializedRef = useRef(false);
+  const symbol = resolveTradingViewSymbol(asset, quoteCurrency);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || initializedRef.current) return;
-    initializedRef.current = true;
+    if (!container) return;
 
     // Official TradingView Advanced Chart DOM structure
     container.innerHTML = `
@@ -75,62 +69,13 @@ const SingleTradingViewChart = memo(function SingleTradingViewChart({
     });
 
     widgetDiv.appendChild(script);
+
+    return () => {
+      if (container) {
+        container.innerHTML = '';
+      }
+    };
   }, [symbol, theme]);
-
-  // When toggling back to visible, trigger window resize so TradingView canvas recalculates dimensions
-  useEffect(() => {
-    if (visible) {
-      const t = setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [visible]);
-
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        display: visible ? 'block' : 'none',
-        height: '100%',
-        width: '100%',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-      }}
-    />
-  );
-});
-
-const MAX_CACHED_CHARTS = 10;
-
-export const TradingViewChart = memo(function TradingViewChart({
-  asset,
-  quoteCurrency = 'USDT',
-  theme = 'dark',
-  height = '100%',
-}: TradingViewChartProps) {
-  const symbol = resolveTradingViewSymbol(asset, quoteCurrency);
-
-  // Keep an MRU (Most Recently Used) list of loaded chart symbols.
-  // Inactive charts are hidden via `display: none` rather than destroyed,
-  // preserving user drawings, trendlines, indicators, and zoom levels across coin & tab switches.
-  const [cachedSymbols, setCachedSymbols] = useState<string[]>(() => [symbol]);
-
-  useEffect(() => {
-    setCachedSymbols((prev) => {
-      if (prev.includes(symbol)) {
-        // Move to the end (most recent)
-        return [...prev.filter((s) => s !== symbol), symbol];
-      }
-      // Add new symbol; if cache exceeds limit, drop the oldest unused one
-      const updated = [...prev, symbol];
-      if (updated.length > MAX_CACHED_CHARTS) {
-        return updated.slice(updated.length - MAX_CACHED_CHARTS);
-      }
-      return updated;
-    });
-  }, [symbol]);
 
   return (
     <div
@@ -144,14 +89,7 @@ export const TradingViewChart = memo(function TradingViewChart({
         border: 'none',
       }}
     >
-      {cachedSymbols.map((s) => (
-        <SingleTradingViewChart
-          key={`${s}_${theme}`}
-          symbol={s}
-          theme={theme}
-          visible={s === symbol}
-        />
-      ))}
+      <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
     </div>
   );
 });
