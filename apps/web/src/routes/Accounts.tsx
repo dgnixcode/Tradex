@@ -265,7 +265,7 @@ export function Accounts() {
           ) : (
             <>
               {/* Desktop Table View (> 768px) */}
-              <div className="table-scroll-container desktop-pos-table">
+              <div className="table-scroll-container desktop-pos-table accounts-table-container">
                 <table>
                   <thead>
                     <tr>

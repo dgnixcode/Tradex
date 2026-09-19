@@ -8729,3 +8729,12 @@ body:has(.panel-dark)::before {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
 }
+
+/* Accounts Page: display full list without arbitrary half-screen 420px/480px cutoff */
+.accounts-table-container,
+.full-width-page > .table-scroll-container.accounts-table-container,
+.panel > .table-scroll-container.accounts-table-container {
+  max-height: none !important;
+  overflow-y: visible !important;
+  margin-bottom: 32px;
+}
