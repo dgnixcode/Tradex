@@ -151,13 +151,12 @@ export function App() {
           onRevertMaster={onRevertMaster}
         />
         <main className="app-main">
+          <GlobalPositionAlerts />
           <div className="app-content">
             <Outlet />
           </div>
         </main>
       </div>
-
-      <GlobalPositionAlerts />
 
       {/* Mobile Bottom Navigation Bar (<= 860px) */}
       <nav className="panel-mobile-bottom-nav" aria-label="Mobile Navigation">

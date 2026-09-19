@@ -232,165 +232,74 @@ export function GlobalPositionAlerts() {
   const hasDownBreach = activeBreaches.some((b) => b.direction === 'down');
 
   return (
-    <div className="global-position-alert-overlay" role="alert" aria-live="assertive">
-      <div
-        className="global-position-alert-card"
-        style={{
-          borderColor: hasDownBreach ? 'rgba(239, 68, 68, 0.7)' : 'rgba(16, 185, 129, 0.7)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: '50%',
-                background: hasDownBreach ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                color: hasDownBreach ? '#ef4444' : '#10b981',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14.5, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>Position Movement Alert</span>
-                {isAlarmPlaying && (
-                  <span className="audio-test-indicator" title="Alert sound playing continuously">
-                    <span className="audio-test-bar" style={{ background: '#ef4444' }} />
-                    <span className="audio-test-bar" style={{ background: '#ef4444' }} />
-                    <span className="audio-test-bar" style={{ background: '#ef4444' }} />
-                  </span>
-                )}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                {isAlarmPlaying ? 'Alarm is sounding until stopped.' : 'Alarm silenced (active breach)'}
-              </div>
-            </div>
+    <div
+      className={`global-position-alert-top-banner ${hasDownBreach ? 'alert-danger' : 'alert-success'}`}
+      role="alert"
+      aria-live="assertive"
+    >
+      <div className="alert-top-banner-inner">
+        {/* Left Section: Icon, Title & Sound Indicator */}
+        <div className="alert-banner-left">
+          <div className="alert-banner-icon-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
           </div>
-
-          {!isAlarmPlaying && (
-            <button
-              type="button"
-              onClick={() => setDismissedVisually(true)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--muted)',
-                cursor: 'pointer',
-                padding: '4px',
-              }}
-              title="Dismiss notification"
-              aria-label="Dismiss notification"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
+          <div className="alert-banner-title-area">
+            <span className="alert-banner-badge">
+              {hasDownBreach ? 'POSITION DROP ALERT' : 'POSITION PROFIT TARGET'}
+            </span>
+            {isAlarmPlaying && (
+              <span className="alert-banner-sound-pill" title="Alarm actively sounding">
+                <span className="audio-test-indicator">
+                  <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
+                  <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
+                  <span className="audio-test-bar" style={{ background: hasDownBreach ? '#ef4444' : '#10b981' }} />
+                </span>
+                <span className="alert-banner-sound-text">SOUNDING</span>
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Breached Groups List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+        {/* Center Section: Breached Position Chips */}
+        <div className="alert-banner-chips">
           {activeBreaches.map((b) => {
             const isDown = b.direction === 'down';
             return (
               <div
                 key={`${b.groupKey}:${b.direction}`}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: `1px solid ${isDown ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                }}
+                className={`alert-coin-chip ${isDown ? 'chip-down' : 'chip-up'}`}
+                title={b.triggerReason}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13.5, color: '#f1f5f9' }}>{b.asset}</span>
-                    <span
-                      style={{
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                        textTransform: 'uppercase',
-                        background: b.side === 'long' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                        color: b.side === 'long' ? '#34d399' : '#f87171',
-                      }}
-                    >
-                      {b.side}
-                    </span>
-                    {b.groupNames.length > 0 && (
-                      <span className="muted" style={{ fontSize: 11.5 }}>
-                        ({b.groupNames.join(', ')})
-                      </span>
-                    )}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                    {b.triggerReason || (isDown ? `Threshold: -${b.thresholdPct}%` : `Threshold: +${b.thresholdPct}%`)}
-                  </div>
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 800,
-                      color: isDown ? '#ef4444' : '#10b981',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    {b.roePct >= 0 ? `+${b.roePct.toFixed(2)}%` : `${b.roePct.toFixed(2)}%`}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: isDown ? '#fca5a5' : '#6ee7b7',
-                    }}
-                  >
-                    {isDown ? 'Down Move' : 'Up Move'}
-                  </div>
-                </div>
+                <span className="alert-chip-asset">{b.asset}</span>
+                <span className={`alert-chip-side ${b.side === 'long' ? 'side-long' : 'side-short'}`}>
+                  {b.side.toUpperCase()}
+                </span>
+                {b.groupNames.length > 0 && (
+                  <span className="alert-chip-group">({b.groupNames.join(', ')})</span>
+                )}
+                <span className="alert-chip-roe">
+                  {isDown ? '↓ ' : '↑ '}
+                  {b.roePct >= 0 ? `+${b.roePct.toFixed(2)}%` : `${b.roePct.toFixed(2)}%`}
+                </span>
               </div>
             );
           })}
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {/* Right Section: Action Controls */}
+        <div className="alert-banner-actions">
           {isAlarmPlaying && (
             <button
               type="button"
-              className="btn"
+              className="alert-stop-sound-btn"
               onClick={handleStopAlert}
-              style={{
-                flex: 1,
-                background: '#ef4444',
-                borderColor: '#dc2626',
-                color: '#ffffff',
-                fontWeight: 700,
-                fontSize: 13,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                padding: '8px 14px',
-              }}
+              title="Stop sounding siren alert immediately"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
                 <line x1="23" y1="9" x2="17" y2="15" />
                 <line x1="17" y1="9" x2="23" y2="15" />
@@ -401,22 +310,30 @@ export function GlobalPositionAlerts() {
 
           <Link
             to="/app/positions"
-            className="btn secondary"
+            className="alert-view-positions-btn"
             onClick={() => {
               if (isAlarmPlaying) {
                 handleStopAlert();
               }
             }}
-            style={{
-              flex: isAlarmPlaying ? 'initial' : 1,
-              textAlign: 'center',
-              fontSize: 13,
-              fontWeight: 600,
-              padding: '8px 14px',
-            }}
           >
             <span>View Positions →</span>
           </Link>
+
+          {!isAlarmPlaying && (
+            <button
+              type="button"
+              className="alert-dismiss-btn"
+              onClick={() => setDismissedVisually(true)}
+              title="Dismiss notification"
+              aria-label="Dismiss notification"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -109,9 +109,29 @@ class AlertSoundEngine {
   private ctx: AudioContext | null = null;
   private isLooping = false;
   private loopTimer: number | null = null;
+  private currentVolume = 0.8;
+  private currentSoundType: AlertSoundType = 'siren';
+
+  // HTML5 audio element for siren
   private sirenAudio: HTMLAudioElement | null = null;
-  private sampleAudio: HTMLAudioElement | null = null;
   private sampleStopTimer: number | null = null;
+
+  // Web Audio decoded buffer for instant, bulletproof playback
+  private sirenBuffer: AudioBuffer | null = null;
+  private isBufferLoading = false;
+  private activeSource: AudioBufferSourceNode | null = null;
+  private unlockListenerBound = false;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      // Pre-warm the HTML5 audio element so it is cached and ready
+      this.getSirenAudio();
+      // Pre-load and decode the MP3 into an AudioBuffer in memory
+      void this.ensureSirenBufferLoaded();
+      // Bind click/touch unlock listener so autoplay policy never blocks
+      this.bindAutoplayUnlock();
+    }
+  }
 
   private getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
@@ -124,51 +144,156 @@ class AlertSoundEngine {
     return this.ctx;
   }
 
-  private stopSampleAudio(): void {
+  private bindAutoplayUnlock(): void {
+    if (this.unlockListenerBound || typeof window === 'undefined') return;
+    this.unlockListenerBound = true;
+    const unlock = () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      this.unlockListenerBound = false;
+      if (this.ctx && this.ctx.state === 'suspended') {
+        void this.ctx.resume();
+      }
+      // If an alert was supposed to be playing but was blocked, start it now
+      if (this.isLooping && this.currentSoundType === 'siren' && !this.isSirenPlaying()) {
+        this.playSirenAudio(this.currentVolume, true);
+      }
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+  }
+
+  private getSirenAudio(): HTMLAudioElement {
+    if (!this.sirenAudio && typeof Audio !== 'undefined') {
+      this.sirenAudio = new Audio('/siren-alert.mp3');
+      this.sirenAudio.preload = 'auto';
+      this.sirenAudio.load();
+    }
+    return this.sirenAudio!;
+  }
+
+  private async ensureSirenBufferLoaded(): Promise<AudioBuffer | null> {
+    if (this.sirenBuffer) return this.sirenBuffer;
+    if (this.isBufferLoading || typeof window === 'undefined') return null;
+    this.isBufferLoading = true;
+    try {
+      const res = await fetch('/siren-alert.mp3');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const arrayBuf = await res.arrayBuffer();
+      const ctx = this.getContext();
+      this.sirenBuffer = await ctx.decodeAudioData(arrayBuf);
+      return this.sirenBuffer;
+    } catch {
+      return null;
+    } finally {
+      this.isBufferLoading = false;
+    }
+  }
+
+  private isSirenPlaying(): boolean {
+    if (this.activeSource) return true;
+    if (this.sirenAudio && !this.sirenAudio.paused && this.sirenAudio.currentTime > 0) return true;
+    return false;
+  }
+
+  private playSirenAudio(volume: number, loop: boolean): void {
+    const clampedVolume = Math.max(0.01, Math.min(1, volume));
+
+    // Try Web Audio buffer source first (instant, decoded in RAM, perfect loop, no network/abort errors)
+    if (this.sirenBuffer) {
+      try {
+        const ctx = this.getContext();
+        // Stop any previous active buffer source
+        if (this.activeSource) {
+          try {
+            this.activeSource.stop();
+            this.activeSource.disconnect();
+          } catch {
+            // Ignore
+          }
+          this.activeSource = null;
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = this.sirenBuffer;
+        source.loop = loop;
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(clampedVolume, ctx.currentTime);
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        source.start(0);
+        this.activeSource = source;
+
+        source.onended = () => {
+          if (this.activeSource === source) {
+            this.activeSource = null;
+          }
+        };
+        return;
+      } catch {
+        // Fallback to HTMLAudioElement below
+      }
+    }
+
+    // HTML5 Audio playback (fallback or while buffer is decoding)
+    try {
+      const audio = this.getSirenAudio();
+      audio.volume = clampedVolume;
+      audio.loop = loop;
+      audio.currentTime = 0;
+      const promise = audio.play();
+      if (promise !== undefined) {
+        promise.catch(() => {
+          // Autoplay policy or interrupted: ensure buffer is loaded and bind unlock listener
+          void this.ensureSirenBufferLoaded();
+          this.bindAutoplayUnlock();
+        });
+      }
+    } catch {
+      // Audio element failed
+    }
+  }
+
+  private stopSirenAudio(): void {
+    if (this.activeSource) {
+      try {
+        this.activeSource.stop();
+        this.activeSource.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.activeSource = null;
+    }
+    if (this.sirenAudio) {
+      try {
+        this.sirenAudio.pause();
+        this.sirenAudio.currentTime = 0;
+      } catch {
+        // Ignore
+      }
+    }
     if (this.sampleStopTimer !== null) {
       clearTimeout(this.sampleStopTimer);
       this.sampleStopTimer = null;
-    }
-    if (this.sampleAudio) {
-      try {
-        this.sampleAudio.pause();
-        this.sampleAudio.currentTime = 0;
-      } catch {
-        // Ignore pause issues
-      }
-      this.sampleAudio = null;
     }
   }
 
   playChime(soundType: AlertSoundType = 'siren', volume = 0.8): void {
     const clampedVolume = Math.max(0.01, Math.min(1, volume));
+    this.stopSirenAudio();
 
     if (soundType === 'siren') {
-      this.stopSampleAudio();
-      try {
-        if (typeof Audio !== 'undefined') {
-          const audio = new Audio('/siren-alert.mp3');
-          audio.volume = clampedVolume;
-          this.sampleAudio = audio;
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {
-              // Browser autoplay policy or missing audio file fallback
-              this.playSynthesizedChime('pulse', clampedVolume);
-            });
-          }
-          // Sample plays for 4.5 seconds for a clear, crisp preview
-          this.sampleStopTimer = window.setTimeout(() => {
-            this.stopSampleAudio();
-          }, 4500);
-          return;
-        }
-      } catch {
-        // Fallback to Web Audio synthesis if HTML Audio throws
-      }
+      this.playSirenAudio(clampedVolume, false);
+      // Stop sample after 4.5 seconds
+      this.sampleStopTimer = window.setTimeout(() => {
+        this.stopSirenAudio();
+      }, 4500);
+      return;
     }
 
-    this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
+    this.playSynthesizedChime(soundType, clampedVolume);
   }
 
   private playSynthesizedChime(soundType: 'harmonic' | 'bell' | 'pulse', volume: number): void {
@@ -248,39 +373,21 @@ class AlertSoundEngine {
   startAlertLoop(soundType: AlertSoundType, volume: number, intervalMs = 3000): void {
     if (this.isLooping) return;
     this.isLooping = true;
+    this.currentSoundType = soundType;
+    this.currentVolume = volume;
     const clampedVolume = Math.max(0.01, Math.min(1, volume));
 
     if (soundType === 'siren') {
-      this.stopSampleAudio();
-      try {
-        if (typeof Audio !== 'undefined') {
-          const audio = new Audio('/siren-alert.mp3');
-          audio.volume = clampedVolume;
-          audio.loop = true;
-          this.sirenAudio = audio;
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {
-              // Fallback to synthesized repeating chime if autoplay restricted or failed
-              this.playSynthesizedChime('pulse', clampedVolume);
-              this.loopTimer = window.setInterval(() => {
-                if (this.isLooping) {
-                  this.playSynthesizedChime('pulse', clampedVolume);
-                }
-              }, Math.max(1000, intervalMs));
-            });
-          }
-          return;
-        }
-      } catch {
-        // Fallback to loop timer
-      }
+      this.stopSirenAudio();
+      this.playSirenAudio(clampedVolume, true);
+      return;
     }
 
-    this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
+    // Synthesized chime loops for harmonic / bell / pulse
+    this.playSynthesizedChime(soundType, clampedVolume);
     this.loopTimer = window.setInterval(() => {
       if (this.isLooping) {
-        this.playSynthesizedChime(soundType === 'siren' ? 'pulse' : soundType, clampedVolume);
+        this.playSynthesizedChime(soundType, clampedVolume);
       }
     }, Math.max(1000, intervalMs));
   }
@@ -291,16 +398,7 @@ class AlertSoundEngine {
       clearInterval(this.loopTimer);
       this.loopTimer = null;
     }
-    if (this.sirenAudio) {
-      try {
-        this.sirenAudio.pause();
-        this.sirenAudio.currentTime = 0;
-      } catch {
-        // Ignore
-      }
-      this.sirenAudio = null;
-    }
-    this.stopSampleAudio();
+    this.stopSirenAudio();
   }
 
   isPlaying(): boolean {
