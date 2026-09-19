@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWorkspace, renameWorkspace, stepUp, updateServerBranding } from '../api.ts';
+import {
+  fetchFuturesPositions,
+  fetchWorkspace,
+  renameWorkspace,
+  stepUp,
+  updateServerBranding,
+} from '../api.ts';
 import type { ApiError } from '../api.ts';
+import {
+  alertSound,
+  loadPositionAlertConfig,
+  savePositionAlertConfig,
+  type AlertSoundType,
+  type PositionAlertConfig,
+} from '../audio-alerts.ts';
 import { useAuth } from '../auth.tsx';
 import {
   useBranding,
@@ -14,14 +27,14 @@ import {
   DEFAULT_HOURS,
 } from '../branding.tsx';
 import { Brand } from '../components/Brand.tsx';
+import { buildGroups, calcGroupRoePct } from './Futures.tsx';
 
-// The Settings page — workspace preferences, platform branding, and company contact channels.
-//
-// Allows operators to customize the brand name, upload custom logos, configure
-// direct client contact channels (email, phone, address, and WhatsApp chat number),
-// and preview how everything appears across the application and website.
+// Category tabs for organized settings management
+type SettingsCategory = 'alerts' | 'branding' | 'contact' | 'security';
 
 const PRESET_ICONS = ['◆', '◈', '▲', '✦', '◉', '■', '❖', '✚', 'Ω', '§'];
+const DOWN_PRESETS = [3, 5, 10, 15, 20];
+const UP_PRESETS = [5, 10, 15, 20, 30];
 
 export function Settings() {
   const qc = useQueryClient();
@@ -33,7 +46,65 @@ export function Settings() {
 
   const { branding, updateBranding, resetBranding } = useBranding();
 
-  // Branding states
+  // Active Category Tab
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('alerts');
+
+  // =========================================================================
+  // CATEGORY 1: POSITION & RISK ALERTS STATE
+  // =========================================================================
+  const [alertConfig, setAlertConfig] = useState<PositionAlertConfig>(() => loadPositionAlertConfig());
+  const [isTestingSound, setIsTestingSound] = useState(false);
+  const [alertsSavedStatus, setAlertsSavedStatus] = useState<string | null>(null);
+
+  // Live positions query for monitoring preview
+  const livePositions = useQuery({
+    queryKey: ['futures-positions'],
+    queryFn: fetchFuturesPositions,
+    refetchInterval: 5000,
+  });
+
+  const positionGroups = buildGroups(livePositions.data?.views ?? []);
+
+  // Stop any testing loop when unmounting or switching tabs
+  useEffect(() => {
+    return () => {
+      alertSound.stopAlertLoop();
+    };
+  }, []);
+
+  const handleTestSoundToggle = () => {
+    if (isTestingSound) {
+      alertSound.stopAlertLoop();
+      setIsTestingSound(false);
+    } else {
+      setIsTestingSound(true);
+      alertSound.startAlertLoop(
+        alertConfig.soundType,
+        alertConfig.volume,
+        alertConfig.repeatIntervalSeconds * 1000
+      );
+    }
+  };
+
+  const handlePlaySample = (type: AlertSoundType) => {
+    if (isTestingSound) {
+      alertSound.stopAlertLoop();
+      setIsTestingSound(false);
+    }
+    alertSound.playChime(type, alertConfig.volume);
+  };
+
+  const handleSaveAlertConfig = () => {
+    savePositionAlertConfig(alertConfig);
+    setAlertsSavedStatus('Alert settings saved successfully and live across all screens.');
+    setTimeout(() => {
+      setAlertsSavedStatus(null);
+    }, 4000);
+  };
+
+  // =========================================================================
+  // CATEGORY 2 & 3: BRANDING & CONTACT CHANNELS STATE
+  // =========================================================================
   const [name, setName] = useState(() => branding.name || DEFAULT_BRAND_NAME);
   const [logo, setLogo] = useState<string | null>(null);
   const [logoTab, setLogoTab] = useState<'upload' | 'url' | 'icon'>('upload');
@@ -42,7 +113,6 @@ export function Settings() {
   const [code, setCode] = useState('');
   const [needsCode, setNeedsCode] = useState(false);
 
-  // Contact info states
   const [email, setEmail] = useState(() => branding.email || DEFAULT_EMAIL);
   const [phone, setPhone] = useState(() => branding.phone || DEFAULT_PHONE);
   const [whatsapp, setWhatsapp] = useState(() => branding.whatsapp || DEFAULT_WHATSAPP);
@@ -54,7 +124,6 @@ export function Settings() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInitializedRef = useRef(false);
 
-  // Initialize once from workspace data if branding was not customized
   useEffect(() => {
     if (!nameInitializedRef.current && workspace.data?.name) {
       if (!branding.name || branding.name === DEFAULT_BRAND_NAME) {
@@ -170,7 +239,7 @@ export function Settings() {
     setStatus({ kind: 'ok', message: 'All branding and contact settings restored to default values.' });
   };
 
-  const submit = async (e: React.FormEvent): Promise<void> => {
+  const submitBranding = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     setStatus(null);
     const cleanName = name.trim();
@@ -181,7 +250,6 @@ export function Settings() {
 
     setSaving(true);
     try {
-      // Check if workspace name changed on server (for owners)
       const serverNameChanged = workspace.data !== undefined && cleanName !== workspace.data.name;
 
       if (isOwner && serverNameChanged) {
@@ -212,7 +280,6 @@ export function Settings() {
         }
       }
 
-      // Persist branding & contact channels to PostgreSQL if owner
       if (isOwner) {
         await updateServerBranding({
           name: cleanName,
@@ -225,7 +292,6 @@ export function Settings() {
         });
       }
 
-      // Apply updates locally and sync across tabs
       updateBranding({
         name: cleanName,
         logo,
@@ -239,451 +305,999 @@ export function Settings() {
       setStatus({
         kind: 'ok',
         message: isOwner
-          ? 'Platform settings and contact channels saved to database and live across the website.'
-          : 'Platform settings and contact channels saved locally.',
+          ? 'Settings saved to database and live across the platform.'
+          : 'Settings saved locally.',
       });
     } catch (err) {
       const ae = err as ApiError;
-      setStatus({ kind: 'err', message: ae.message ?? 'Could not save platform settings.' });
+      setStatus({ kind: 'err', message: ae.message ?? 'Could not save settings.' });
     } finally {
       setSaving(false);
     }
   };
 
-  const hasPendingChanges =
+  const hasBrandingChanges =
     name.trim() !== branding.name ||
     logo !== branding.logo ||
+    (isOwner && workspace.data !== undefined && name.trim() !== workspace.data.name);
+
+  const hasContactChanges =
     email.trim() !== branding.email ||
     phone.trim() !== branding.phone ||
     whatsapp.trim() !== branding.whatsapp ||
     address.trim() !== branding.address ||
-    hours.trim() !== branding.hours ||
-    (isOwner && workspace.data !== undefined && name.trim() !== workspace.data.name);
+    hours.trim() !== branding.hours;
 
   const cleanWhatsapp = (whatsapp || '').replace(/[^0-9]/g, '') || '919876543210';
-  const whatsappTestUrl = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(`Hello ${name || DEFAULT_BRAND_NAME}, I would like to inquire about your wealth management services.`)}`;
+  const whatsappTestUrl = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(`Hello ${name || DEFAULT_BRAND_NAME}, I would like to inquire about your trading and wealth management desk.`)}`;
 
   return (
     <div className="panel">
-      <h2 style={{ margin: 0 }}>Settings &amp; Platform Configuration</h2>
-      <p className="sub muted" style={{ marginTop: -8, marginBottom: 24 }}>
-        Manage platform branding, identity, and customer-facing contact channels across the website and application.
+      <h2 style={{ margin: 0 }}>Desk Settings &amp; Configuration</h2>
+      <p className="sub muted" style={{ marginTop: -8, marginBottom: 20 }}>
+        Manage real-time position movement audio alerts, institutional branding, client contact channels, and security.
       </p>
 
-      {workspace.isLoading && <p className="muted">Loading workspace configuration…</p>}
-      {workspace.isError && <div className="error">{(workspace.error as Error).message}</div>}
+      {/* Category Navigation Bar */}
+      <nav className="settings-categories-nav" aria-label="Settings Categories">
+        <button
+          type="button"
+          className={`settings-category-btn ${activeCategory === 'alerts' ? 'active' : ''}`}
+          onClick={() => {
+            if (isTestingSound) alertSound.stopAlertLoop();
+            setIsTestingSound(false);
+            setActiveCategory('alerts');
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+          </svg>
+          <span>Position &amp; Risk Alerts</span>
+        </button>
 
-      <form onSubmit={submit}>
-        {/* =========================================================================
-            SECTION 1: PLATFORM BRANDING & IDENTITY
-           ========================================================================= */}
-        <div className="settings-section-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', flexShrink: 0 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 22 7 12 2"/><line x1="4" y1="22" x2="20" y2="22"/><line x1="6" y1="18" x2="18" y2="18"/><line x1="10" y1="7" x2="10" y2="18"/><line x1="14" y1="7" x2="14" y2="18"/><line x1="18" y1="7" x2="18" y2="18"/><line x1="6" y1="7" x2="6" y2="18"/></svg>
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Platform Branding &amp; Identity</h3>
-              <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-                Controls the logo, wordmark, and brand name displayed on the marketing website, login portal, and trading desk.
-              </p>
-            </div>
-          </div>
+        <button
+          type="button"
+          className={`settings-category-btn ${activeCategory === 'branding' ? 'active' : ''}`}
+          onClick={() => {
+            if (isTestingSound) alertSound.stopAlertLoop();
+            setIsTestingSound(false);
+            setActiveCategory('branding');
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="12 2 2 7 22 7 12 2" />
+            <line x1="4" y1="22" x2="20" y2="22" />
+            <line x1="6" y1="18" x2="18" y2="18" />
+            <line x1="10" y1="7" x2="10" y2="18" />
+            <line x1="14" y1="7" x2="14" y2="18" />
+            <line x1="18" y1="7" x2="18" y2="18" />
+            <line x1="6" y1="7" x2="6" y2="18" />
+          </svg>
+          <span>Platform Branding</span>
+        </button>
 
-          {isOwner && !totpEnabled && (
-            <div style={{ fontSize: 13, marginBottom: 16, padding: '10px 14px', background: 'rgba(245, 158, 11, 0.12)', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.4)', color: '#fef08a', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span>Two-factor authentication is not enrolled. It is recommended before owner actions — <Link to="/app/security" style={{ color: '#34d399', fontWeight: 600, textDecoration: 'underline' }}>enrol in Security &amp; 2FA</Link>.</span>
-            </div>
-          )}
+        <button
+          type="button"
+          className={`settings-category-btn ${activeCategory === 'contact' ? 'active' : ''}`}
+          onClick={() => {
+            if (isTestingSound) alertSound.stopAlertLoop();
+            setIsTestingSound(false);
+            setActiveCategory('contact');
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+          </svg>
+          <span>Company &amp; Contact</span>
+        </button>
 
-          {/* Platform Name */}
-          <div className="field" style={{ marginBottom: 18 }}>
-            <label htmlFor="brand-name" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-              Platform Brand Name
-            </label>
-            <input
-              id="brand-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Aza WealthKare"
-              aria-label="Platform brand name"
-              maxLength={120}
-              style={{ width: '100%', maxWidth: 420 }}
-            />
-            {!isOwner && workspace.data && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                (Workspace name: <strong>{workspace.data.name}</strong>)
-              </div>
-            )}
-          </div>
+        <button
+          type="button"
+          className={`settings-category-btn ${activeCategory === 'security' ? 'active' : ''}`}
+          onClick={() => {
+            if (isTestingSound) alertSound.stopAlertLoop();
+            setIsTestingSound(false);
+            setActiveCategory('security');
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span>Security &amp; 2FA</span>
+        </button>
+      </nav>
 
-          {/* Logo / Icon Tabs */}
-          <div className="field" style={{ marginBottom: 18 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-              Brand Logo / Icon
-            </label>
-
-            <div className="branding-logo-tabs">
-              <button
-                type="button"
-                className={`branding-tab-btn ${logoTab === 'upload' ? 'active' : ''}`}
-                onClick={() => setLogoTab('upload')}
-              >
-                Upload Image
-              </button>
-              <button
-                type="button"
-                className={`branding-tab-btn ${logoTab === 'icon' ? 'active' : ''}`}
-                onClick={() => setLogoTab('icon')}
-              >
-                Symbol / Monogram
-              </button>
-              <button
-                type="button"
-                className={`branding-tab-btn ${logoTab === 'url' ? 'active' : ''}`}
-                onClick={() => setLogoTab('url')}
-              >
-                Image URL
-              </button>
-            </div>
-
-            {logoTab === 'upload' && (
-              <div>
-                <div
-                  className="branding-file-drop"
-                  onClick={() => fileInputRef.current?.click()}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
-                    style={{ display: 'none' }}
-                    onChange={handleFileUpload}
-                  />
-                  <div style={{ marginBottom: 6 }}>
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  </div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>Click to browse image file</div>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    PNG, SVG, JPG, or WebP up to 2 MB (recommended square aspect ratio)
-                  </div>
+      {/* =========================================================================
+          TAB 1: POSITION & RISK ALERTS
+         ========================================================================= */}
+      {activeCategory === 'alerts' && (
+        <div>
+          <div className="settings-section-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Position Movement Audio Alerts</h3>
+                  <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+                    Audible tone sounds across any screen when any group moves beyond your threshold until stopped.
+                  </p>
                 </div>
               </div>
-            )}
 
-            {logoTab === 'icon' && (
-              <div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Master Alerts Toggle */}
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: '#171f33', padding: '6px 14px', borderRadius: 8, border: '1px solid #28354d' }}>
+                <input
+                  type="checkbox"
+                  checked={alertConfig.enabled}
+                  onChange={(e) => setAlertConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 700, fontSize: 13, color: alertConfig.enabled ? '#34d399' : '#94a3b8' }}>
+                  {alertConfig.enabled ? 'Alerts Active' : 'Alerts Disabled'}
+                </span>
+              </label>
+            </div>
+
+            {/* Threshold Configuration Grid */}
+            <div className="alert-config-grid">
+              {/* Downward Movement (Loss/Drop) Card */}
+              <div className={`alert-threshold-card ${alertConfig.downAlertEnabled ? 'active-down' : ''}`}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>Group Drop Alert (Down %)</span>
+                  </div>
                   <input
-                    value={iconInput}
+                    type="checkbox"
+                    checked={alertConfig.downAlertEnabled}
+                    onChange={(e) => setAlertConfig((prev) => ({ ...prev, downAlertEnabled: e.target.checked }))}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                </div>
+
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                  Sound alarm when any position group's return falls below this percentage.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: '#ef4444', fontSize: 15 }}>-</span>
+                  <input
+                    type="number"
+                    min="0.5"
+                    max="1000"
+                    step="0.5"
+                    value={alertConfig.downThresholdPct}
                     onChange={(e) => {
-                      setIconInput(e.target.value);
-                      setLogo(e.target.value.trim() ? e.target.value.trim() : null);
+                      const val = Math.max(0.1, Number(e.target.value) || 1);
+                      setAlertConfig((prev) => ({ ...prev, downThresholdPct: val }));
                     }}
-                    placeholder="Symbol or letter"
-                    maxLength={10}
-                    style={{ width: 140, textAlign: 'center', fontSize: 16 }}
+                    style={{ width: 90, padding: '6px 10px', fontSize: 14, fontWeight: 700 }}
                   />
-                  <span className="muted" style={{ fontSize: 12.5 }}>
-                    or pick a quick institutional symbol:
-                  </span>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>%</span>
                 </div>
 
-                <div className="branding-icon-presets">
-                  {PRESET_ICONS.map((ic) => (
+                <div className="alert-preset-chips">
+                  <span className="muted" style={{ fontSize: 11 }}>Presets:</span>
+                  {DOWN_PRESETS.map((p) => (
                     <button
-                      key={ic}
+                      key={p}
                       type="button"
-                      className={`branding-icon-btn ${logo === ic ? 'selected' : ''}`}
-                      onClick={() => handleSelectIcon(ic)}
-                      title={`Select ${ic}`}
+                      className={`alert-preset-chip ${alertConfig.downThresholdPct === p ? 'selected' : ''}`}
+                      onClick={() => setAlertConfig((prev) => ({ ...prev, downThresholdPct: p }))}
                     >
-                      {ic}
+                      -{p}%
                     </button>
                   ))}
                 </div>
               </div>
-            )}
 
-            {logoTab === 'url' && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="https://example.com/logo.svg"
-                  style={{ flex: 1, maxWidth: 360 }}
-                />
-                <button type="button" className="btn btn-sm secondary" onClick={handleApplyUrl}>
-                  Apply URL
-                </button>
+              {/* Upward Movement (Gain/Rise) Card */}
+              <div className={`alert-threshold-card ${alertConfig.upAlertEnabled ? 'active-up' : ''}`}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>Group Rise Alert (Up %)</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={alertConfig.upAlertEnabled}
+                    onChange={(e) => setAlertConfig((prev) => ({ ...prev, upAlertEnabled: e.target.checked }))}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }}
+                  />
+                </div>
+
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                  Sound alarm when any position group's return rises beyond this percentage.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: '#10b981', fontSize: 15 }}>+</span>
+                  <input
+                    type="number"
+                    min="0.5"
+                    max="1000"
+                    step="0.5"
+                    value={alertConfig.upThresholdPct}
+                    onChange={(e) => {
+                      const val = Math.max(0.1, Number(e.target.value) || 1);
+                      setAlertConfig((prev) => ({ ...prev, upThresholdPct: val }));
+                    }}
+                    style={{ width: 90, padding: '6px 10px', fontSize: 14, fontWeight: 700 }}
+                  />
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>%</span>
+                </div>
+
+                <div className="alert-preset-chips">
+                  <span className="muted" style={{ fontSize: 11 }}>Presets:</span>
+                  {UP_PRESETS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`alert-preset-chip ${alertConfig.upThresholdPct === p ? 'selected' : ''}`}
+                      onClick={() => setAlertConfig((prev) => ({ ...prev, upThresholdPct: p }))}
+                    >
+                      +{p}%
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
+            </div>
 
-            {logo && (
-              <div className="branding-current-logo-preview" style={{ marginTop: 12 }}>
-                <span className="muted" style={{ fontSize: 12 }}>Active custom logo:</span>
-                <Brand customName="" customLogo={logo} showName={false} size="sm" />
+            {/* Audio Synthesis & Sound Controls */}
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 18, marginTop: 10 }}>
+              <h4 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Audio Tone &amp; Volume Customization</h4>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, alignItems: 'flex-start' }}>
+                {/* Sound Tone Selector */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13 }}>
+                    Chime Synthesizer Tone
+                  </label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select
+                      value={alertConfig.soundType}
+                      onChange={(e) => {
+                        const nextType = e.target.value as AlertSoundType;
+                        setAlertConfig((prev) => ({ ...prev, soundType: nextType }));
+                        handlePlaySample(nextType);
+                      }}
+                      style={{ flex: 1, padding: '8px 12px', fontSize: 13, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 6 }}
+                    >
+                      <option value="harmonic">Harmonic Chime (Melodic Tri-Tone)</option>
+                      <option value="bell">Crystal Bell (Resonant Clear Tone)</option>
+                      <option value="pulse">Alert Pulse (Dual Attention Tone)</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={() => handlePlaySample(alertConfig.soundType)}
+                      title="Play sample tone"
+                      style={{ padding: '8px 12px' }}
+                    >
+                      Sample
+                    </button>
+                  </div>
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>
+                    Custom synthesized polyphonic sound generated via Web Audio API.
+                  </span>
+                </div>
+
+                {/* Volume Slider */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <label style={{ fontWeight: 600, fontSize: 13 }}>Alert Volume</label>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#3b82f6' }}>
+                      {Math.round(alertConfig.volume * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={alertConfig.volume}
+                    onChange={(e) => setAlertConfig((prev) => ({ ...prev, volume: Number(e.target.value) }))}
+                    style={{ width: '100%', cursor: 'pointer' }}
+                  />
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>
+                    Controls volume across desk speakers or headphones.
+                  </span>
+                </div>
+
+                {/* Repeat Frequency */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13 }}>
+                    Repeat Interval
+                  </label>
+                  <select
+                    value={alertConfig.repeatIntervalSeconds}
+                    onChange={(e) => setAlertConfig((prev) => ({ ...prev, repeatIntervalSeconds: Number(e.target.value) }))}
+                    style={{ width: '100%', padding: '8px 12px', fontSize: 13, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 6 }}
+                  >
+                    <option value="2">Repeat every 2 seconds</option>
+                    <option value="3">Repeat every 3 seconds (Standard)</option>
+                    <option value="5">Repeat every 5 seconds</option>
+                  </select>
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>
+                    Frequency of tone repeats until acknowledged or stopped.
+                  </span>
+                </div>
+              </div>
+
+              {/* Sound Test Desk */}
+              <div style={{ marginTop: 18, padding: '14px 18px', background: '#141a29', border: '1px solid #232d42', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 6, background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>Preview Continuous Alarm</div>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      Test the exact repeating alert tone and sound level as it will play during live trades.
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  className="btn btn-sm secondary"
-                  onClick={handleRemoveLogo}
-                  style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 9px' }}
+                  className={isTestingSound ? 'btn danger' : 'btn secondary'}
+                  onClick={handleTestSoundToggle}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px', fontSize: 13, fontWeight: 700 }}
                 >
-                  Reset to Default Logo
+                  {isTestingSound ? (
+                    <>
+                      <span>Stop Test Alarm</span>
+                      <span className="audio-test-indicator">
+                        <span className="audio-test-bar" />
+                        <span className="audio-test-bar" />
+                        <span className="audio-test-bar" />
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                      <span>Test Alert Sound</span>
+                    </>
+                  )}
                 </button>
               </div>
-            )}
-          </div>
-
-          {/* Live Branding Previews */}
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
-              Live Brand Preview
             </div>
-            <div className="branding-preview-container">
-              <div className="branding-preview-card dark">
-                <div className="branding-preview-label">Sidebar &amp; Portal (Dark)</div>
-                <Brand customName={name || DEFAULT_BRAND_NAME} customLogo={logo} />
+
+            {/* Live Groups Monitoring Status Preview */}
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 18, marginTop: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700 }}>Live Group Status Monitor</h4>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {positionGroups.length} open position {positionGroups.length === 1 ? 'group' : 'groups'}
+                </span>
               </div>
-              <div className="branding-preview-card light">
-                <div className="branding-preview-label">Website Header (Light/Glass)</div>
-                <Brand customName={name || DEFAULT_BRAND_NAME} customLogo={logo} />
-              </div>
+
+              {livePositions.isLoading && <div className="muted" style={{ fontSize: 12.5 }}>Checking positions…</div>}
+
+              {positionGroups.length === 0 && !livePositions.isLoading && (
+                <div style={{ padding: '16px', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6, color: 'var(--muted)', fontSize: 13 }}>
+                  No active futures positions currently open. Alerts will trigger automatically when positions exceed configured thresholds.
+                </div>
+              )}
+
+              {positionGroups.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="settings-live-groups-table">
+                    <thead>
+                      <tr>
+                        <th>Asset &amp; Pair</th>
+                        <th>Side</th>
+                        <th>Accounts</th>
+                        <th>Current Group ROE</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positionGroups.map((g) => {
+                        const roe = calcGroupRoePct(g);
+                        const isDownBreach = alertConfig.downAlertEnabled && roe !== null && roe <= -Math.abs(alertConfig.downThresholdPct);
+                        const isUpBreach = alertConfig.upAlertEnabled && roe !== null && roe >= Math.abs(alertConfig.upThresholdPct);
+                        return (
+                          <tr key={g.key}>
+                            <td>
+                              <span style={{ fontWeight: 700, color: '#f1f5f9' }}>{g.asset}</span>
+                              <span className="muted" style={{ fontSize: 11.5, marginLeft: 6 }}>{g.pair}</span>
+                            </td>
+                            <td>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  textTransform: 'uppercase',
+                                  background: g.side === 'long' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                  color: g.side === 'long' ? '#34d399' : '#f87171',
+                                }}
+                              >
+                                {g.side}
+                              </span>
+                            </td>
+                            <td>{g.positions.length} ({g.groupNames.join(', ') || 'Default'})</td>
+                            <td style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                              {roe === null ? (
+                                '—'
+                              ) : (
+                                <span style={{ color: roe >= 0 ? '#10b981' : '#ef4444' }}>
+                                  {roe >= 0 ? `+${roe.toFixed(2)}%` : `${roe.toFixed(2)}%`}
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {isDownBreach ? (
+                                <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <span>▼</span> Alert: Down Breach
+                                </span>
+                              ) : isUpBreach ? (
+                                <span style={{ color: '#10b981', fontWeight: 700, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <span>▲</span> Alert: Up Breach
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                                  Safe (within bounds)
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Save Alerts Button */}
+            <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleSaveAlertConfig}
+                style={{ padding: '10px 22px', fontSize: 14, fontWeight: 700 }}
+              >
+                Save Alert Settings
+              </button>
+
+              {alertsSavedStatus && (
+                <span style={{ fontSize: 13, color: '#34d399', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span>{alertsSavedStatus}</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
+      )}
 
-        {/* =========================================================================
-            SECTION 2: COMPANY CONTACT CHANNELS & WHATSAPP INTEGRATION
-           ========================================================================= */}
+      {/* =========================================================================
+          TAB 2: PLATFORM BRANDING & IDENTITY
+         ========================================================================= */}
+      {activeCategory === 'branding' && (
+        <div>
+          <form onSubmit={submitBranding}>
+            <div className="settings-section-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 22 7 12 2"/><line x1="4" y1="22" x2="20" y2="22"/><line x1="6" y1="18" x2="18" y2="18"/><line x1="10" y1="7" x2="10" y2="18"/><line x1="14" y1="7" x2="14" y2="18"/><line x1="18" y1="7" x2="18" y2="18"/><line x1="6" y1="7" x2="6" y2="18"/></svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Platform Branding &amp; Identity</h3>
+                  <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+                    Controls the logo, wordmark, and brand name displayed on the marketing website, login portal, and trading desk.
+                  </p>
+                </div>
+              </div>
+
+              {isOwner && !totpEnabled && (
+                <div style={{ fontSize: 13, marginBottom: 16, padding: '10px 14px', background: 'rgba(245, 158, 11, 0.12)', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.4)', color: '#fef08a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  <span>Two-factor authentication is not enrolled. It is recommended before owner actions — <Link to="/app/security" style={{ color: '#34d399', fontWeight: 600, textDecoration: 'underline' }}>enrol in Security &amp; 2FA</Link>.</span>
+                </div>
+              )}
+
+              {/* Platform Name */}
+              <div className="field" style={{ marginBottom: 18 }}>
+                <label htmlFor="brand-name" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                  Platform Brand Name
+                </label>
+                <input
+                  id="brand-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Aza WealthKare"
+                  aria-label="Platform brand name"
+                  maxLength={120}
+                  style={{ width: '100%', maxWidth: 420 }}
+                />
+                {!isOwner && workspace.data && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    (Workspace name: <strong>{workspace.data.name}</strong>)
+                  </div>
+                )}
+              </div>
+
+              {/* Logo / Icon Tabs */}
+              <div className="field" style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                  Brand Logo / Icon
+                </label>
+
+                <div className="branding-logo-tabs">
+                  <button
+                    type="button"
+                    className={`branding-tab-btn ${logoTab === 'upload' ? 'active' : ''}`}
+                    onClick={() => setLogoTab('upload')}
+                  >
+                    Upload Image
+                  </button>
+                  <button
+                    type="button"
+                    className={`branding-tab-btn ${logoTab === 'icon' ? 'active' : ''}`}
+                    onClick={() => setLogoTab('icon')}
+                  >
+                    Symbol / Monogram
+                  </button>
+                  <button
+                    type="button"
+                    className={`branding-tab-btn ${logoTab === 'url' ? 'active' : ''}`}
+                    onClick={() => setLogoTab('url')}
+                  >
+                    Image URL
+                  </button>
+                </div>
+
+                {logoTab === 'upload' && (
+                  <div>
+                    <div
+                      className="branding-file-drop"
+                      onClick={() => fileInputRef.current?.click()}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                        style={{ display: 'none' }}
+                        onChange={handleFileUpload}
+                      />
+                      <div style={{ marginBottom: 6 }}>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>Click to browse image file</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                        PNG, SVG, JPG, or WebP up to 2 MB (recommended square aspect ratio)
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {logoTab === 'icon' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        value={iconInput}
+                        onChange={(e) => {
+                          setIconInput(e.target.value);
+                          setLogo(e.target.value.trim() ? e.target.value.trim() : null);
+                        }}
+                        placeholder="Symbol or letter"
+                        maxLength={10}
+                        style={{ width: 140, textAlign: 'center', fontSize: 16 }}
+                      />
+                      <span className="muted" style={{ fontSize: 12.5 }}>
+                        or pick a quick institutional symbol:
+                      </span>
+                    </div>
+
+                    <div className="branding-icon-presets">
+                      {PRESET_ICONS.map((ic) => (
+                        <button
+                          key={ic}
+                          type="button"
+                          className={`branding-icon-btn ${logo === ic ? 'selected' : ''}`}
+                          onClick={() => handleSelectIcon(ic)}
+                          title={`Select ${ic}`}
+                        >
+                          {ic}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {logoTab === 'url' && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://example.com/logo.svg"
+                      style={{ flex: 1, maxWidth: 360 }}
+                    />
+                    <button type="button" className="btn btn-sm secondary" onClick={handleApplyUrl}>
+                      Apply URL
+                    </button>
+                  </div>
+                )}
+
+                {logo && (
+                  <div className="branding-current-logo-preview" style={{ marginTop: 12 }}>
+                    <span className="muted" style={{ fontSize: 12 }}>Active custom logo:</span>
+                    <Brand customName="" customLogo={logo} showName={false} size="sm" />
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={handleRemoveLogo}
+                      style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 9px' }}
+                    >
+                      Reset to Default Logo
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Live Branding Previews */}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+                  Live Brand Preview
+                </div>
+                <div className="branding-preview-container">
+                  <div className="branding-preview-card dark">
+                    <div className="branding-preview-label">Sidebar &amp; Portal (Dark)</div>
+                    <Brand customName={name || DEFAULT_BRAND_NAME} customLogo={logo} />
+                  </div>
+                  <div className="branding-preview-card light">
+                    <div className="branding-preview-label">Website Header (Light/Glass)</div>
+                    <Brand customName={name || DEFAULT_BRAND_NAME} customLogo={logo} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2FA Step-up code if required */}
+            {needsCode && (
+              <div style={{ marginBottom: 14, padding: 16, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 8 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600, color: '#fca5a5' }}>
+                  Enter 6-digit 2FA code to confirm server workspace rename:
+                </label>
+                <input
+                  inputMode="numeric"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="6-digit authentication code"
+                  aria-label="Verification code"
+                  style={{ width: 180, background: '#171f33', color: '#ffffff', border: '1px solid #28354d', padding: '8px 12px', borderRadius: 6 }}
+                />
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 18, flexWrap: 'wrap' }}>
+              <button
+                className="btn"
+                type="submit"
+                disabled={saving || name.trim() === '' || !hasBrandingChanges}
+                style={{ padding: '10px 22px', fontSize: 14, fontWeight: 600 }}
+              >
+                {saving ? 'Saving Branding…' : 'Save Platform Branding'}
+              </button>
+
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={handleResetDefaults}
+                title="Restore all branding and contact defaults"
+              >
+                Restore Defaults
+              </button>
+
+              {hasBrandingChanges && (
+                <span style={{ fontSize: 12.5, color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span>●</span> You have unsaved changes
+                </span>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 3: COMPANY & CONTACT CHANNELS
+         ========================================================================= */}
+      {activeCategory === 'contact' && (
+        <div>
+          <form onSubmit={submitBranding}>
+            <div className="settings-section-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Company &amp; Direct Contact Channels</h3>
+                  <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+                    These contact details automatically sync across the website footer, the Contact page, and the floating WhatsApp chat widget.
+                  </p>
+                </div>
+              </div>
+
+              <div className="settings-contact-grid">
+                {/* WhatsApp Chat Number */}
+                <div>
+                  <label htmlFor="settings-whatsapp" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                    WhatsApp Chat Number <span style={{ color: '#25D366' }}>(Bottom-Right Widget)</span>
+                  </label>
+                  <div className="settings-input-group">
+                    <span className="settings-input-icon" style={{ color: '#25D366' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                    </span>
+                    <input
+                      id="settings-whatsapp"
+                      type="text"
+                      value={whatsapp}
+                      onChange={(e) => setWhatsapp(e.target.value)}
+                      placeholder="e.g. +91 98765 43210"
+                      aria-label="WhatsApp Chat Number"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
+                    <span className="muted" style={{ fontSize: 11.5 }}>
+                      Powers the floating WhatsApp button in bottom-right on the public website.
+                    </span>
+                    <a
+                      href={whatsappTestUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: 12, color: '#34d399', textDecoration: 'none', fontWeight: 600 }}
+                    >
+                      Test Link ↗
+                    </a>
+                  </div>
+                </div>
+
+                {/* Direct Phone Number */}
+                <div>
+                  <label htmlFor="settings-phone" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                    Advisory Desk Phone Number
+                  </label>
+                  <div className="settings-input-group">
+                    <span className="settings-input-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </span>
+                    <input
+                      id="settings-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="e.g. +91 98765 43210"
+                      aria-label="Advisory Desk Phone"
+                    />
+                  </div>
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
+                    Displayed in website footer and Contact page.
+                  </span>
+                </div>
+
+                {/* Advisory Email */}
+                <div>
+                  <label htmlFor="settings-email" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                    Support / Advisory Email
+                  </label>
+                  <div className="settings-input-group">
+                    <span className="settings-input-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    </span>
+                    <input
+                      id="settings-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="e.g. support@azawealthkare.com"
+                      aria-label="Advisory Email"
+                    />
+                  </div>
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
+                    Official client inquiry and recovery destination.
+                  </span>
+                </div>
+
+                {/* Operating Hours */}
+                <div>
+                  <label htmlFor="settings-hours" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                    Desk Operating Hours
+                  </label>
+                  <div className="settings-input-group">
+                    <span className="settings-input-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </span>
+                    <input
+                      id="settings-hours"
+                      type="text"
+                      value={hours}
+                      onChange={(e) => setHours(e.target.value)}
+                      placeholder="e.g. Monday – Saturday: 9:00 AM – 8:00 PM IST"
+                      aria-label="Desk Operating Hours"
+                    />
+                  </div>
+                  <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
+                    Office and consultation availability window.
+                  </span>
+                </div>
+              </div>
+
+              {/* Corporate / Office Address */}
+              <div style={{ marginTop: 18 }}>
+                <label htmlFor="settings-address" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
+                  Corporate Office Address
+                </label>
+                <div className="settings-input-group">
+                  <span className="settings-input-icon" style={{ top: 12, alignItems: 'flex-start' }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="22.01"/><line x1="15" y1="22" x2="15" y2="22.01"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="9" y2="18.01"/><line x1="15" y1="18" x2="15" y2="18.01"/></svg>
+                  </span>
+                  <textarea
+                    id="settings-address"
+                    rows={2}
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="e.g. Level 14, Tower B, BKC Financial District, Mumbai"
+                    aria-label="Corporate Office Address"
+                  />
+                </div>
+                <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
+                  Displayed in the website footer strip and the Contact page office location.
+                </span>
+              </div>
+
+              {/* Live Contact Preview */}
+              <div className="settings-preview-box">
+                <div className="settings-preview-title">
+                  Live Website Preview (Footer &amp; Channels)
+                </div>
+                <div className="settings-preview-items">
+                  <div className="settings-preview-item">
+                    <span style={{ color: '#25D366', display: 'flex', alignItems: 'center' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                    </span>
+                    <span className="settings-preview-label">WhatsApp:</span>
+                    <span className="settings-preview-val" style={{ color: '#34d399' }}>{whatsapp || DEFAULT_WHATSAPP}</span>
+                  </div>
+                  <div className="settings-preview-item">
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </span>
+                    <span className="settings-preview-label">Phone:</span>
+                    <span className="settings-preview-val">{phone || DEFAULT_PHONE}</span>
+                  </div>
+                  <div className="settings-preview-item">
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    </span>
+                    <span className="settings-preview-label">Email:</span>
+                    <span className="settings-preview-val">{email || DEFAULT_EMAIL}</span>
+                  </div>
+                  <div className="settings-preview-item">
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="22.01"/><line x1="15" y1="22" x2="15" y2="22.01"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="9" y2="18.01"/><line x1="15" y1="18" x2="15" y2="18.01"/></svg>
+                    </span>
+                    <span className="settings-preview-label">Address:</span>
+                    <span className="settings-preview-val" style={{ opacity: 0.9 }}>{address || DEFAULT_ADDRESS}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 18, flexWrap: 'wrap' }}>
+              <button
+                className="btn"
+                type="submit"
+                disabled={saving || !hasContactChanges}
+                style={{ padding: '10px 22px', fontSize: 14, fontWeight: 600 }}
+              >
+                {saving ? 'Saving Contacts…' : 'Save Contact Channels'}
+              </button>
+
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={handleResetDefaults}
+                title="Restore all branding and contact defaults"
+              >
+                Restore Defaults
+              </button>
+
+              {hasContactChanges && (
+                <span style={{ fontSize: 12.5, color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span>●</span> You have unsaved changes
+                </span>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 4: SECURITY & MULTI-FACTOR
+         ========================================================================= */}
+      {activeCategory === 'security' && (
         <div className="settings-section-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', flexShrink: 0 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(52, 211, 153, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#34d399', flexShrink: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Company &amp; Direct Contact Channels</h3>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Security &amp; Session Protection</h3>
               <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-                These contact details automatically sync across the website footer, the Contact page, and the floating WhatsApp chat widget.
+                Two-factor authentication, failed attempt alerts, and automated IP lockout policies.
               </p>
             </div>
           </div>
 
-          <div className="settings-contact-grid">
-            {/* WhatsApp Chat Number */}
-            <div>
-              <label htmlFor="settings-whatsapp" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-                WhatsApp Chat Number <span style={{ color: '#25D366' }}>(Bottom-Right Widget)</span>
-              </label>
-              <div className="settings-input-group">
-                <span className="settings-input-icon" style={{ color: '#25D366' }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-                </span>
-                <input
-                  id="settings-whatsapp"
-                  type="text"
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
-                  aria-label="WhatsApp Chat Number"
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 }}>
-                <span className="muted" style={{ fontSize: 11.5 }}>
-                  Powers the floating WhatsApp button in bottom-right on the public website.
-                </span>
-                <a
-                  href={whatsappTestUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: '#34d399', textDecoration: 'none', fontWeight: 600 }}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 20 }}>
+            {/* 2FA Status */}
+            <div style={{ background: '#111520', border: '1px solid var(--line)', borderRadius: 8, padding: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>Two-Factor Authentication (TOTP)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: totpEnabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                    color: totpEnabled ? '#34d399' : '#fef08a',
+                  }}
                 >
-                  Test Link ↗
-                </a>
+                  {totpEnabled ? 'Enrolled & Active' : 'Not Enrolled'}
+                </span>
               </div>
+              <p className="muted" style={{ fontSize: 12, margin: '0 0 12px' }}>
+                Protects owner accounts with one-time authenticator codes for sensitive operations and logins.
+              </p>
+              <Link to="/app/security" className="btn btn-sm secondary">
+                Configure 2FA →
+              </Link>
             </div>
 
-            {/* Direct Phone Number */}
-            <div>
-              <label htmlFor="settings-phone" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-                Advisory Desk Phone Number
-              </label>
-              <div className="settings-input-group">
-                <span className="settings-input-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            {/* Brute Force & IP Lockout Policy */}
+            <div style={{ background: '#111520', border: '1px solid var(--line)', borderRadius: 8, padding: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>Automated IP Protection &amp; Alerts</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' }}>
+                  24-Hour Lockout Active
                 </span>
-                <input
-                  id="settings-phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
-                  aria-label="Advisory Desk Phone"
-                />
               </div>
-              <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
-                Displayed in website footer and Contact page.
-              </span>
-            </div>
-
-            {/* Advisory Email */}
-            <div>
-              <label htmlFor="settings-email" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-                Support / Advisory Email
-              </label>
-              <div className="settings-input-group">
-                <span className="settings-input-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                </span>
-                <input
-                  id="settings-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. support@azawealthkare.com"
-                  aria-label="Advisory Email"
-                />
-              </div>
-              <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
-                Official client inquiry and recovery destination.
-              </span>
-            </div>
-
-            {/* Operating Hours */}
-            <div>
-              <label htmlFor="settings-hours" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-                Desk Operating Hours
-              </label>
-              <div className="settings-input-group">
-                <span className="settings-input-icon">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                </span>
-                <input
-                  id="settings-hours"
-                  type="text"
-                  value={hours}
-                  onChange={(e) => setHours(e.target.value)}
-                  placeholder="e.g. Monday – Saturday: 9:00 AM – 8:00 PM IST"
-                  aria-label="Desk Operating Hours"
-                />
-              </div>
-              <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
-                Office and consultation availability window.
-              </span>
-            </div>
-          </div>
-
-          {/* Corporate / Office Address */}
-          <div style={{ marginTop: 18 }}>
-            <label htmlFor="settings-address" style={{ display: 'block', marginBottom: 6, fontWeight: 600, fontSize: 13.5 }}>
-              Corporate Office Address
-            </label>
-            <div className="settings-input-group">
-              <span className="settings-input-icon" style={{ top: 12, alignItems: 'flex-start' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="22.01"/><line x1="15" y1="22" x2="15" y2="22.01"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="9" y2="18.01"/><line x1="15" y1="18" x2="15" y2="18.01"/></svg>
-              </span>
-              <textarea
-                id="settings-address"
-                rows={2}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="e.g. Level 14, Tower B, BKC Financial District, Mumbai"
-                aria-label="Corporate Office Address"
-              />
-            </div>
-            <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 5 }}>
-              Displayed in the website footer strip and the Contact page office location.
-            </span>
-          </div>
-
-          {/* Live Contact Preview */}
-          <div className="settings-preview-box">
-            <div className="settings-preview-title">
-              Live Website Preview (Footer &amp; Channels)
-            </div>
-            <div className="settings-preview-items">
-              <div className="settings-preview-item">
-                <span style={{ color: '#25D366', display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-                </span>
-                <span className="settings-preview-label">WhatsApp:</span>
-                <span className="settings-preview-val" style={{ color: '#34d399' }}>{whatsapp || DEFAULT_WHATSAPP}</span>
-              </div>
-              <div className="settings-preview-item">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                </span>
-                <span className="settings-preview-label">Phone:</span>
-                <span className="settings-preview-val">{phone || DEFAULT_PHONE}</span>
-              </div>
-              <div className="settings-preview-item">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                </span>
-                <span className="settings-preview-label">Email:</span>
-                <span className="settings-preview-val">{email || DEFAULT_EMAIL}</span>
-              </div>
-              <div className="settings-preview-item">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="22.01"/><line x1="15" y1="22" x2="15" y2="22.01"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="9" y2="18.01"/><line x1="15" y1="18" x2="15" y2="18.01"/></svg>
-                </span>
-                <span className="settings-preview-label">Address:</span>
-                <span className="settings-preview-val" style={{ opacity: 0.9 }}>{address || DEFAULT_ADDRESS}</span>
-              </div>
+              <p className="muted" style={{ fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+                Failed login attempts trigger automated security alert emails to the desk owner. On the 4th consecutive failed attempt, the offending IP address is automatically blocked for 24 hours.
+              </p>
             </div>
           </div>
         </div>
+      )}
 
-        {/* 2FA Step-up code if required */}
-        {needsCode && (
-          <div style={{ marginBottom: 14, padding: 16, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 8 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600, color: '#fca5a5' }}>
-              Enter 6-digit 2FA code to confirm server workspace rename:
-            </label>
-            <input
-              inputMode="numeric"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="6-digit authentication code"
-              aria-label="Verification code"
-              style={{ width: 180, background: '#171f33', color: '#ffffff', border: '1px solid #28354d', padding: '8px 12px', borderRadius: 6 }}
-            />
-          </div>
-        )}
-
-        {/* Actions & Feedback */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 24, flexWrap: 'wrap' }}>
-          <button
-            className="btn"
-            type="submit"
-            disabled={saving || name.trim() === '' || !hasPendingChanges}
-            style={{ padding: '10px 22px', fontSize: 14, fontWeight: 600 }}
-          >
-            {saving ? 'Saving Settings…' : 'Save Platform Settings'}
-          </button>
-
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={handleResetDefaults}
-            title="Restore all branding and contact defaults"
-          >
-            Restore Defaults
-          </button>
-
-          {hasPendingChanges && (
-            <span style={{ fontSize: 12.5, color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span>●</span> You have unsaved changes
-            </span>
-          )}
-        </div>
-      </form>
-
+      {/* Global Status Message */}
       {status !== null && (
         <div
           style={{
@@ -707,15 +1321,6 @@ export function Settings() {
           <span>{status.message}</span>
         </div>
       )}
-
-      {/* Security Link */}
-      <section style={{ borderTop: '1px solid var(--line-subtle)', paddingTop: 20, marginTop: 32 }}>
-        <h3 style={{ marginTop: 0, fontSize: 16 }}>Security &amp; Multi-Factor Authentication</h3>
-        <p className="muted" style={{ marginTop: -4, marginBottom: 12, fontSize: 13 }}>
-          Enforce hardware or app-based two-factor authentication (TOTP) across owner and operator sessions.
-        </p>
-        <Link to="/app/security" className="btn btn-sm secondary">Manage Security &amp; 2FA →</Link>
-      </section>
     </div>
   );
 }

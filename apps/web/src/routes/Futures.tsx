@@ -119,7 +119,7 @@ function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'sh
 
 /* ─── grouped position type ─── */
 
-interface PositionGroup {
+export interface PositionGroup {
   key: string;
   /** e.g. "BTC" */
   asset: string;
@@ -138,7 +138,7 @@ interface PositionGroup {
   groupNames: string[];
 }
 
-function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
+export function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
   const map = new Map<string, PositionGroup>();
   for (const p of rows) {
     const key = `${p.pair}|${p.side}|${p.marginCurrency}`;
@@ -177,6 +177,16 @@ function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
     }
   }
   return Array.from(map.values());
+}
+
+export function calcGroupRoePct(group: PositionGroup): number | null {
+  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
+  if (totalWeight <= 0) return null;
+  const weightedRoeSum = group.positions.reduce((acc, pos) => {
+    const r = calcRoePct(pos);
+    return r !== null ? acc + r * Number(pos.quantity) : acc;
+  }, 0);
+  return weightedRoeSum / totalWeight;
 }
 
 /* ─── per-account row inside a group card ─── */

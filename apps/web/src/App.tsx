@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth.tsx';
 import { AppSidebar } from './components/AppSidebar.tsx';
 import { Brand } from './components/Brand.tsx';
+import { GlobalPositionAlerts } from './components/GlobalPositionAlerts.tsx';
 
 // The authenticated panel shell with thin sidebar and responsive mobile layout.
 export function App() {
@@ -138,6 +139,8 @@ export function App() {
           </div>
         </main>
       </div>
+
+      <GlobalPositionAlerts />
 
       {/* Mobile Bottom Navigation Bar (<= 860px) */}
       <nav className="panel-mobile-bottom-nav" aria-label="Mobile Navigation">
