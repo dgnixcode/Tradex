@@ -91,6 +91,8 @@ export interface Principal {
   /** When the second factor was last satisfied. Undefined means never. */
   readonly reauthAt?: Date | undefined;
   readonly totpEnabled: boolean;
+  readonly isMaster?: boolean | undefined;
+  readonly email?: string | undefined;
 }
 
 /** How long a re-authentication stays fresh. */

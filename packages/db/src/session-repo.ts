@@ -28,9 +28,11 @@ export interface SessionPrincipal {
   readonly sessionId: string;
   readonly userId: string;
   readonly tenantId: string;
+  readonly email: string;
   readonly role: UserRole;
   readonly reauthAt: Date | null;
   readonly totpEnabled: boolean;
+  readonly isMaster: boolean;
   readonly expiresAt: Date;
 }
 
@@ -73,17 +75,19 @@ export async function loadPrincipalByToken(
       'session.expires_at as expiresAt',
       'session.revoked_at as revokedAt',
       'app_user.tenant_id as tenantId',
+      'app_user.email as email',
       'app_user.role as role',
       'app_user.totp_enabled as totpEnabled',
+      'app_user.is_master as isMaster',
       'app_user.disabled_at as disabledAt',
     ])
     .where('session.token_hash' as never, '=', Buffer.from(tokenHash) as never)
     .executeTakeFirst();
   if (row === undefined) return null;
   const r = row as {
-    sessionId: string; userId: string; reauthAt: Date | string | null;
+    sessionId: string; userId: string; email: string; reauthAt: Date | string | null;
     expiresAt: Date | string; revokedAt: Date | string | null;
-    tenantId: string; role: UserRole; totpEnabled: boolean; disabledAt: Date | string | null;
+    tenantId: string; role: UserRole; totpEnabled: boolean; isMaster: boolean | null; disabledAt: Date | string | null;
   };
 
   if (r.revokedAt !== null) return null;
@@ -95,9 +99,11 @@ export async function loadPrincipalByToken(
     sessionId: r.sessionId,
     userId: r.userId,
     tenantId: r.tenantId,
+    email: r.email,
     role: r.role,
     reauthAt: r.reauthAt === null ? null : (r.reauthAt instanceof Date ? r.reauthAt : new Date(r.reauthAt)),
     totpEnabled: r.totpEnabled,
+    isMaster: Boolean(r.isMaster),
     expiresAt,
   };
 }

@@ -33,6 +33,7 @@ import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
+import { MasterPanel } from './routes/MasterPanel.tsx';
 import { NotFound } from './routes/NotFound.tsx';
 import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary.tsx';
@@ -202,6 +203,8 @@ function PageTitleSync() {
       pageTitle = 'System Audit Log';
     } else if (path === '/app/settings') {
       pageTitle = 'Branding & Settings';
+    } else if (path === '/app/master') {
+      pageTitle = 'Master Administration Desk';
     }
 
     const fullTitle = `${pageTitle} · ${brand}`;
@@ -247,6 +250,10 @@ const router = createBrowserRouter([
       { path: '/signup', element: <Signup /> },
       { path: '/forgot-password', element: <ForgotPassword /> },
       { path: '/reset-password', element: <ResetPassword /> },
+      {
+        path: '/app/master',
+        element: <RequireAuth><MasterPanel /></RequireAuth>,
+      },
       {
         path: '/app',
         element: <RequireAuth><App /></RequireAuth>,

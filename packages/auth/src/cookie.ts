@@ -86,6 +86,9 @@ export function parseCookieHeader(header: string | undefined): Map<string, strin
 /** The cookie name the session travels under. Host-only, httpOnly, SameSite=Lax. */
 export const SESSION_COOKIE = 'tradex_session';
 
+/** The cookie name the master session backup travels under during user impersonation. */
+export const MASTER_BACKUP_COOKIE = 'tradex_master_backup';
+
 /**
  * Build a Set-Cookie header for a session value. httpOnly (no script access),
  * SameSite=Lax (sent on top-level navigation, not cross-site POSTs), Path=/, and
@@ -116,3 +119,30 @@ export function buildClearCookie(opts: { secure?: boolean } = {}): string {
   if (secure) attrs.push('Secure');
   return attrs.join('; ');
 }
+
+/** Build a Set-Cookie header for saving the master session during impersonation. */
+export function buildSetMasterBackupCookie(
+  value: string,
+  maxAgeSeconds: number,
+  opts: { secure?: boolean } = {},
+): string {
+  const secure = opts.secure ?? true;
+  const attrs = [
+    `${MASTER_BACKUP_COOKIE}=${value}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    'Path=/',
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+  ];
+  if (secure) attrs.push('Secure');
+  return attrs.join('; ');
+}
+
+/** A Set-Cookie header that clears the master backup cookie. */
+export function buildClearMasterBackupCookie(opts: { secure?: boolean } = {}): string {
+  const secure = opts.secure ?? true;
+  const attrs = [`${MASTER_BACKUP_COOKIE}=`, 'HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=0'];
+  if (secure) attrs.push('Secure');
+  return attrs.join('; ');
+}
+

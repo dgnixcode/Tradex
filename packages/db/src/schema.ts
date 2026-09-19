@@ -45,6 +45,7 @@ export interface AppUserTable {
   last_login_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   disabled_at: Timestamp | null;
+  is_master: Generated<boolean>;
 }
 
 export interface TenantLimitTable {

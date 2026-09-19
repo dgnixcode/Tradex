@@ -139,7 +139,7 @@ export async function run(assert) {
   // ------------------------------------------------ 9. position already exited (alreadyClosed: true)
   // When an exit is retried or position was already closed, exitPosition reports alreadyClosed.
   const alreadyClosedPort = fakePort({
-    exitPosition: async (actor, positionId) => ({ ok: true, alreadyClosed: true }),
+    exitPosition: async (_actor, _positionId) => ({ ok: true, alreadyClosed: true }),
   });
   const alreadyOut = await hardExit(alreadyClosedPort, req());
   assert(alreadyOut.exited === true && alreadyOut.alreadyClosed === true,
@@ -148,7 +148,7 @@ export async function run(assert) {
   // ------------------------------------------------ 10. market order settles on retry
   let pollCount = 0;
   const settlingPort = fakePort({
-    listPositions: async (actor, margin) => {
+    listPositions: async (_actor, _margin) => {
       pollCount++;
       return [{
         venuePositionId: POSITION,

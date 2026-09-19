@@ -28,7 +28,11 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { assertAuthorised, AuthorisationError, parseCookieHeader, SESSION_COOKIE } from '@tradex/auth';
+import {
+  assertAuthorised, AuthorisationError, parseCookieHeader, SESSION_COOKIE,
+  MASTER_BACKUP_COOKIE, buildClearCookie, buildClearMasterBackupCookie,
+  buildSetCookie, buildSetMasterBackupCookie, generateSessionToken, hashSessionToken, signCookieValue,
+} from '@tradex/auth';
 import type { Action, Principal } from '@tradex/auth';
 import {
   forTenant, listTradableAssets, listGroups, createGroup, confirmDryRun,
@@ -37,10 +41,12 @@ import {
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
   deleteAccount, renameAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
-  getPlatformBranding, updatePlatformBranding,
+  getPlatformBranding, updatePlatformBranding, createSession,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
+import { sql } from 'kysely';
 import { LoginSecurityService } from './login-security.js';
+import { SESSION_TTL_MS } from './login-service.js';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
@@ -116,7 +122,6 @@ import { TotpServiceError } from './totp-service.js';
 import { OnboardingService } from './onboarding-service.js';
 import { PlanningService } from './planning-service.js';
 import type { PlanRequest } from './planning-service.js';
-import { buildSetCookie, buildClearCookie } from '@tradex/auth';
 import type { KmsPort } from '@tradex/crypto';
 import type { ProbeFn } from '@tradex/exchange';
 import { ExecutionWorker } from './execution-worker.js';
@@ -268,7 +273,7 @@ const readBody = async (req: IncomingMessage): Promise<unknown> => {
   }
 };
 
-const sendJson = (res: ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}): void => {
+const sendJson = (res: ServerResponse, status: number, payload: unknown, headers: Record<string, string | string[]> = {}): void => {
   const text = JSON.stringify(payload);
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
   res.end(text);
@@ -743,7 +748,12 @@ export function createHttpServer(deps: HttpDeps): Server {
 
     // ---- POST /api/logout ----
     if (method === 'POST' && path === '/api/logout') {
-      sendJson(ctx.res, 200, { ok: true }, { 'set-cookie': buildClearCookie({ secure }) });
+      sendJson(ctx.res, 200, { ok: true }, {
+        'set-cookie': [
+          buildClearCookie({ secure }),
+          buildClearMasterBackupCookie({ secure }),
+        ],
+      });
       return;
     }
 
@@ -753,9 +763,183 @@ export function createHttpServer(deps: HttpDeps): Server {
 
     // ---- GET /api/session — who am I (for the UI to render roles + 2FA state) ----
     if (method === 'GET' && path === '/api/session') {
+      const backupCookie = ctx.cookies.get(MASTER_BACKUP_COOKIE);
+      let impersonating = false;
+      let impersonatorEmail: string | undefined;
+      if (backupCookie) {
+        const masterPrincipal = await login.principalFrom(backupCookie, deps.now?.());
+        if (masterPrincipal && masterPrincipal.isMaster && masterPrincipal.email === 'dgnix.com@gmail.com') {
+          impersonating = true;
+          impersonatorEmail = masterPrincipal.email;
+        }
+      }
+
       sendJson(ctx.res, 200, {
-        userId: principal.userId, tenantId: principal.tenantId,
-        role: principal.role, totpEnabled: principal.totpEnabled,
+        userId: principal.userId,
+        tenantId: principal.tenantId,
+        email: principal.email,
+        role: principal.role,
+        totpEnabled: principal.totpEnabled,
+        isMaster: principal.isMaster ?? false,
+        impersonating,
+        impersonatorEmail,
+      });
+      return;
+    }
+
+    // ---- GET /api/master/users — super-admin user directory ----
+    if (method === 'GET' && path === '/api/master/users') {
+      if (!principal.isMaster || principal.email !== 'dgnix.com@gmail.com') {
+        throw new HttpError(403, 'master privileges required');
+      }
+
+      const users = await deps.db.selectFrom('app_user')
+        .innerJoin('tenant', 'tenant.id', 'app_user.tenant_id')
+        .leftJoin('exchange_account', (join) =>
+          join.onRef('exchange_account.tenant_id', '=', 'tenant.id')
+            .on('exchange_account.status', '!=', 'disconnected')
+        )
+        .select([
+          'app_user.id as userId',
+          'app_user.email as email',
+          'app_user.role as role',
+          'app_user.is_master as isMaster',
+          'app_user.totp_enabled as totpEnabled',
+          'app_user.disabled_at as disabledAt',
+          'app_user.created_at as userCreatedAt',
+          'app_user.last_login_at as lastLoginAt',
+          'tenant.id as tenantId',
+          'tenant.name as tenantName',
+          'tenant.status as tenantStatus',
+          'tenant.valuation_currency as valuationCurrency',
+          sql<string>`count(distinct exchange_account.id)`.as('accountCount'),
+        ])
+        .groupBy([
+          'app_user.id',
+          'tenant.id',
+        ])
+        .orderBy('app_user.created_at', 'desc')
+        .execute();
+
+      sendJson(ctx.res, 200, {
+        users: users.map((u) => ({
+          userId: u.userId,
+          email: u.email,
+          role: u.role,
+          isMaster: Boolean(u.isMaster),
+          totpEnabled: Boolean(u.totpEnabled),
+          disabledAt: u.disabledAt ? new Date(u.disabledAt as unknown as string | Date).toISOString() : null,
+          userCreatedAt: new Date(u.userCreatedAt as unknown as string | Date).toISOString(),
+          lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt as unknown as string | Date).toISOString() : null,
+          tenantId: u.tenantId,
+          tenantName: u.tenantName,
+          tenantStatus: u.tenantStatus,
+          valuationCurrency: u.valuationCurrency,
+          accountCount: Number(u.accountCount || 0),
+        })),
+      });
+      return;
+    }
+
+    // ---- POST /api/master/impersonate — switch to target user session ----
+    if (method === 'POST' && path === '/api/master/impersonate') {
+      if (!principal.isMaster || principal.email !== 'dgnix.com@gmail.com') {
+        throw new HttpError(403, 'master privileges required');
+      }
+
+      const body = (ctx.body ?? {}) as { targetUserId?: string };
+      if (typeof body.targetUserId !== 'string' || body.targetUserId.trim() === '') {
+        throw new HttpError(400, 'targetUserId is required');
+      }
+      const targetUserId = body.targetUserId.trim();
+      if (targetUserId === principal.userId) {
+        throw new HttpError(400, 'cannot impersonate own master account');
+      }
+
+      const target = await deps.db.selectFrom('app_user')
+        .selectAll()
+        .where('id', '=', targetUserId)
+        .executeTakeFirst();
+      if (target === undefined) {
+        throw new HttpError(404, 'target user not found');
+      }
+      if (target.disabled_at !== null) {
+        throw new HttpError(400, 'cannot impersonate a disabled user account');
+      }
+
+      // Record audit event in target tenant
+      await deps.db.insertInto('audit_event')
+        .values({
+          tenant_id: target.tenant_id,
+          actor_user_id: principal.userId,
+          actor_process: 'master_admin',
+          action: 'master.impersonate',
+          subject_type: 'app_user',
+          subject_id: target.id,
+          after: {
+            masterEmail: principal.email,
+            targetEmail: target.email,
+            impersonatedAt: new Date().toISOString(),
+          },
+        } as never)
+        .execute();
+
+      // Issue target user session
+      const nowMs = (deps.now ?? (() => Date.now()))();
+      const token = generateSessionToken();
+      const expiresAt = new Date(nowMs + SESSION_TTL_MS);
+      await createSession(deps.db, {
+        userId: target.id,
+        tokenHash: hashSessionToken(token),
+        expiresAt,
+      });
+
+      // Keep current master session cookie in MASTER_BACKUP_COOKIE
+      const currentMasterCookie = ctx.cookies.get(SESSION_COOKIE) ?? '';
+      const targetCookieValue = signCookieValue(token, deps.cookieSecret);
+
+      sendJson(ctx.res, 200, { ok: true, dest: '/app' }, {
+        'set-cookie': [
+          buildSetCookie(targetCookieValue, SESSION_TTL_MS / 1000, { secure }),
+          buildSetMasterBackupCookie(currentMasterCookie, SESSION_TTL_MS / 1000, { secure }),
+        ],
+      });
+      return;
+    }
+
+    // ---- POST /api/master/revert — exit impersonation and restore master session ----
+    if (method === 'POST' && path === '/api/master/revert') {
+      const backupCookie = ctx.cookies.get(MASTER_BACKUP_COOKIE);
+      if (!backupCookie) {
+        throw new HttpError(400, 'no master impersonation session found to revert');
+      }
+
+      const masterPrincipal = await login.principalFrom(backupCookie, deps.now?.());
+      if (masterPrincipal === null || !masterPrincipal.isMaster || masterPrincipal.email !== 'dgnix.com@gmail.com') {
+        throw new HttpError(403, 'invalid master credentials in backup session');
+      }
+
+      // Record audit event in current tenant
+      await deps.db.insertInto('audit_event')
+        .values({
+          tenant_id: principal.tenantId,
+          actor_user_id: masterPrincipal.userId,
+          actor_process: 'master_admin',
+          action: 'master.revert',
+          subject_type: 'app_user',
+          subject_id: principal.userId,
+          after: {
+            masterEmail: masterPrincipal.email,
+            revertedAt: new Date().toISOString(),
+          },
+        } as never)
+        .execute();
+
+      sendJson(ctx.res, 200, { ok: true, dest: '/app/master' }, {
+        'set-cookie': [
+          buildSetCookie(backupCookie, SESSION_TTL_MS / 1000, { secure }),
+          buildClearMasterBackupCookie({ secure }),
+        ],
       });
       return;
     }

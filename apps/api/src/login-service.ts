@@ -66,7 +66,7 @@ export class LoginService {
     const nowMs = (this.deps.now ?? (() => Date.now()))();
 
     const user = await this.deps.db.selectFrom('app_user')
-      .select(['id', 'tenant_id', 'password_hash', 'role', 'totp_enabled', 'disabled_at'])
+      .select(['id', 'tenant_id', 'email', 'password_hash', 'role', 'totp_enabled', 'disabled_at', 'is_master'])
       .where('email', '=', input.email.trim().toLowerCase())
       .executeTakeFirst();
 
@@ -105,8 +105,10 @@ export class LoginService {
     const principal: Principal = {
       userId: user.id,
       tenantId: user.tenant_id,
+      email: user.email,
       role: user.role as Role,
       totpEnabled: user.totp_enabled,
+      isMaster: Boolean(user.is_master),
       ...(reauthAt !== undefined ? { reauthAt } : {}),
     };
     return {
@@ -137,8 +139,10 @@ export class LoginService {
       sessionId: session.sessionId,
       userId: session.userId,
       tenantId: session.tenantId,
+      email: session.email,
       role: session.role as Role,
       totpEnabled: session.totpEnabled,
+      isMaster: session.isMaster,
       ...(session.reauthAt !== null ? { reauthAt: session.reauthAt } : {}),
     };
   }

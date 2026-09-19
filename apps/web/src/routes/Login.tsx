@@ -21,7 +21,10 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (state.status === 'authenticated') return <Navigate to={dest} replace />;
+  if (state.status === 'authenticated') {
+    const target = state.session.isMaster ? '/app/master' : dest;
+    return <Navigate to={target} replace />;
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +32,11 @@ export function Login() {
     setBusy(true);
     try {
       await login({ email, password, ...(needsTotp && totpCode !== '' ? { totpCode } : {}) });
-      navigate(dest, { replace: true });
+      if (email.trim().toLowerCase() === 'dgnix.com@gmail.com') {
+        navigate('/app/master', { replace: true });
+      } else {
+        navigate(dest, { replace: true });
+      }
     } catch (err) {
       if (err instanceof ApiError && err.code === 'totp_required') {
         setNeedsTotp(true);

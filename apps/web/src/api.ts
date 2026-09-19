@@ -51,8 +51,12 @@ export class ApiError extends Error {
 export interface SessionInfo {
   readonly userId: string;
   readonly tenantId: string;
+  readonly email: string;
   readonly role: 'owner' | 'trader' | 'viewer';
   readonly totpEnabled: boolean;
+  readonly isMaster?: boolean;
+  readonly impersonating?: boolean;
+  readonly impersonatorEmail?: string;
 }
 
 export interface LoginInput {
@@ -123,6 +127,68 @@ export async function fetchSession(): Promise<SessionInfo | null> {
 /** Log out: clears the session cookie server-side. */
 export async function logout(): Promise<void> {
   await fetch('/api/logout', { method: 'POST' });
+}
+
+export interface MasterUserRow {
+  readonly userId: string;
+  readonly email: string;
+  readonly role: string;
+  readonly isMaster: boolean;
+  readonly totpEnabled: boolean;
+  readonly disabledAt: string | null;
+  readonly userCreatedAt: string;
+  readonly lastLoginAt: string | null;
+  readonly tenantId: string;
+  readonly tenantName: string;
+  readonly tenantStatus: string;
+  readonly valuationCurrency: string;
+  readonly accountCount: number;
+}
+
+/** Fetch all system users and workspaces (Master super-admin only). */
+export async function fetchMasterUsers(): Promise<{ users: MasterUserRow[] }> {
+  const res = await fetch('/api/master/users');
+  if (!res.ok) {
+    let message = 'failed to fetch master users';
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (typeof body.message === 'string') message = body.message;
+    } catch { /* keep default */ }
+    throw new ApiError(res.status, message);
+  }
+  return (await res.json()) as { users: MasterUserRow[] };
+}
+
+/** Switch into a target user session (Master super-admin only). */
+export async function impersonateUser(targetUserId: string): Promise<{ ok: boolean; dest: string }> {
+  const res = await fetch('/api/master/impersonate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ targetUserId }),
+  });
+  if (!res.ok) {
+    let message = 'impersonation failed';
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (typeof body.message === 'string') message = body.message;
+    } catch { /* keep default */ }
+    throw new ApiError(res.status, message);
+  }
+  return (await res.json()) as { ok: boolean; dest: string };
+}
+
+/** Exit impersonation and revert back to master session. */
+export async function revertMasterSession(): Promise<{ ok: boolean; dest: string }> {
+  const res = await fetch('/api/master/revert', { method: 'POST' });
+  if (!res.ok) {
+    let message = 'revert failed';
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (typeof body.message === 'string') message = body.message;
+    } catch { /* keep default */ }
+    throw new ApiError(res.status, message);
+  }
+  return (await res.json()) as { ok: boolean; dest: string };
 }
 
 export interface ForgotPasswordResponse {
