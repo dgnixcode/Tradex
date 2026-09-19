@@ -1,7 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { fetchSession, login as apiLogin, logout as apiLogout, signup as apiSignup } from './api.ts';
+import {
+  SESSION_EXPIRED_EVENT,
+  fetchSession,
+  login as apiLogin,
+  logout as apiLogout,
+  signup as apiSignup,
+} from './api.ts';
 import type { LoginInput, SessionInfo, SignupInput } from './api.ts';
 
 // The client-side auth model. It mirrors, never replaces, the server's decision:
@@ -42,6 +48,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => { if (!cancelled) setState({ status: 'anonymous' }); });
     return () => { cancelled = true; };
+  }, []);
+
+  // Listen for 401 session expiration signals across the application
+  useEffect(() => {
+    const handleExpired = () => {
+      setState({ status: 'anonymous' });
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    };
+  }, []);
+
+  // Check session validity whenever tab is re-focused or every 60 seconds
+  useEffect(() => {
+    const checkActiveSession = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchSession()
+          .then((session) => {
+            if (session === null) {
+              setState((prev) => (prev.status === 'authenticated' ? { status: 'anonymous' } : prev));
+            } else {
+              setState({ status: 'authenticated', session });
+            }
+          })
+          .catch(() => {
+            // Keep existing state on transient network hiccup
+          });
+      }
+    };
+
+    window.addEventListener('visibilitychange', checkActiveSession);
+    window.addEventListener('focus', checkActiveSession);
+
+    const interval = window.setInterval(checkActiveSession, 60_000);
+
+    return () => {
+      window.removeEventListener('visibilitychange', checkActiveSession);
+      window.removeEventListener('focus', checkActiveSession);
+      clearInterval(interval);
+    };
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -100,7 +147,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return <div className="panel muted">Checking your session…</div>;
   }
   if (state.status === 'anonymous') {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname, expired: true }} />;
   }
   return <>{children}</>;
 }

@@ -1,7 +1,8 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom';
+import { ApiError, SESSION_EXPIRED_EVENT, notifySessionExpired } from './api.ts';
 import { AuthProvider, RequireAuth } from './auth.tsx';
 import { BrandingProvider, useBranding } from './branding.tsx';
 import { App } from './App.tsx';
@@ -43,8 +44,40 @@ import './styles.css';
 // book that ages, so re-previewing must always hit the server, never a stale
 // cache. Reads (groups, assets) may cache briefly.
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 10_000, refetchOnWindowFocus: false } },
+  defaultOptions: {
+    queries: {
+      staleTime: 10_000,
+      refetchOnWindowFocus: false,
+      retry: (failureCount, error) => {
+        // Never retry 401 unauthenticated requests
+        if (error instanceof ApiError && error.status === 401) {
+          return false;
+        }
+        return failureCount < 2;
+      },
+    },
+  },
+  queryCache: new QueryCache({
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        notifySessionExpired();
+      }
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        notifySessionExpired();
+      }
+    },
+  }),
 });
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(SESSION_EXPIRED_EVENT, () => {
+    queryClient.clear();
+  });
+}
 
 interface RouteSeo {
   readonly title: string;

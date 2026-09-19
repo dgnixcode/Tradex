@@ -17,6 +17,21 @@
 import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PreviewResult } from '@tradex/api';
 import type { GroupHeader, GroupMember, GroupSummary } from '@tradex/db';
 
+export const SESSION_EXPIRED_EVENT = 'tradex-session-expired';
+
+let lastExpiredNotificationMs = 0;
+
+export function notifySessionExpired(): void {
+  const now = Date.now();
+  // Throttle to avoid flooding events when multiple polling queries fail concurrently
+  if (now - lastExpiredNotificationMs < 1500) return;
+  lastExpiredNotificationMs = now;
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+  }
+}
+
 /** A minimal fetch wrapper that throws a readable error on a non-2xx response. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -24,6 +39,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      notifySessionExpired();
+    }
     let detail = res.statusText;
     try {
       const body = (await res.json()) as { message?: string };
@@ -149,6 +167,7 @@ export interface MasterUserRow {
 export async function fetchMasterUsers(): Promise<{ users: MasterUserRow[] }> {
   const res = await fetch('/api/master/users');
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired();
     let message = 'failed to fetch master users';
     try {
       const body = (await res.json()) as { message?: string };
@@ -167,6 +186,7 @@ export async function impersonateUser(targetUserId: string): Promise<{ ok: boole
     body: JSON.stringify({ targetUserId }),
   });
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired();
     let message = 'impersonation failed';
     try {
       const body = (await res.json()) as { message?: string };
@@ -181,6 +201,7 @@ export async function impersonateUser(targetUserId: string): Promise<{ ok: boole
 export async function revertMasterSession(): Promise<{ ok: boolean; dest: string }> {
   const res = await fetch('/api/master/revert', { method: 'POST' });
   if (!res.ok) {
+    if (res.status === 401) notifySessionExpired();
     let message = 'revert failed';
     try {
       const body = (await res.json()) as { message?: string };
@@ -575,7 +596,10 @@ export const fetchAnalytics = (q: AnalyticsQuery = {}): Promise<AnalyticsReport>
 /** Download the same window as a CSV and hand the caller a Blob-ready result. */
 export async function fetchAnalyticsCsv(q: AnalyticsQuery = {}): Promise<{ text: string; filename: string }> {
   const res = await fetch(`/api/analytics/realised.csv${qs(q)}`);
-  if (!res.ok) throw new ApiError(res.status, 'could not download the CSV');
+  if (!res.ok) {
+    if (res.status === 401) notifySessionExpired();
+    throw new ApiError(res.status, 'could not download the CSV');
+  }
   const text = await res.text();
   const cd = res.headers.get('content-disposition') ?? '';
   const m = /filename="?([^";]+)"?/.exec(cd);

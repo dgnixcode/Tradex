@@ -28,6 +28,10 @@ export function App() {
     }
   };
 
+  if (state.status === 'anonymous') {
+    return <Navigate to="/login" replace state={{ from: location.pathname, expired: true }} />;
+  }
+
   if (state.status === 'authenticated' && state.session.isMaster && !state.session.impersonating) {
     return <Navigate to="/app/master" replace />;
   }

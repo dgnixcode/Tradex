@@ -29,7 +29,7 @@ export function MasterPanel() {
   });
 
   if (state.status === 'anonymous') {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: '/app/master', expired: true }} />;
   }
 
   if (state.status === 'authenticated' && !state.session.isMaster) {
