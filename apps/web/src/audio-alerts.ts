@@ -149,8 +149,6 @@ class AlertSoundEngine {
     if (this.unlockListenerBound || typeof window === 'undefined') return;
     this.unlockListenerBound = true;
 
-    const events = ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'] as const;
-
     const unlock = (e: Event) => {
       // If user clicked stop or dismiss buttons, do not force-start audio
       const target = e.target as HTMLElement | null;
@@ -158,7 +156,10 @@ class AlertSoundEngine {
         return;
       }
 
-      // 1. Resume AudioContext within user gesture
+      // Immediately unbind so subsequent events in this gesture cannot interfere
+      this.unbindAutoplayUnlock();
+
+      // Resume AudioContext within user gesture
       if (this.ctx && this.ctx.state === 'suspended') {
         void this.ctx.resume().then(() => {
           if (this.isLooping && !this.isSirenPlaying()) {
@@ -167,33 +168,23 @@ class AlertSoundEngine {
         }).catch(() => {});
       }
 
-      // 2. Play active alert immediately inside this direct user gesture
+      // Play active alert immediately inside this direct user gesture
       if (this.isLooping) {
         this.playActiveAlert();
-      }
-
-      // 3. If actively sounding or no longer looping, safely remove listeners
-      if (this.isActivelySounding() || !this.isLooping) {
-        this.unbindAutoplayUnlock();
       }
     };
 
     this.activeUnlockHandler = unlock;
 
-    for (const evt of events) {
-      window.addEventListener(evt, unlock, { capture: true, passive: true });
-      document.addEventListener(evt, unlock, { capture: true, passive: true });
-    }
+    window.addEventListener('pointerdown', unlock, { capture: true });
+    window.addEventListener('keydown', unlock, { capture: true });
   }
 
   private unbindAutoplayUnlock(): void {
     if (!this.unlockListenerBound || typeof window === 'undefined') return;
     if (this.activeUnlockHandler) {
-      const events = ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'] as const;
-      for (const evt of events) {
-        window.removeEventListener(evt, this.activeUnlockHandler, true);
-        document.removeEventListener(evt, this.activeUnlockHandler, true);
-      }
+      window.removeEventListener('pointerdown', this.activeUnlockHandler, true);
+      window.removeEventListener('keydown', this.activeUnlockHandler, true);
       this.activeUnlockHandler = null;
     }
     this.unlockListenerBound = false;
@@ -258,9 +249,15 @@ class AlertSoundEngine {
   private playSirenAudio(volume: number, loop: boolean): void {
     const clampedVolume = Math.max(0.01, Math.min(1, volume));
 
-    // 1. Web Audio Buffer playback if buffer is decoded AND AudioContext is running
+    // If already actively producing sound via Web Audio, do not interrupt
+    if (this.activeSource && this.ctx && this.ctx.state === 'running') {
+      return;
+    }
+
+    const ctx = this.getContext();
+
+    // 1. Web Audio Buffer playback if buffer is decoded
     if (this.sirenBuffer) {
-      const ctx = this.getContext();
       if (ctx.state === 'running') {
         try {
           // Pause HTMLAudio fallback if active
@@ -315,6 +312,7 @@ class AlertSoundEngine {
           }
         }).catch(() => {});
         this.bindAutoplayUnlock();
+        return;
       }
     } else {
       // Buffer not loaded yet: queue playback as soon as buffer finishes decoding
@@ -325,7 +323,7 @@ class AlertSoundEngine {
       });
     }
 
-    // 2. HTMLAudioElement playback (instant fallback or while buffer is decoding or while AudioContext is suspended)
+    // 2. HTMLAudioElement playback (fallback ONLY if buffer failed or while buffer is decoding)
     try {
       const audio = this.getSirenAudio();
       audio.volume = clampedVolume;
@@ -469,7 +467,6 @@ class AlertSoundEngine {
     if (soundType === 'siren') {
       this.isLooping = true;
       if (!this.isSirenPlaying()) {
-        this.stopSirenAudio();
         this.playSirenAudio(clampedVolume, true);
       }
       return;
@@ -501,7 +498,6 @@ class AlertSoundEngine {
     if (!this.isLooping) return;
     if (this.currentSoundType === 'siren') {
       if (this.isSirenPlaying()) return;
-      this.stopSirenAudio();
       this.playSirenAudio(this.currentVolume, true);
     } else {
       this.playSynthesizedChime(this.currentSoundType, this.currentVolume);
