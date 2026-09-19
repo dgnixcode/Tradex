@@ -186,13 +186,11 @@ export function GlobalPositionAlerts() {
 
     if (unacknowledged.length > 0) {
       setDismissedVisually(false);
-      if (!alertSound.isPlaying()) {
-        alertSound.startAlertLoop(
-          config.soundType,
-          config.volume,
-          config.repeatIntervalSeconds * 1000
-        );
-      }
+      alertSound.startAlertLoop(
+        config.soundType,
+        config.volume,
+        config.repeatIntervalSeconds * 1000
+      );
       setIsAlarmPlaying(true);
     } else {
       if (alertSound.isPlaying()) {
@@ -236,6 +234,15 @@ export function GlobalPositionAlerts() {
       className={`global-position-alert-top-banner ${hasDownBreach ? 'alert-danger' : 'alert-success'}`}
       role="alert"
       aria-live="assertive"
+      onClick={() => {
+        if (isAlarmPlaying && !alertSound.isActivelySounding()) {
+          alertSound.startAlertLoop(
+            config.soundType,
+            config.volume,
+            config.repeatIntervalSeconds * 1000
+          );
+        }
+      }}
     >
       <div className="alert-top-banner-inner">
         {/* Left Section: Icon, Title & Sound Indicator */}
