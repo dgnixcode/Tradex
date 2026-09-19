@@ -396,7 +396,16 @@ export class ExecutionWorker {
     let changed = 0;
     for (const child of working) {
       if (child.clientOrderId === null || !POLLABLE.has(child.state) || child.market === null) continue;
-      const observed = await this.deps.resolve(child.clientOrderId);
+      let observed = await this.deps.resolve(child.clientOrderId);
+      if (!observed.ok || observed.order === null) {
+        // Exchange replication lag: give the venue up to 2 quick retries (500ms apart)
+        // before concluding the order is unresolvable or missing.
+        for (let retry = 0; retry < 2; retry++) {
+          await new Promise((r) => setTimeout(r, 500));
+          observed = await this.deps.resolve(child.clientOrderId);
+          if (observed.ok && observed.order !== null) break;
+        }
+      }
       if (!observed.ok) continue; // venue error; the next cycle retries
       if (observed.order === null) {
         // We believed this order open, but the venue no longer knows it. Honest

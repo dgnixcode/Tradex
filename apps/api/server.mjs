@@ -529,6 +529,8 @@ if (sending) {
         'child_order.tenant_id as tenantId', 'child_order.market as market',
         'child_order.final_quantity as finalQuantity', 'child_order.leg_seq as legSeq',
         'child_order.exchange_order_id as exchangeOrderId',
+        'child_order.created_at as createdAt',
+        'child_order.leg_kind as legKind',
         'group_trade.order_type as orderType', 'group_trade.limit_price as limitPrice',
         'group_trade.asset as asset', 'group_trade.is_futures as isFutures',
         'group_trade.side as side', 'group_trade.margin_currency as marginCurrency',
@@ -548,16 +550,42 @@ if (sending) {
     if (sign === null) return { ok: false };
     const read = await listFuturesOrdersSigned(sign, { pair, side: row.side, marginCurrency: row.marginCurrency }, { baseUrl: VENUE_BASE })
       .catch(() => ({ ok: false }));
-    if (read.ok !== true) return { ok: false };
-    const match = read.orders.find((o) => {
-      if (row.exchangeOrderId && o.venueOrderId === row.exchangeOrderId) return true;
-      return o.pair === pair && o.side === row.side
-        && o.orderType === row.orderType
-        && o.totalQuantity === row.finalQuantity
-        && (o.price ?? null) === (row.limitPrice ?? null);
-    });
-    if (match === undefined) return { ok: true, order: null };
-    return { ok: true, order: { id: match.venueOrderId, statusRaw: match.statusRaw } };
+    if (read.ok === true && Array.isArray(read.orders)) {
+      const match = read.orders.find((o) => {
+        if (row.exchangeOrderId && o.venueOrderId === row.exchangeOrderId) return true;
+        return o.pair === pair && o.side === row.side
+          && o.orderType === row.orderType
+          && o.totalQuantity === row.finalQuantity
+          && (o.price ?? null) === (row.limitPrice ?? null);
+      });
+      if (match !== undefined) {
+        return { ok: true, order: { id: match.venueOrderId, statusRaw: match.statusRaw } };
+      }
+    }
+
+    // L4c: An active position on this pair is physical proof that the entry filled,
+    // even when CoinDCX's order list read lags behind or omits the order.
+    if (row.legKind === 'entry' || row.legSeq === 0) {
+      const posRead = await fetchFuturesPositionsSigned(sign, [row.marginCurrency], { baseUrl: VENUE_BASE })
+        .catch(() => ({ ok: false }));
+      if (posRead.ok && Array.isArray(posRead.positions)) {
+        const pos = posRead.positions.find((p) => p.pair === pair && Number(p.activePos) > 0);
+        if (pos !== undefined) {
+          return { ok: true, order: { id: row.exchangeOrderId ?? pos.venuePositionId, statusRaw: 'filled' } };
+        }
+      }
+    }
+
+    // Replication lag grace period: CoinDCX derivatives orders endpoint can lag
+    // by 1-3 seconds after order submission. If the order was created recently (< 30s)
+    // or has a known venue exchange_order_id, return ok: false so the next poll retries
+    // instead of prematurely declaring order: null.
+    const ageMs = row.createdAt ? Date.now() - new Date(row.createdAt).getTime() : 0;
+    if (ageMs < 30_000 || row.exchangeOrderId) {
+      return { ok: false };
+    }
+
+    return { ok: true, order: null };
   };
 
   /** Phase-15 SL/TP: find the position this entry opened and attach protection. */
