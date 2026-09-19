@@ -24,14 +24,30 @@ export function quoteScaleOf(quote: 'INR' | 'USDT'): number {
   return quote === 'INR' ? 2 : 8;
 }
 
-export function fmtMinor(minor: string, quote: 'INR' | 'USDT'): string {
+export function fmtMinor(minor: string, quote: 'INR' | 'USDT', maxDecimals = 2): string {
   const scale = quoteScaleOf(quote);
   const neg = minor.startsWith('-');
   const digits = neg ? minor.slice(1) : minor;
+
+  if (scale > maxDecimals) {
+    const diff = scale - maxDecimals;
+    const divisor = 10n ** BigInt(diff);
+    const half = divisor / 2n;
+    const rounded = (BigInt(digits) + half) / divisor;
+    const padded = String(rounded).padStart(maxDecimals + 1, '0');
+    const whole = padded.slice(0, -maxDecimals);
+    const frac = padded.slice(-maxDecimals);
+    const body = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
+    const sign = neg ? '−' : '';
+    return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
+  }
+
   const padded = digits.padStart(scale + 1, '0');
   const whole = padded.slice(0, -scale);
-  const frac = padded.slice(-scale).replace(/0+$/, '');
-  const body = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${frac === '' ? '' : `.${frac}`}`;
+  const frac = padded.slice(-scale);
+  const body = scale === 0
+    ? whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    : `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
   const sign = neg ? '−' : '';
   return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
 }
@@ -44,7 +60,8 @@ export function pnlClass(minor: string | null): string {
 }
 
 export function pnlText(minor: string | null, quote: 'INR' | 'USDT'): string {
-  if (minor === null) return '—';
+  if (minor === null || minor === '') return '—';
+  if (minor === '0') return fmtMinor(minor, quote);
   if (minor.startsWith('-')) return fmtMinor(minor, quote);
   return `+${fmtMinor(minor, quote)}`;
 }
@@ -95,13 +112,10 @@ export function fmtPrice(priceStr: string | null | undefined): string {
   if (!priceStr || priceStr === '0' || priceStr === '') return '—';
   const n = Number(priceStr);
   if (!Number.isFinite(n)) return priceStr;
-  if (n >= 1000) {
+  if (n >= 1) {
     return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  if (n >= 1) {
-    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  }
-  return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 }
 
 function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {

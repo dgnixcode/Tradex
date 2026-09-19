@@ -16,14 +16,28 @@ function groupThousands(digits: string): string {
 }
 
 /** Quote minor → currency string with separators. */
-function fmtMinor(minor: string, quote: string): string {
+function fmtMinor(minor: string, quote: string, maxDecimals = 2): string {
   const scale = quoteScaleOf(quote);
   const neg = minor.startsWith('-');
   const digits = neg ? minor.slice(1) : minor;
+
+  if (scale > maxDecimals) {
+    const diff = scale - maxDecimals;
+    const divisor = 10n ** BigInt(diff);
+    const half = divisor / 2n;
+    const rounded = (BigInt(digits) + half) / divisor;
+    const padded = String(rounded).padStart(maxDecimals + 1, '0');
+    const whole = padded.slice(0, -maxDecimals);
+    const frac = padded.slice(-maxDecimals);
+    const body = `${groupThousands(whole)}.${frac}`;
+    const sign = neg ? '−' : '';
+    return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
+  }
+
   const padded = digits.padStart(scale + 1, '0');
   const whole = padded.slice(0, -scale);
-  const frac = padded.slice(-scale).replace(/0+$/, '');
-  const body = `${groupThousands(whole)}${frac === '' ? '' : `.${frac}`}`;
+  const frac = padded.slice(-scale);
+  const body = scale === 0 ? groupThousands(whole) : `${groupThousands(whole)}.${frac}`;
   const sign = neg ? '−' : '';
   return quote === 'INR' ? `${sign}₹${body}` : `${sign}${body} ${quote}`;
 }

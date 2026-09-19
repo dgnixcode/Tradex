@@ -22,12 +22,30 @@ import type { Reconciliation, ValidateAccountInput } from '../api.ts';
  * at scale 18). Deriving the scale from the code renders such a row as
  * ₹50,84,37,69,24,990 instead of ₹0.005.
  */
-function formatMinor(minor: string, scale: number, currency: string): string {
-  const digits = minor.padStart(scale + 1, '0');
-  const whole = scale === 0 ? digits : digits.slice(0, -scale);
-  const frac = scale === 0 ? '' : digits.slice(-scale).replace(/0+$/, '');
-  const num = `${whole}${frac === '' ? '' : `.${frac}`}`;
-  return currency === 'INR' ? `₹${num}` : `${num} ${currency}`;
+function formatMinor(minor: string, scale: number, currency: string, maxDecimals = 2): string {
+  if (!minor) return currency === 'INR' ? '₹0.00' : `0.00 ${currency}`;
+  const neg = minor.startsWith('-');
+  const digits = neg ? minor.slice(1) : minor;
+
+  if (scale > maxDecimals) {
+    const diff = scale - maxDecimals;
+    const divisor = 10n ** BigInt(diff);
+    const half = divisor / 2n;
+    const rounded = (BigInt(digits) + half) / divisor;
+    const padded = String(rounded).padStart(maxDecimals + 1, '0');
+    const whole = padded.slice(0, -maxDecimals);
+    const frac = padded.slice(-maxDecimals);
+    const num = `${whole}.${frac}`;
+    const sign = neg ? '−' : '';
+    return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
+  }
+
+  const padded = digits.padStart(scale + 1, '0');
+  const whole = scale === 0 ? padded : padded.slice(0, -scale);
+  const frac = scale === 0 ? '' : padded.slice(-scale);
+  const num = scale === 0 ? whole : `${whole}.${frac}`;
+  const sign = neg ? '−' : '';
+  return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
 }
 
 /** The tradable step of a quote. Sizing bases are always stated at this scale. */
