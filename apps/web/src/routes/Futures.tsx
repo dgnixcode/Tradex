@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
@@ -2984,6 +2984,7 @@ export function Futures() {
   const [managingGroup, setManagingGroup] = useState<PositionGroup | null>(null);
   const [quickExitTarget, setQuickExitTarget] = useState<QuickExitTarget | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // By default, cards are EXPANDED so all critical details are visible immediately.
   // collapsedGroups keeps track of cards the user explicitly minimized.
@@ -2997,6 +2998,18 @@ export function Futures() {
 
   // Keep live market price feed streaming in real-time while on positions page
   useLivePrices();
+
+  // Unified refresh handler: invalidates query cache immediately so local changes reflect instantly,
+  // then runs exchange sync in the background to ensure venue mirror consistency.
+  const handleRefreshAll = useCallback(async () => {
+    void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+    try {
+      await refreshFuturesPositions();
+    } catch {
+      // background sync is best-effort
+    }
+    void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+  }, [qc]);
 
   const refreshMut = useMutation({
     mutationFn: () => refreshFuturesPositions(),
@@ -3019,7 +3032,7 @@ export function Futures() {
         text: `${direction === 'reduce' ? 'Closed' : 'Added'} ${percentBp / 100}% — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit via positions/exit)' : ''}.`,
       });
       setManagingPosition(null);
-      void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+      void handleRefreshAll();
     },
     onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
   });
@@ -3033,14 +3046,14 @@ export function Futures() {
         text: `Position closed at market (cancelled ${out.cancelled.length} conditional order${out.cancelled.length === 1 ? '' : 's'}${out.venueGroupId === null ? '' : `, venue group ${out.venueGroupId}`}).`,
       });
       setManagingPosition(null);
-      void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+      void handleRefreshAll();
     },
     onError: (e) => {
       const msg = (e as Error).message || '';
       if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
         setMessage({ kind: 'ok', text: 'Position is already closed.' });
         setManagingPosition(null);
-        void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+        void handleRefreshAll();
       } else {
         setMessage({ kind: 'err', text: msg });
       }
@@ -3085,6 +3098,20 @@ export function Futures() {
 
   // Build grouped positions
   const groups = useMemo(() => buildGroups(rows), [rows]);
+
+  // Filter grouped positions by group name, coin/asset, pair, or member account
+  const filteredGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return groups;
+    return groups.filter((g) => {
+      if (g.asset.toLowerCase().includes(q)) return true;
+      if (g.pair.toLowerCase().includes(q)) return true;
+      if (g.marginCurrency.toLowerCase().includes(q)) return true;
+      if (g.groupNames.some((name) => name.toLowerCase().includes(q))) return true;
+      if (g.positions.some((p) => p.accountName.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [groups, searchQuery]);
 
   // Keep managingPosition up-to-date with live polling
   const liveManagingPosition = useMemo(() => {
@@ -3299,27 +3326,96 @@ export function Futures() {
       {/* ── Grouped Position Cards (Expanded by Default) ── */}
       {hasAny && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', margin: 0 }}>
-              Grouped Positions
-            </h3>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              All metrics and accounts visible by default
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', margin: 0 }}>
+                Grouped Positions
+              </h3>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {searchQuery.trim() !== ''
+                  ? `Showing ${filteredGroups.length} of ${groups.length} group${groups.length === 1 ? '' : 's'}`
+                  : 'All metrics and accounts visible by default'}
+              </span>
+            </div>
+
+            {/* Group or Coin Search Input */}
+            <div style={{ position: 'relative', minWidth: 260, maxWidth: 360, flex: 1 }}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search group or coin (e.g. BTC, Scalping)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="card-account-search"
+                style={{
+                  width: '100%',
+                  padding: '7px 28px 7px 32px',
+                  fontSize: '13px',
+                  boxSizing: 'border-box',
+                  borderRadius: '6px',
+                }}
+                aria-label="Search group or coin"
+              />
+              {searchQuery.trim() !== '' && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                    fontSize: '13px',
+                    lineHeight: 1,
+                  }}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
 
-          {groups.map((g) => (
-            <GroupCard
-              key={g.key}
-              group={g}
-              collapsed={collapsedGroups.has(g.key)}
-              onToggle={() => toggleGroupCollapse(g.key)}
-              onManage={(pos) => { setManagingPosition(pos); setMessage(null); }}
-              onManageGroup={(grp) => { setManagingGroup(grp); setMessage(null); }}
-              onQuickExit={(pos) => { setQuickExitTarget({ type: 'account', position: pos }); setMessage(null); }}
-              onQuickExitGroup={(grp) => { setQuickExitTarget({ type: 'group', group: grp }); setMessage(null); }}
-            />
-          ))}
+          {filteredGroups.length === 0 ? (
+            <div className="empty-state" style={{ padding: '36px 16px', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No groups or coins match "{searchQuery}"</p>
+              <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try searching by coin symbol (e.g. BTC, ETH), group name, or account name.</p>
+              <button type="button" className="btn secondary btn-sm" onClick={() => setSearchQuery('')}>
+                Clear search
+              </button>
+            </div>
+          ) : (
+            filteredGroups.map((g) => (
+              <GroupCard
+                key={g.key}
+                group={g}
+                collapsed={collapsedGroups.has(g.key)}
+                onToggle={() => toggleGroupCollapse(g.key)}
+                onManage={(pos) => { setManagingPosition(pos); setMessage(null); }}
+                onManageGroup={(grp) => { setManagingGroup(grp); setMessage(null); }}
+                onQuickExit={(pos) => { setQuickExitTarget({ type: 'account', position: pos }); setMessage(null); }}
+                onQuickExitGroup={(grp) => { setQuickExitTarget({ type: 'group', group: grp }); setMessage(null); }}
+              />
+            ))
+          )}
         </div>
       )}
 
@@ -3342,7 +3438,7 @@ export function Futures() {
         <GroupPositionManageModal
           group={liveManagingGroup}
           onClose={() => setManagingGroup(null)}
-          onRefreshPositions={() => qc.invalidateQueries({ queryKey: ['futures-positions'] })}
+          onRefreshPositions={handleRefreshAll}
         />
       )}
 
@@ -3351,7 +3447,7 @@ export function Futures() {
         <QuickExitModal
           target={liveQuickExitTarget}
           onClose={() => setQuickExitTarget(null)}
-          onRefreshPositions={() => qc.invalidateQueries({ queryKey: ['futures-positions'] })}
+          onRefreshPositions={handleRefreshAll}
         />
       )}
     </div>

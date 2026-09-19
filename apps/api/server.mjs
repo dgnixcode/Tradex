@@ -713,28 +713,35 @@ if (sending) {
         );
         if (isAlreadyClosed) {
           console.log(`[exitPosition] position ${venuePositionId} has no active position at venue (already exited)`);
-          try {
-            const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
-            if (after.ok) await replaceFuturesPositions(forTenant(db, actor.tenantId), actor.accountId, after.positions);
-          } catch (e) {
-            console.error('[mirror] post-exit refresh failed:', e instanceof Error ? e.message : String(e));
-          }
+          // Immediately delete from local mirror so positions page updates with 0 delay
+          await forTenant(db, actor.tenantId)
+            .deleteFrom('futures_position')
+            .where('venue_position_id', '=', venuePositionId)
+            .execute()
+            .catch(() => {});
+          setTimeout(() => {
+            mirrorAccounts(actor.tenantId, [actor.accountId]).catch(() => {});
+          }, 1500);
           return { ok: true, venueGroupId: null, alreadyClosed: true };
         }
         return { ok: false, message: out.failure.detail ?? 'exit refused' };
       }
 
-      // Refresh the mirror as part of the exit. The fan-out hook does not run for an
-      // exit, so without this the position we just closed would keep rendering on
-      // the Positions page — a closed position shown as open is exactly the kind of
-      // stale state someone trades on. The view filters active_pos '0', so writing
-      // the venue's flat reading is what makes it disappear.
-      try {
-        const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
-        if (after.ok) await replaceFuturesPositions(forTenant(db, actor.tenantId), actor.accountId, after.positions);
-      } catch (e) {
-        console.error('[mirror] post-exit refresh failed:', e instanceof Error ? e.message : String(e));
-      }
+      // Immediately delete from local mirror so positions page reflects the exit with 0 delay.
+      // Do NOT query venue immediately at 0ms because market matching takes 200-1000ms
+      // and would re-write the old open position back into the database.
+      await forTenant(db, actor.tenantId)
+        .deleteFrom('futures_position')
+        .where('venue_position_id', '=', venuePositionId)
+        .execute()
+        .catch(() => {});
+
+      // Schedule background mirror sync after venue order match settles
+      setTimeout(() => {
+        mirrorAccounts(actor.tenantId, [actor.accountId]).catch((e) => {
+          console.error('[mirror] post-exit background refresh failed:', e instanceof Error ? e.message : String(e));
+        });
+      }, 1500);
 
       return { ok: true, venueGroupId: out.venueGroupId };
     },
@@ -895,12 +902,26 @@ if (sending) {
           /no\s+active\s+position/i.test(out.failure.detail ?? '')
         );
         if (isAlreadyClosed) {
-          await mirrorAccounts(args.actor.tenantId, [args.actor.accountId]);
+          await forTenant(db, args.actor.tenantId)
+            .deleteFrom('futures_position')
+            .where('venue_position_id', '=', args.venuePositionId)
+            .execute()
+            .catch(() => {});
+          setTimeout(() => {
+            mirrorAccounts(args.actor.tenantId, [args.actor.accountId]).catch(() => {});
+          }, 1500);
           return { ok: true, quantity: plan.quantity, venueOrderId: null, full: true };
         }
         return { ok: false, code: out.failure.code ?? 'exit_refused', detail: out.failure.detail ?? 'the venue refused the exit' };
       }
-      await mirrorAccounts(args.actor.tenantId, [args.actor.accountId]);
+      await forTenant(db, args.actor.tenantId)
+        .deleteFrom('futures_position')
+        .where('venue_position_id', '=', args.venuePositionId)
+        .execute()
+        .catch(() => {});
+      setTimeout(() => {
+        mirrorAccounts(args.actor.tenantId, [args.actor.accountId]).catch(() => {});
+      }, 1500);
       return { ok: true, quantity: plan.quantity, venueOrderId: null, full: true };
     }
 
@@ -924,10 +945,11 @@ if (sending) {
         childOrderId: randomUUID(),
       });
 
-    // The venue is the truth about what the position became, so re-read it — and
-    // check the sign did not flip. A reduce that REVERSED the position would be
-    // invisible in the order response and catastrophic on the next mark move.
-    const after = await fetchFuturesPositionsSigned(sign, [pos.marginCurrency], { baseUrl: VENUE_BASE });
+    // The venue is the truth about what the position became, so re-read it after allowing
+    // the market order fill a moment to reflect in venue position — and check the sign did not flip.
+    // Query both margin currencies so INR positions are not wiped out.
+    await new Promise((r) => setTimeout(r, 400));
+    const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
     if (after.ok) {
       await replaceFuturesPositions(forTenant(db, args.actor.tenantId), args.actor.accountId, after.positions);
       const now = after.positions.find((p) => p.venuePositionId === args.venuePositionId);

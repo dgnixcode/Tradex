@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createGroup, DEFAULT_GROUP_NAME, fetchGroups, updateGroup } from '../api.ts';
+import { createGroup, DEFAULT_GROUP_NAME, fetchFuturesPositions, fetchGroups, updateGroup } from '../api.ts';
 import type { GroupSummary } from '../api.ts';
 
 // The Groups management list (T04.2 surface). Shows every group with its member
@@ -150,6 +150,22 @@ export function Groups() {
   const navigate = useNavigate();
 
   const groups = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
+  const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions, refetchInterval: 3000 });
+
+  // Map each group name to active coins / pairs traded by its accounts
+  const groupCoinsMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const v of positions.data?.views ?? []) {
+      if (v.groupName) {
+        const set = map.get(v.groupName) ?? new Set<string>();
+        const asset = v.pair.replace(/^[A-Z]-/, '').replace(/_.*$/, '');
+        set.add(asset.toLowerCase());
+        set.add(v.pair.toLowerCase());
+        map.set(v.groupName, set);
+      }
+    }
+    return map;
+  }, [positions.data]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -161,10 +177,13 @@ export function Groups() {
     if (!groups.data) return [];
     const q = search.trim().toLowerCase();
     if (!q) return groups.data;
-    return groups.data.filter((g) =>
-      g.name.toLowerCase().includes(q) || (g.description ?? '').toLowerCase().includes(q)
-    );
-  }, [groups.data, search]);
+    return groups.data.filter((g) => {
+      if (g.name.toLowerCase().includes(q) || (g.description ?? '').toLowerCase().includes(q)) return true;
+      const coins = groupCoinsMap.get(g.name);
+      if (coins && (coins.has(q) || Array.from(coins).some((c) => c.includes(q)))) return true;
+      return false;
+    });
+  }, [groups.data, search, groupCoinsMap]);
 
   const create = useMutation({
     mutationFn: () => createGroup(name, description),
@@ -248,7 +267,7 @@ export function Groups() {
               </svg>
               <input
                 type="text"
-                placeholder="Search groups..."
+                placeholder="Search groups or coins (e.g. BTC, Scalping)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="card-account-search"
@@ -259,7 +278,7 @@ export function Groups() {
                   boxSizing: 'border-box',
                   borderRadius: '6px',
                 }}
-                aria-label="Search groups"
+                aria-label="Search groups or coins"
               />
               {search.trim() !== '' && (
                 <button
@@ -293,8 +312,8 @@ export function Groups() {
 
           {filteredGroups.length === 0 ? (
             <div className="empty-state" style={{ padding: '36px 16px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No groups match "{search}"</p>
-              <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try adjusting your search query.</p>
+              <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No groups or coins match "{search}"</p>
+              <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try searching by coin symbol (e.g. BTC, ETH) or group name.</p>
               <button type="button" className="btn secondary btn-sm" onClick={() => setSearch('')}>
                 Clear search
               </button>
@@ -350,6 +369,23 @@ export function Groups() {
                         </div>
                         <span className="group-card-count">{g.enabledCount} of {g.memberCount} enabled</span>
                       </div>
+
+                      {(() => {
+                        const coinsForGroup = groupCoinsMap.get(g.name);
+                        const coinList = coinsForGroup
+                          ? Array.from(coinsForGroup).filter((c) => !c.includes('-') && !c.includes('_')).map((c) => c.toUpperCase())
+                          : [];
+                        if (coinList.length === 0) return null;
+                        return (
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, marginBottom: 2 }}>
+                            {coinList.map((coin) => (
+                              <span key={coin} className="badge" style={{ fontSize: 10, padding: '1px 6px', background: 'rgba(245, 158, 11, 0.12)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                                {coin}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {isDefault ? (
                         <p className="muted group-card-desc">Master system group containing all connected accounts for whole-desk execution.</p>

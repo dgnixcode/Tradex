@@ -1199,6 +1199,20 @@ export function createHttpServer(deps: HttpDeps): Server {
           venuePositionId: futExitMatch[1] as string,
           marginCurrency: mc,
         });
+
+        // Clean up the position from the database mirror immediately so subsequent reads reflect the exit with 0 delay
+        await forTenant(deps.db, principal.tenantId)
+          .deleteFrom('futures_position')
+          .where('venue_position_id' as never, '=', futExitMatch[1] as never)
+          .execute()
+          .catch(() => {});
+
+        if (deps.refreshPositions !== undefined) {
+          setTimeout(() => {
+            deps.refreshPositions?.({ tenantId: principal.tenantId }).catch(() => {});
+          }, 1000);
+        }
+
         sendJson(ctx.res, 200, out);
       } catch (e) {
         if (e instanceof HttpError) throw e;
