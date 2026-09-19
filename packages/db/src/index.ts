@@ -23,3 +23,4 @@ export * from './trailing-sl-repo.js';
 export * from './password-reset-repo.js';
 export * from './inquiry-repo.js';
 export * from './branding-repo.js';
+export * from './login-security-repo.js';

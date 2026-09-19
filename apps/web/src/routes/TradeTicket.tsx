@@ -3,7 +3,7 @@ import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_GROUP_NAME, fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
-import type { AssetOption, GroupSummary, PlanRequest } from '../api.ts';
+import type { GroupSummary, PlanRequest } from '../api.ts';
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
 
@@ -143,6 +143,339 @@ function Choice<T extends string>({ label, value, options, onChange, hint }: {
   );
 }
 
+interface TradeProtectionModalProps {
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly asset: string;
+  readonly quoteCurrency: string;
+  readonly side: Side;
+  readonly orderType: OrderType;
+  readonly slTpRefPrice: string;
+  readonly slTpRefNum: number;
+  readonly hasRef: boolean;
+  readonly slTpMode: SlTpMode;
+  readonly setSlTpMode: (mode: SlTpMode) => void;
+  readonly stopLossPrice: string;
+  readonly setStopLossPrice: (p: string) => void;
+  readonly takeProfitPrice: string;
+  readonly setTakeProfitPrice: (p: string) => void;
+  readonly slPercent: string;
+  readonly setSlPercent: (p: string) => void;
+  readonly tpPercent: string;
+  readonly setTpPercent: (p: string) => void;
+  readonly trailingStopLoss: boolean;
+  readonly setTrailingStopLoss: (t: boolean) => void;
+  readonly trailingDistancePercent: string;
+  readonly setTrailingDistancePercent: (d: string) => void;
+  readonly trailingStepPercent: string;
+  readonly setTrailingStepPercent: (s: string) => void;
+  readonly onClearAll: () => void;
+}
+
+function TradeProtectionModal({
+  isOpen,
+  onClose,
+  asset,
+  quoteCurrency,
+  side,
+  orderType,
+  slTpRefPrice,
+  slTpRefNum,
+  hasRef,
+  slTpMode,
+  setSlTpMode,
+  stopLossPrice,
+  setStopLossPrice,
+  takeProfitPrice,
+  setTakeProfitPrice,
+  slPercent,
+  setSlPercent,
+  tpPercent,
+  setTpPercent,
+  trailingStopLoss,
+  setTrailingStopLoss,
+  trailingDistancePercent,
+  setTrailingDistancePercent,
+  trailingStepPercent,
+  setTrailingStepPercent,
+  onClearAll,
+}: TradeProtectionModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="position-modal-overlay" onClick={onClose}>
+      <div
+        className="position-modal"
+        style={{ maxWidth: 460, width: '100%', background: '#0e1015' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="position-modal-header" style={{ padding: '14px 18px' }}>
+          <div>
+            <h3 className="position-modal-title" style={{ fontSize: 15, fontWeight: 700 }}>
+              Take Profit &amp; Stop Loss
+            </h3>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              {asset}/{quoteCurrency} • <span style={{ color: side === 'buy' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{side === 'buy' ? 'Long' : 'Short'}</span> • {orderType === 'limit' ? 'Limit' : 'Market'} • Ref Price: <strong style={{ color: '#ffffff' }}>{slTpRefPrice || '---'}</strong>
+            </div>
+          </div>
+          <button type="button" className="position-modal-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </div>
+
+        <div className="position-modal-body" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Mode toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Input Mode</span>
+            <div style={{ display: 'flex', background: '#08090c', border: '1px solid #1f232b', borderRadius: 6, padding: 2, gap: 2 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={slTpMode === 'percent'}
+                style={{
+                  padding: '3px 12px',
+                  fontSize: 11.5,
+                  fontWeight: slTpMode === 'percent' ? 700 : 500,
+                  background: slTpMode === 'percent' ? '#ffffff' : 'transparent',
+                  color: slTpMode === 'percent' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setSlTpMode('percent')}
+              >
+                Percentage (%)
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={slTpMode === 'price'}
+                style={{
+                  padding: '3px 12px',
+                  fontSize: 11.5,
+                  fontWeight: slTpMode === 'price' ? 700 : 500,
+                  background: slTpMode === 'price' ? '#ffffff' : 'transparent',
+                  color: slTpMode === 'price' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setSlTpMode('price')}
+              >
+                Price
+              </button>
+            </div>
+          </div>
+
+          {/* Stop Loss Card */}
+          <div style={{ background: '#12141a', border: '1px solid #1f232b', borderRadius: 8, padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: '#f87171' }}>Stop Loss</label>
+              <select
+                value={trailingStopLoss ? 'trailing' : 'fixed'}
+                onChange={(e) => setTrailingStopLoss(e.target.value === 'trailing')}
+                style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#08090c', border: '1px solid #222631' }}
+              >
+                <option value="fixed">Fixed SL</option>
+                <option value="trailing">Trailing SL</option>
+              </select>
+            </div>
+
+            {trailingStopLoss ? (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Distance (%)</div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={trailingDistancePercent}
+                    onChange={(e) => setTrailingDistancePercent(e.target.value)}
+                    placeholder="5"
+                    style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Step (%)</div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={trailingStepPercent}
+                    onChange={(e) => setTrailingStepPercent(e.target.value)}
+                    placeholder="1"
+                    style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                  />
+                </div>
+              </div>
+            ) : slTpMode === 'price' ? (
+              <div>
+                <input
+                  id="modal-sl-price"
+                  inputMode="decimal"
+                  value={stopLossPrice}
+                  placeholder="Trigger Price, e.g. 80000"
+                  onChange={(e) => setStopLossPrice(e.target.value)}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                />
+                {stopLossPrice !== '' && hasRef && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    ≈ {priceToPercent(slTpRefNum, Number(stopLossPrice), side, 'sl').toFixed(2)}% from entry
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <input
+                  id="modal-sl-pct"
+                  inputMode="decimal"
+                  value={slPercent}
+                  placeholder="Distance %, e.g. 5"
+                  disabled={!hasRef}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                    if (v === '' || Number(v) <= 100) setSlPercent(v);
+                  }}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                />
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  {SL_PERCENT_CHIPS.map((v) => {
+                    const active = slPercent !== '' && Number(slPercent) === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={active}
+                        className="btn btn-sm"
+                        disabled={!hasRef}
+                        style={{
+                          flex: 1,
+                          padding: '3px 0',
+                          fontSize: 11,
+                          fontWeight: active ? 700 : 500,
+                          background: active ? '#ffffff' : '#08090c',
+                          color: active ? '#000000' : '#9ca3af',
+                          border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+                          borderRadius: 'var(--radius-pill)',
+                        }}
+                        onClick={() => setSlPercent(String(v))}
+                      >
+                        {v}%
+                      </button>
+                    );
+                  })}
+                </div>
+                {hasRef && slPercent !== '' && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    ≈ {percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(2)} trigger price
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Take Profit Card */}
+          <div style={{ background: '#12141a', border: '1px solid #1f232b', borderRadius: 8, padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: '#34d399' }}>Take Profit</label>
+            </div>
+
+            {slTpMode === 'price' ? (
+              <div>
+                <input
+                  id="modal-tp-price"
+                  inputMode="decimal"
+                  value={takeProfitPrice}
+                  placeholder="Target Price, e.g. 92000"
+                  onChange={(e) => setTakeProfitPrice(e.target.value)}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                />
+                {takeProfitPrice !== '' && hasRef && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    ≈ {priceToPercent(slTpRefNum, Number(takeProfitPrice), side, 'tp').toFixed(2)}% from entry
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <input
+                  id="modal-tp-pct"
+                  inputMode="decimal"
+                  value={tpPercent}
+                  placeholder="Target %, e.g. 10"
+                  disabled={!hasRef}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
+                    if (v === '' || Number(v) <= 100) setTpPercent(v);
+                  }}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
+                />
+                <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                  {TP_PERCENT_CHIPS.map((v) => {
+                    const active = tpPercent !== '' && Number(tpPercent) === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={active}
+                        className="btn btn-sm"
+                        disabled={!hasRef}
+                        style={{
+                          flex: 1,
+                          padding: '3px 0',
+                          fontSize: 11,
+                          fontWeight: active ? 700 : 500,
+                          background: active ? '#ffffff' : '#08090c',
+                          color: active ? '#000000' : '#9ca3af',
+                          border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+                          borderRadius: 'var(--radius-pill)',
+                        }}
+                        onClick={() => setTpPercent(String(v))}
+                      >
+                        {v}%
+                      </button>
+                    );
+                  })}
+                </div>
+                {hasRef && tpPercent !== '' && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    ≈ {percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(2)} trigger price
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer actions */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <button
+              type="button"
+              className="btn secondary btn-sm"
+              onClick={onClearAll}
+              style={{ padding: '6px 14px', fontSize: 12 }}
+            >
+              Clear All
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={onClose}
+              style={{
+                padding: '6px 20px',
+                fontSize: 12,
+                fontWeight: 700,
+                background: '#ffffff',
+                color: '#000000',
+                borderRadius: 6,
+              }}
+            >
+              Save Protection
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TradeTicket() {
   const navigate = useNavigate();
   const groups = useQuery({
@@ -211,6 +544,15 @@ export function TradeTicket() {
   // Stores the latest market price for use as SL/TP reference on market orders.
   const [marketRefPrice, setMarketRefPrice] = useState('');
   const [usdtInrRate, setUsdtInrRate] = useState<number | null>(null);
+  const [showProtectionModal, setShowProtectionModal] = useState(false);
+
+  const clearAllProtection = (): void => {
+    setStopLossPrice('');
+    setTakeProfitPrice('');
+    setSlPercent('');
+    setTpPercent('');
+    setTrailingStopLoss(false);
+  };
 
   // Persist all ticket inputs to localStorage so going to preview and returning pre-fills everything
   useEffect(() => {
@@ -294,10 +636,16 @@ export function TradeTicket() {
     () => groups.data?.find((g) => g.id === groupId),
     [groups.data, groupId],
   );
-  const selectedAsset: AssetOption | undefined = useMemo(
-    () => assets.data?.find((a) => a.asset === asset),
-    [assets.data, asset],
-  );
+
+  const formattedAvailableCapital = useMemo(() => {
+    if (!selectedGroup) return null;
+    const minor = selectedGroup.allocatedByCurrency[marginCurrency];
+    const scale = marginCurrency === 'INR' ? 2 : 8;
+    const major = Number(minorToMajor(minor, scale));
+    return marginCurrency === 'INR'
+      ? `₹${major.toLocaleString('en-IN')}`
+      : `${major.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
+  }, [selectedGroup, marginCurrency]);
 
   // Fetch and set the current market price.
   const fetchAndSetPrice = (): void => {
@@ -630,70 +978,6 @@ export function TradeTicket() {
             );
           })}
         </select>
-        {selectedGroup !== undefined && selectedGroup.name === DEFAULT_GROUP_NAME && (
-          <div style={{
-            marginTop: 6,
-            padding: '6px 10px',
-            borderRadius: 6,
-            background: 'rgba(59, 130, 246, 0.08)',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
-            color: '#93c5fd',
-            fontSize: 11.5,
-            lineHeight: 1.4,
-          }}>
-            <strong>Master Whole-Desk Trade:</strong> Order fans out to all active accounts. Each account&apos;s open position will be attributed to its assigned strategy group.
-          </div>
-        )}
-        {selectedGroup !== undefined && (() => {
-          const inr = selectedGroup.allocatedByCurrency.INR;
-          const usdt = selectedGroup.allocatedByCurrency.USDT;
-          const hasInr = inr !== '0';
-          const hasUsdt = usdt !== '0';
-          const inrFormatted = hasInr ? `₹${Number(minorToMajor(inr, 2)).toLocaleString('en-IN')}` : '₹0';
-          const usdtFormatted = hasUsdt ? `${Number(minorToMajor(usdt, 8)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT` : '0 USDT';
-          return (
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-              marginTop: 8, padding: '6px', borderRadius: 8,
-              background: '#0e1014', border: '1px solid #1f232b',
-            }}>
-              <div
-                onClick={() => setMarginCurrency('INR')}
-                title="Click to fund from INR wallet"
-                style={{
-                  display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer',
-                  padding: '6px 8px', borderRadius: 6,
-                  border: marginCurrency === 'INR' ? '1px solid #ffffff' : '1px solid transparent',
-                  background: marginCurrency === 'INR' ? '#161922' : 'transparent',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>INR Capital</span>
-                  {marginCurrency === 'INR' && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#000000', background: '#ffffff', padding: '1px 4px', borderRadius: 3 }}>FUNDING</span>}
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: hasInr ? '#f3f4f6' : '#4b5563' }}>{inrFormatted}</span>
-              </div>
-              <div
-                onClick={() => setMarginCurrency('USDT')}
-                title="Click to fund from USDT wallet"
-                style={{
-                  display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer',
-                  padding: '6px 8px', borderRadius: 6,
-                  border: marginCurrency === 'USDT' ? '1px solid #ffffff' : '1px solid transparent',
-                  background: marginCurrency === 'USDT' ? '#161922' : 'transparent',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>USDT Capital</span>
-                  {marginCurrency === 'USDT' && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#000000', background: '#ffffff', padding: '1px 4px', borderRadius: 3 }}>FUNDING</span>}
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: hasUsdt ? '#f3f4f6' : '#4b5563' }}>{usdtFormatted}</span>
-              </div>
-            </div>
-          );
-        })()}
       </div>
 
       <div className="field">
@@ -710,9 +994,6 @@ export function TradeTicket() {
             <option key={a.asset} value={a.asset}>{a.quotes.join(' / ')}</option>
           ))}
         </datalist>
-        {selectedAsset !== undefined && (
-          <div className="hint">Perps trade against {selectedAsset.quotes.join(' and ')} margin</div>
-        )}
       </div>
 
       <div className="row">
@@ -740,7 +1021,7 @@ export function TradeTicket() {
       {asset !== '' && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 12px', borderRadius: 8, fontSize: 12,
+          padding: '5px 10px', borderRadius: 6, fontSize: 11.5,
           background: '#0e1014',
           border: '1px solid #1f232b',
           marginBottom: 8,
@@ -766,7 +1047,7 @@ export function TradeTicket() {
             </span>
           )}
           {liveTicker.updatedAtMs !== null && (
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280' }}>
+            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: '#6b7280' }}>
               {new Date(liveTicker.updatedAtMs).toLocaleTimeString()}
             </span>
           )}
@@ -788,7 +1069,7 @@ export function TradeTicket() {
               type="button"
               className="btn secondary"
               disabled={fetchingPrice || asset === ''}
-              style={{ whiteSpace: 'nowrap', padding: '0 12px' }}
+              style={{ whiteSpace: 'nowrap', padding: '0 10px', fontSize: 12 }}
               onClick={() => fetchAndSetPrice()}
               title="Fetch the current market price"
             >
@@ -798,125 +1079,161 @@ export function TradeTicket() {
         </div>
       )}
 
-      <Choice
-        label="Margin mode"
-        value={effectiveMarginType}
-        onChange={(v) => setPositionMarginType(v as PositionMarginType)}
-        hint={marginCurrency === 'USDT' ? 'Crossed shares collateral across positions; Isolated confines risk.' : 'INR funding uses Isolated margin.'}
-        options={
-          marginCurrency === 'USDT'
-            ? [
-                { value: 'isolated' as PositionMarginType, label: 'Isolated' },
-                { value: 'crossed' as PositionMarginType, label: 'Crossed' },
-              ]
-            : [
-                { value: 'isolated' as PositionMarginType, label: 'Isolated' },
-              ]
-        }
-      />
+      {/* ── Leverage & Margin Mode Side-by-Side ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+        {/* Leverage */}
+        <div className="field" style={{ margin: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <label htmlFor="lev" style={{ margin: 0 }}>Leverage</label>
+            <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Max {MAX_LEVERAGE}×</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button
+              type="button"
+              className="btn secondary"
+              aria-label="Decrease leverage"
+              disabled={leverageAtMin}
+              style={{ padding: '3px 8px', fontSize: 13, lineHeight: 1 }}
+              onClick={() => bumpLeverage(-1)}
+            >
+              −
+            </button>
+            <input
+              id="lev"
+              inputMode="decimal"
+              value={leverage}
+              placeholder="5"
+              style={{ flex: 1, minWidth: 0, textAlign: 'center', fontWeight: 600, padding: '4px 6px', fontSize: 13 }}
+              onChange={(e) => setLeverage(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              aria-label="Increase leverage"
+              disabled={leverageAtMax}
+              style={{ padding: '3px 8px', fontSize: 13, lineHeight: 1 }}
+              onClick={() => bumpLeverage(1)}
+            >
+              +
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            {[1, 5, 10, 20].map((v) => {
+              const active = Number(leverage) === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={active}
+                  className="btn btn-sm"
+                  style={{
+                    flex: 1,
+                    padding: '2px 0',
+                    fontSize: 10.5,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? '#ffffff' : '#111318',
+                    color: active ? '#000000' : '#9ca3af',
+                    border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+                    borderRadius: 'var(--radius-pill)',
+                  }}
+                  onClick={() => setLeverage(String(v))}
+                >
+                  {v}×
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-      <div className="field" style={{ marginTop: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <label htmlFor="lev" style={{ margin: 0 }}>Leverage</label>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Max {MAX_LEVERAGE}×</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button
-            type="button"
-            className="btn secondary"
-            aria-label="Decrease leverage"
-            disabled={leverageAtMin}
-            style={{ padding: '4px 12px', fontSize: 15, lineHeight: 1 }}
-            onClick={() => bumpLeverage(-1)}
-          >
-            −
-          </button>
-          <input
-            id="lev"
-            inputMode="decimal"
-            value={leverage}
-            placeholder="5"
-            style={{ flex: 1, minWidth: 0, textAlign: 'center', fontWeight: 600 }}
-            onChange={(e) => setLeverage(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn secondary"
-            aria-label="Increase leverage"
-            disabled={leverageAtMax}
-            style={{ padding: '4px 12px', fontSize: 15, lineHeight: 1 }}
-            onClick={() => bumpLeverage(1)}
-          >
-            +
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-          {[1, 5, 10, 20].map((v) => {
-            const active = Number(leverage) === v;
-            return (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={active}
-                className="btn btn-sm"
-                style={{
-                  flex: 1,
-                  padding: '4px 0',
-                  fontSize: 11,
-                  fontWeight: active ? 700 : 500,
-                  background: active ? '#ffffff' : '#111318',
-                  color: active ? '#000000' : '#9ca3af',
-                  border: `1px solid ${active ? '#ffffff' : '#222631'}`,
-                  borderRadius: 'var(--radius-pill)',
-                }}
-                onClick={() => setLeverage(String(v))}
-              >
-                {v}×
-              </button>
-            );
-          })}
+        {/* Margin mode */}
+        <div className="field" style={{ margin: 0 }}>
+          <label style={{ marginBottom: 4 }}>Margin mode</label>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[
+              { value: 'isolated' as PositionMarginType, label: 'Isolated' },
+              ...(marginCurrency === 'USDT' ? [{ value: 'crossed' as PositionMarginType, label: 'Crossed' }] : []),
+            ].map((o) => {
+              const active = effectiveMarginType === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  aria-pressed={active}
+                  className="btn"
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    fontSize: 12,
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: active ? '#ffffff' : '#111318',
+                    color: active ? '#000000' : '#9ca3af',
+                    border: `1px solid ${active ? '#ffffff' : '#222631'}`,
+                    fontWeight: active ? 700 : 500,
+                  }}
+                  onClick={() => setPositionMarginType(o.value)}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
+      {/* ── Size Field (With Available Capital in Header) ── */}
       <div className="field">
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-          <label htmlFor="size" style={{ margin: 0 }}>Size</label>
-          <div style={{ display: "flex", gap: 4 }}>
-            <button
-              type="button"
-              className="btn btn-sm"
-              aria-pressed={sizingMode === "percent"}
-              style={{
-                padding: "2px 10px",
-                fontSize: 11,
-                fontWeight: sizingMode === "percent" ? 700 : 500,
-                background: sizingMode === "percent" ? "#ffffff" : "#111318",
-                color: sizingMode === "percent" ? "#000000" : "#9ca3af",
-                border: `1px solid ${sizingMode === "percent" ? "#ffffff" : "#222631"}`,
-              }}
-              onClick={() => switchSizingMode("percent")}
-            >
-              Percent
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
-              aria-pressed={sizingMode === "quantity"}
-              style={{
-                padding: "2px 10px",
-                fontSize: 11,
-                fontWeight: sizingMode === "quantity" ? 700 : 500,
-                background: sizingMode === "quantity" ? "#ffffff" : "#111318",
-                color: sizingMode === "quantity" ? "#000000" : "#9ca3af",
-                border: `1px solid ${sizingMode === "quantity" ? "#ffffff" : "#222631"}`,
-              }}
-              onClick={() => switchSizingMode("quantity")}
-            >
-              Quantity
-            </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label htmlFor="size" style={{ margin: 0 }}>Size</label>
+            <div style={{ display: 'flex', background: '#0e1014', border: '1px solid #1f232b', borderRadius: 4, padding: 2, gap: 2 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={sizingMode === 'percent'}
+                style={{
+                  padding: '1px 8px',
+                  fontSize: 10.5,
+                  fontWeight: sizingMode === 'percent' ? 700 : 500,
+                  background: sizingMode === 'percent' ? '#ffffff' : 'transparent',
+                  color: sizingMode === 'percent' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                }}
+                onClick={() => switchSizingMode('percent')}
+              >
+                %
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={sizingMode === 'quantity'}
+                style={{
+                  padding: '1px 8px',
+                  fontSize: 10.5,
+                  fontWeight: sizingMode === 'quantity' ? 700 : 500,
+                  background: sizingMode === 'quantity' ? '#ffffff' : 'transparent',
+                  color: sizingMode === 'quantity' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                }}
+                onClick={() => switchSizingMode('quantity')}
+              >
+                Qty
+              </button>
+            </div>
           </div>
+          {formattedAvailableCapital && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+              <span style={{ color: '#6b7280' }}>Avail:</span>
+              <strong style={{ color: '#f3f4f6' }}>{formattedAvailableCapital}</strong>
+            </div>
+          )}
         </div>
-        {sizingMode === "percent" ? (
+
+        {sizingMode === 'percent' ? (
           <>
             <input
               id="size"
@@ -925,7 +1242,7 @@ export function TradeTicket() {
               placeholder="e.g. 20"
               onChange={(e) => handlePercentChange(e.target.value)}
             />
-            <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
               {[10, 25, 50, 75, 100].map((v) => {
                 const active = Number(percent) === v;
                 return (
@@ -936,8 +1253,8 @@ export function TradeTicket() {
                     className="btn btn-sm"
                     style={{
                       flex: 1,
-                      padding: '3px 0',
-                      fontSize: 11,
+                      padding: '2px 0',
+                      fontSize: 10.5,
                       fontWeight: active ? 700 : 500,
                       background: active ? '#ffffff' : '#111318',
                       color: active ? '#000000' : '#9ca3af',
@@ -951,8 +1268,7 @@ export function TradeTicket() {
                 );
               })}
             </div>
-            {/* ── Trading amount summary for percent mode ── */}
-            {percentValid && leverageValid && selectedGroup ? (() => {
+            {percentValid && leverageValid && selectedGroup && (() => {
               const scale = marginCurrency === 'INR' ? 2 : 8;
               const allocatedMajor = Number(selectedGroup.allocatedByCurrency[marginCurrency]) / Math.pow(10, scale);
               const marginAmt = allocatedMajor * (Number(percent) / 100);
@@ -972,34 +1288,30 @@ export function TradeTicket() {
                 <>
                   <div style={{
                     display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                    marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                    marginTop: 6, padding: '6px 8px', borderRadius: 6,
                     background: '#0e1014', border: '1px solid #1f232b',
                   }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin ({percent}%)</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin ({percent}%)</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
                     </div>
                   </div>
                   {notionalInUsdt > 0 && notionalInUsdt < 5 && (
                     <div style={{
-                      marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                      marginTop: 4, padding: '4px 6px', borderRadius: 4,
                       background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
-                      color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
+                      color: '#f87171', fontSize: 10.5, display: 'flex', alignItems: 'center', gap: 6,
                     }}>
-                      <span>Order value (~{notionalInUsdt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase size or leverage.</span>
+                      <span>Order value (~{notionalInUsdt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT.</span>
                     </div>
                   )}
                 </>
               );
-            })() : (
-              <div className="hint">
-                Percent of the group&rsquo;s allocated capital is used as margin; notional = margin × leverage.
-              </div>
-            )}
+            })()}
           </>
         ) : (
           <>
@@ -1007,11 +1319,10 @@ export function TradeTicket() {
               id="size"
               inputMode="decimal"
               value={quantity}
-              placeholder={`e.g. 0.5 ${asset || "BTC"}`}
+              placeholder={`e.g. 0.5 ${asset || 'BTC'}`}
               onChange={(e) => handleQuantityChange(e.target.value)}
             />
-            {/* ── Trading amount summary for quantity mode ── */}
-            {quantityValid && leverageValid && sizingRefPrice !== "" ? (() => {
+            {quantityValid && leverageValid && sizingRefPrice !== '' && (() => {
               const notionalAmt = Number(quantity) * Number(sizingRefPrice);
               const marginAmt = notionalAmt / Number(leverage);
               const fmtNotional = `${notionalAmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
@@ -1022,247 +1333,146 @@ export function TradeTicket() {
                 <>
                   <div style={{
                     display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                    marginTop: 8, padding: '8px 10px', borderRadius: 8,
+                    marginTop: 6, padding: '6px 8px', borderRadius: 6,
                     background: '#0e1014', border: '1px solid #1f232b',
                   }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
-                      <span style={{ fontSize: 10, color: '#6b7280' }}>{quantity} {asset} @ {sizingRefPrice}</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
-                      <span style={{ fontSize: 10, color: '#6b7280' }}>at {leverage}× leverage</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
                     </div>
                   </div>
                   {notionalAmt > 0 && notionalAmt < 5 && (
                     <div style={{
-                      marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                      marginTop: 4, padding: '4px 6px', borderRadius: 4,
                       background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
-                      color: '#f87171', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6,
+                      color: '#f87171', fontSize: 10.5, display: 'flex', alignItems: 'center', gap: 6,
                     }}>
-                      <span>Order value (~{notionalAmt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT. Increase quantity.</span>
+                      <span>Order value (~{notionalAmt.toFixed(2)} USDT) is below the exchange minimum of 5 USDT.</span>
                     </div>
                   )}
                 </>
               );
-            })() : (
-              <div className="hint">
-                Direct quantity in {asset || "the selected asset"}. Wait for market price or switch to limit order to see notional.
-              </div>
-            )}
+            })()}
           </>
         )}
       </div>
 
-      {/* SL/TP section — only shown after an asset is selected */}
-      {asset !== '' && (
-        <>
-          {/* Single Price / % toggle for both SL and TP */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 4 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              SL / TP mode
-            </span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button
-                type="button"
-                className="btn btn-sm"
-                aria-pressed={slTpMode === 'percent'}
-                style={{
-                  padding: '2px 12px', fontSize: 11,
-                  fontWeight: slTpMode === 'percent' ? 700 : 500,
-                  background: slTpMode === 'percent' ? '#ffffff' : '#111318',
-                  color: slTpMode === 'percent' ? '#000000' : '#9ca3af',
-                  border: `1px solid ${slTpMode === 'percent' ? '#ffffff' : '#222631'}`,
-                }}
-                onClick={() => setSlTpMode('percent')}
-              >
-                %
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm"
-                aria-pressed={slTpMode === 'price'}
-                style={{
-                  padding: '2px 12px', fontSize: 11,
-                  fontWeight: slTpMode === 'price' ? 700 : 500,
-                  background: slTpMode === 'price' ? '#ffffff' : '#111318',
-                  color: slTpMode === 'price' ? '#000000' : '#9ca3af',
-                  border: `1px solid ${slTpMode === 'price' ? '#ffffff' : '#222631'}`,
-                }}
-                onClick={() => setSlTpMode('price')}
-              >
-                Price
-              </button>
-            </div>
-            {slTpMode === 'percent' && !hasRef && (
-              <span style={{ fontSize: 11, color: 'var(--faint)' }}>
-                {orderType === 'market' ? 'Fetching price…' : 'Set a limit price first'}
-              </span>
-            )}
-          </div>
+      {/* ── TP / SL Protection Modal Trigger ── */}
+      <div className="field" style={{ marginTop: 2, marginBottom: 8 }}>
+        {(() => {
+          const hasSl = Boolean(trailingStopLoss || (slTpMode === 'percent' ? slPercent : stopLossPrice));
+          const hasTp = Boolean(slTpMode === 'percent' ? tpPercent : takeProfitPrice);
+          const hasProtection = hasSl || hasTp;
 
-          <div className="row">
-            {/* ── Stop-loss ── */}
-            <div className="field">
-              <label htmlFor="sl">Stop-loss (optional)</label>
-              {slTpMode === 'price' ? (
-                <>
-                  <input id="sl" inputMode="decimal" value={stopLossPrice} placeholder="e.g. 80000" onChange={(e) => setStopLossPrice(e.target.value)} />
-                  {stopLossPrice !== '' && hasRef && (
-                    <div className="hint">
-                      ≈ {priceToPercent(slTpRefNum, Number(stopLossPrice), side, 'sl').toFixed(2)}% from entry
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input
-                    id="sl"
-                    inputMode="decimal"
-                    value={slPercent}
-                    placeholder="e.g. 5"
-                    disabled={!hasRef}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
-                      if (v === '' || Number(v) <= 100) setSlPercent(v);
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {SL_PERCENT_CHIPS.map((v) => {
-                      const active = slPercent !== '' && Number(slPercent) === v;
-                      return (
-                        <button
-                          key={v}
-                          type="button"
-                          aria-pressed={active}
-                          className="btn btn-sm"
-                          disabled={!hasRef}
-                          style={{
-                            flex: 1, padding: '3px 0', fontSize: 11, fontWeight: active ? 700 : 500,
-                            background: active ? '#ffffff' : '#111318',
-                            color: active ? '#000000' : '#9ca3af',
-                            border: `1px solid ${active ? '#ffffff' : '#222631'}`,
-                            borderRadius: 'var(--radius-pill)',
-                          }}
-                          onClick={() => setSlPercent(String(v))}
-                        >
-                          {v}%
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {hasRef && slPercent !== '' && pctOk(slPercent) && (
-                    <div className="hint">
-                      ≈ {percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(2)} trigger price
-                    </div>
-                  )}
-                  {hasRef && orderType === 'market' && (
-                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>
-                      Based on current market price — actual fill may differ.
-                    </div>
-                  )}
-                </>
-              )}
-                <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
-                  <select
-                    id="ticket-tsl-type"
-                    value={trailingStopLoss ? 'trailing' : 'fixed'}
-                    onChange={(e) => setTrailingStopLoss(e.target.value === 'trailing')}
-                    style={{ fontSize: 12, padding: '4px 8px' }}
-                  >
-                    <option value="fixed">Fixed Stop Loss</option>
-                    <option value="trailing">Trailing Stop Loss</option>
-                  </select>
-                </div>
-                {trailingStopLoss && (
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6, fontSize: 12, alignItems: 'center' }}>
-                    <span style={{ color: 'var(--text-dim)' }}>Distance:</span>
-                    <input type="text" inputMode="decimal" value={trailingDistancePercent} onChange={(e) => setTrailingDistancePercent(e.target.value)} style={{ width: 40, padding: '2px 4px' }} />
-                    <span style={{ color: 'var(--text-dim)' }}>%</span>
-                    <span style={{ color: 'var(--text-dim)', marginLeft: 8 }}>Step:</span>
-                    <input type="text" inputMode="decimal" value={trailingStepPercent} onChange={(e) => setTrailingStepPercent(e.target.value)} style={{ width: 40, padding: '2px 4px' }} />
-                    <span style={{ color: 'var(--text-dim)' }}>%</span>
-                  </div>
+          if (!hasProtection) {
+            return (
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setShowProtectionModal(true)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: '#0e1014',
+                  border: '1px dashed #2d3340',
+                  borderRadius: 6,
+                  color: '#9ca3af',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                  Take Profit &amp; Stop Loss
+                </span>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>+ Set (Optional)</span>
+              </button>
+            );
+          }
+
+          return (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '7px 10px',
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: 6,
+              fontSize: 11.5,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, color: '#93c5fd', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                  TP / SL:
+                </span>
+                {trailingStopLoss ? (
+                  <span style={{ color: '#f87171', fontWeight: 600 }}>TSL: {trailingDistancePercent}%</span>
+                ) : (
+                  hasSl && (
+                    <span style={{ color: '#f87171', fontWeight: 600 }}>
+                      SL: {slTpMode === 'percent' ? `${slPercent}% (≈ ${effectiveSlPrice})` : stopLossPrice}
+                    </span>
+                  )
                 )}
+                {hasTp && (
+                  <span style={{ color: '#34d399', fontWeight: 600 }}>
+                    TP: {slTpMode === 'percent' ? `${tpPercent}% (≈ ${effectiveTpPrice})` : takeProfitPrice}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowProtectionModal(true)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAllProtection}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#9ca3af',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                  title="Clear TP and SL"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
-
-            {/* ── Take-profit ── */}
-            <div className="field">
-              <label htmlFor="tp">Take-profit (optional)</label>
-              {slTpMode === 'price' ? (
-                <>
-                  <input id="tp" inputMode="decimal" value={takeProfitPrice} placeholder="e.g. 92000" onChange={(e) => setTakeProfitPrice(e.target.value)} />
-                  {takeProfitPrice !== '' && hasRef && (
-                    <div className="hint">
-                      ≈ {priceToPercent(slTpRefNum, Number(takeProfitPrice), side, 'tp').toFixed(2)}% from entry
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input
-                    id="tp"
-                    inputMode="decimal"
-                    value={tpPercent}
-                    placeholder="e.g. 5"
-                    disabled={!hasRef}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./, '$1');
-                      if (v === '' || Number(v) <= 100) setTpPercent(v);
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {TP_PERCENT_CHIPS.map((v) => {
-                      const active = tpPercent !== '' && Number(tpPercent) === v;
-                      return (
-                        <button
-                          key={v}
-                          type="button"
-                          aria-pressed={active}
-                          className="btn btn-sm"
-                          disabled={!hasRef}
-                          style={{
-                            flex: 1, padding: '3px 0', fontSize: 11, fontWeight: active ? 700 : 500,
-                            background: active ? '#ffffff' : '#111318',
-                            color: active ? '#000000' : '#9ca3af',
-                            border: `1px solid ${active ? '#ffffff' : '#222631'}`,
-                            borderRadius: 'var(--radius-pill)',
-                          }}
-                          onClick={() => setTpPercent(String(v))}
-                        >
-                          {v}%
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {hasRef && tpPercent !== '' && pctOk(tpPercent) && (
-                    <div className="hint">
-                      ≈ {percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(2)} trigger price
-                    </div>
-                  )}
-                  {hasRef && orderType === 'market' && (
-                    <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 2 }}>
-                      Based on current market price — actual fill may differ.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-
-      {orderType === 'market' && (
-        <div className="spread-warning">
-          Market orders fill at the current book price. If the spread on the chosen market is wide, a limit order controls the fill price.
-        </div>
-      )}
+          );
+        })()}
+      </div>
 
       {preview.isError && (
-        <div className="error">{(preview.error as Error).message}</div>
+        <div className="error" style={{ marginBottom: 6 }}>{(preview.error as Error).message}</div>
       )}
 
       <button
@@ -1271,16 +1481,16 @@ export function TradeTicket() {
         onClick={submitPreview}
         style={{
           width: '100%',
-          padding: '12px',
-          fontSize: 14,
+          padding: '10px',
+          fontSize: 13.5,
           fontWeight: 700,
           background: '#ffffff',
           color: '#000000',
           border: '1px solid #ffffff',
-          borderRadius: 8,
+          borderRadius: 6,
           cursor: !canPreview || preview.isPending ? 'not-allowed' : 'pointer',
           opacity: !canPreview || preview.isPending ? 0.5 : 1,
-          marginTop: 8,
+          marginTop: 4,
           boxShadow: '0 2px 10px rgba(255, 255, 255, 0.1)',
         }}
       >
@@ -1302,6 +1512,35 @@ export function TradeTicket() {
           />
         </div>
       </div>
+
+      <TradeProtectionModal
+        isOpen={showProtectionModal}
+        onClose={() => setShowProtectionModal(false)}
+        asset={asset}
+        quoteCurrency={quoteCurrency}
+        side={side}
+        orderType={orderType}
+        slTpRefPrice={slTpRefPrice}
+        slTpRefNum={slTpRefNum}
+        hasRef={hasRef}
+        slTpMode={slTpMode}
+        setSlTpMode={setSlTpMode}
+        stopLossPrice={stopLossPrice}
+        setStopLossPrice={setStopLossPrice}
+        takeProfitPrice={takeProfitPrice}
+        setTakeProfitPrice={setTakeProfitPrice}
+        slPercent={slPercent}
+        setSlPercent={setSlPercent}
+        tpPercent={tpPercent}
+        setTpPercent={setTpPercent}
+        trailingStopLoss={trailingStopLoss}
+        setTrailingStopLoss={setTrailingStopLoss}
+        trailingDistancePercent={trailingDistancePercent}
+        setTrailingDistancePercent={setTrailingDistancePercent}
+        trailingStepPercent={trailingStepPercent}
+        setTrailingStepPercent={setTrailingStepPercent}
+        onClearAll={clearAllProtection}
+      />
     </div>
   );
 }

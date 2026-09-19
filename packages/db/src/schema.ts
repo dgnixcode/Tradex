@@ -156,6 +156,14 @@ export interface PlatformBrandingTable {
   updated_by: string | null;
 }
 
+export interface LoginIpAttemptTable {
+  ip: string;
+  failed_attempts: Generated<number>;
+  last_attempt_at: Generated<Timestamp>;
+  blocked_until: Timestamp | null;
+  created_at: Generated<Timestamp>;
+}
+
 // ------------------------------------------------- domains 2 and 3 (migration 004)
 
 export type SupportedQuote = 'INR' | 'USDT';
@@ -629,6 +637,7 @@ export interface DB {
   password_reset_token: PasswordResetTokenTable;
   consultation_inquiry: ConsultationInquiryTable;
   platform_branding: PlatformBrandingTable;
+  login_ip_attempt: LoginIpAttemptTable;
 }
 
 /**
@@ -675,7 +684,7 @@ export const isTenantScoped = (table: string): table is TenantScopedTable => sco
  * `tenant_id`, which `checks/00-tenant-isolation.check.mjs` cross-references.
  */
 export const GLOBAL_TABLES = [
-  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry', 'platform_branding',
+  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry', 'platform_branding', 'login_ip_attempt',
 ] as const;
 
 /** Tables a trigger makes append-only. Probed by 03-fx-snapshot.check.mjs. */

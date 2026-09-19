@@ -353,6 +353,13 @@ export const resumeAccount = (accountId: string): Promise<{ ok: boolean }> =>
 export const deleteAccount = (accountId: string): Promise<{ ok: boolean }> =>
   request<{ ok: boolean }>(`/accounts/${accountId}`, { method: 'DELETE' });
 
+/** Rename an exchange account. Owner / credential.write only. */
+export const renameAccount = (accountId: string, name: string): Promise<{ ok: boolean; account: { id: string; name: string } }> =>
+  request<{ ok: boolean; account: { id: string; name: string } }>(`/accounts/${accountId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+
 // --- phase 05: trading state, pause, limits ----------------------------------
 
 export interface TradingState {

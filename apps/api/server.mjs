@@ -921,6 +921,7 @@ const server = createHttpServer({
   secureCookies: process.env['TRADEX_SECURE_COOKIES'] === '1',
   resendApiKey: process.env['RESEND_API_KEY'],
   resendFrom: process.env['RESEND_FROM'],
+  adminAlertEmail: process.env['ADMIN_ALERT_EMAIL'] ?? 'bariaza006@gmail.com',
   appUrl: process.env['APP_URL'],
   ...enginePorts,
 });

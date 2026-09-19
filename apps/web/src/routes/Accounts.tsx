@@ -54,6 +54,37 @@ export function Accounts() {
     });
   }, [accounts.data, search]);
 
+  const summary = useMemo(() => {
+    const list = accounts.data ?? [];
+    let inrMinor = 0n;
+    let usdtMinor = 0n;
+    let inrCount = 0;
+    let usdtCount = 0;
+    let activeCount = 0;
+
+    for (const a of list) {
+      if (a.status === 'active') activeCount++;
+      const cap = a.allocatedCapitalMinor;
+      if (!cap || cap === '0') continue;
+      if (a.allocatedCurrency === 'INR') {
+        inrMinor += BigInt(cap);
+        inrCount++;
+      } else if (a.allocatedCurrency === 'USDT') {
+        usdtMinor += BigInt(cap);
+        usdtCount++;
+      }
+    }
+
+    return {
+      inrLabel: inrCount > 0 ? capitalLabel(inrMinor.toString(), 'INR') : '₹0.00',
+      usdtLabel: usdtCount > 0 ? capitalLabel(usdtMinor.toString(), 'USDT') : '0.00000000 USDT',
+      inrCount,
+      usdtCount,
+      activeCount,
+      totalCount: list.length,
+    };
+  }, [accounts.data]);
+
   return (
     <div className="panel full-width-page">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
@@ -101,6 +132,66 @@ export function Accounts() {
 
       {accounts.isSuccess && accounts.data.length > 0 && (
         <>
+          {/* Overall Combined Balance Summary Cards */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 12,
+            marginBottom: 20,
+          }}>
+            <div style={{
+              background: 'var(--panel-bg, #111827)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '12px 16px',
+            }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Combined Balance (INR)
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text)' }}>
+                {summary.inrLabel}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                {summary.inrCount} account{summary.inrCount === 1 ? '' : 's'} with INR capital
+              </div>
+            </div>
+
+            <div style={{
+              background: 'var(--panel-bg, #111827)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '12px 16px',
+            }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Combined Balance (USDT)
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, fontFamily: 'var(--font-mono, monospace)', color: 'var(--text)' }}>
+                {summary.usdtLabel}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                {summary.usdtCount} account{summary.usdtCount === 1 ? '' : 's'} with USDT capital
+              </div>
+            </div>
+
+            <div style={{
+              background: 'var(--panel-bg, #111827)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '12px 16px',
+            }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Total Accounts
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: 'var(--text)' }}>
+                {summary.totalCount}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                <span style={{ color: 'var(--ok, #10b981)', fontWeight: 600 }}>{summary.activeCount} active</span>
+                {summary.totalCount > summary.activeCount && ` · ${summary.totalCount - summary.activeCount} inactive`}
+              </div>
+            </div>
+          </div>
+
           {/* Search and Counts Toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', minWidth: '260px', maxWidth: '380px', flex: 1 }}>
@@ -152,7 +243,7 @@ export function Accounts() {
                   }}
                   aria-label="Clear search"
                 >
-                  ✕
+                  x
                 </button>
               )}
             </div>
@@ -178,6 +269,7 @@ export function Accounts() {
                 <table>
                   <thead>
                     <tr>
+                      <th style={{ width: 44, textAlign: 'center' }}>#</th>
                       <th>Account</th>
                       <th>Status</th>
                       <th>Strategy Group</th>
@@ -187,67 +279,78 @@ export function Accounts() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAccounts.map((a) => (
-                      <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
-                        <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
-                        <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
-                        <td>
-                          {a.groupId && a.groupName ? (
-                            <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
-                              <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
-                                {a.groupName}
-                              </span>
-                            </Link>
-                          ) : (
-                            <span className="muted" style={{ fontSize: 12 }}>Unassigned</span>
-                          )}
-                        </td>
-                        <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
-                        <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
-                        <td>
-                          {a.confirmedAgainstMinor === null ? (
-                            <span className="muted">not activated</span>
-                          ) : (
-                            <span style={{ color: 'var(--ok)' }}>from the exchange</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredAccounts.map((a) => {
+                      const serialNo = (accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1;
+                      return (
+                        <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
+                          <td className="mono muted" style={{ fontSize: 12, textAlign: 'center', fontWeight: 600 }}>#{serialNo}</td>
+                          <td><Link to={`/app/accounts/${a.id}`}>{a.name}</Link></td>
+                          <td><span className={`badge ${statusBadgeClass(a.status)}`}>{STATUS_LABEL[a.status] ?? a.status}</span></td>
+                          <td>
+                            {a.groupId && a.groupName ? (
+                              <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
+                                <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                                  {a.groupName}
+                                </span>
+                              </Link>
+                            ) : (
+                              <span className="muted" style={{ fontSize: 12 }}>Unassigned</span>
+                            )}
+                          </td>
+                          <td className="mono">{capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}</td>
+                          <td>{a.fundingCurrencies.length > 0 ? a.fundingCurrencies.join(' / ') : <span className="muted">none yet</span>}</td>
+                          <td>
+                            {a.confirmedAgainstMinor === null ? (
+                              <span className="muted">not activated</span>
+                            ) : (
+                              <span style={{ color: 'var(--ok)' }}>from the exchange</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* Mobile Account Cards (<= 768px) */}
               <div className="mobile-pos-cards">
-                {filteredAccounts.map((a) => (
-              <div
-                key={`mobile-${a.id}`}
-                className="pos-mobile-card"
-                style={{
-                  opacity: a.status === 'disconnected' || a.status === 'suspended' ? 0.75 : 1,
-                }}
-              >
-                <div className="pos-mobile-card-top">
-                  <div>
-                    <Link
-                      to={`/app/accounts/${a.id}`}
-                      style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}
+                {filteredAccounts.map((a) => {
+                  const serialNo = (accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1;
+                  return (
+                    <div
+                      key={`mobile-${a.id}`}
+                      className="pos-mobile-card"
+                      style={{
+                        opacity: a.status === 'disconnected' || a.status === 'suspended' ? 0.75 : 1,
+                      }}
                     >
-                      {a.name} →
-                    </Link>
-                    <div style={{ marginTop: 4 }}>
-                      <span className={`badge ${statusBadgeClass(a.status)}`}>
-                        {STATUS_LABEL[a.status] ?? a.status}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--muted)', display: 'block' }}>Allocated</span>
-                    <span className="mono" style={{ fontSize: 13.5, fontWeight: 700 }}>
-                      {capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}
-                    </span>
-                  </div>
-                </div>
+                      <div className="pos-mobile-card-top">
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="mono muted" style={{ fontSize: 12, fontWeight: 700, opacity: 0.8 }}>
+                              #{serialNo}
+                            </span>
+                            <Link
+                              to={`/app/accounts/${a.id}`}
+                              style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', textDecoration: 'none' }}
+                            >
+                              {a.name} →
+                            </Link>
+                          </div>
+                          <div style={{ marginTop: 4 }}>
+                            <span className={`badge ${statusBadgeClass(a.status)}`}>
+                              {STATUS_LABEL[a.status] ?? a.status}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--muted)', display: 'block' }}>Allocated</span>
+                          <span className="mono" style={{ fontSize: 13.5, fontWeight: 700 }}>
+                            {capitalLabel(a.allocatedCapitalMinor, a.allocatedCurrency)}
+                          </span>
+                        </div>
+                      </div>
 
                 <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <div className="pos-mobile-cell">
@@ -287,7 +390,8 @@ export function Accounts() {
                   View Details &amp; Positions →
                 </Link>
               </div>
-            ))}
+            );
+          })}
           </div>
         </>
       )}

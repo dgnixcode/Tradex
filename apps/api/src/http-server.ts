@@ -35,11 +35,12 @@ import {
   updateGroup, archiveGroup, addMember, removeMember, setMemberEnabled,
   getGroupMembers, getEnabledMembers, getGroupTrade, getGroupHeader, GroupRepoError, listAuditEvents,
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
-  deleteAccount, setAccountStatus, requeueStale,
+  deleteAccount, renameAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
   getPlatformBranding, updatePlatformBranding,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
+import { LoginSecurityService } from './login-security.js';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
@@ -227,6 +228,7 @@ export interface HttpDeps {
   readonly now?: (() => number) | undefined;
   readonly resendApiKey?: string | undefined;
   readonly resendFrom?: string | undefined;
+  readonly adminAlertEmail?: string | undefined;
   readonly appUrl?: string | undefined;
 }
 
@@ -293,6 +295,13 @@ export function createHttpServer(deps: HttpDeps): Server {
     resendApiKey: deps.resendApiKey,
     resendFrom: deps.resendFrom,
     appUrl: deps.appUrl,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+  });
+  const loginSecurity = new LoginSecurityService({
+    db: deps.db,
+    resendApiKey: deps.resendApiKey,
+    resendFrom: deps.resendFrom,
+    adminAlertEmail: deps.adminAlertEmail,
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   });
   const secure = deps.secureCookies ?? true;
@@ -572,6 +581,17 @@ export function createHttpServer(deps: HttpDeps): Server {
 
     // ---- POST /api/login — the only unauthenticated route ----
     if (method === 'POST' && path === '/api/login') {
+      const clientIp = loginSecurity.extractClientIp(ctx.req);
+      const isBlocked = await loginSecurity.checkIpBlocked(clientIp);
+      if (isBlocked.blocked) {
+        sendJson(ctx.res, 429, {
+          message: 'Too many failed login attempts. Your IP address is blocked for 24 hours.',
+          code: 'ip_blocked',
+          blockedUntil: isBlocked.blockedUntil?.toISOString(),
+        });
+        return;
+      }
+
       const body = (ctx.body ?? {}) as { email?: string; password?: string; totpCode?: string };
       if (typeof body.email !== 'string' || typeof body.password !== 'string') {
         throw new HttpError(400, 'email and password are required');
@@ -583,9 +603,40 @@ export function createHttpServer(deps: HttpDeps): Server {
       });
       if (!result.ok) {
         // totp_required is a distinct 401 so the UI knows to prompt for a code.
-        sendJson(ctx.res, 401, { message: result.code === 'totp_required' ? 'a second factor is required' : 'invalid credentials', code: result.code });
+        if (result.code === 'totp_required') {
+          sendJson(ctx.res, 401, { message: 'a second factor is required', code: result.code });
+          return;
+        }
+
+        // Invalid credentials: record failure and dispatch alert email
+        const userAgent = (ctx.req.headers['user-agent'] as string) || '';
+        const outcome = await loginSecurity.handleFailedLogin({
+          ip: clientIp,
+          email: body.email,
+          userAgent,
+          host: ctx.req.headers.host,
+        });
+
+        if (outcome.blocked) {
+          sendJson(ctx.res, 429, {
+            message: 'Too many failed login attempts. Your IP address has been blocked for 24 hours.',
+            code: 'ip_blocked',
+            blockedUntil: outcome.blockedUntil?.toISOString(),
+          });
+          return;
+        }
+
+        sendJson(ctx.res, 401, {
+          message: 'invalid credentials',
+          code: result.code,
+          attemptsRemaining: Math.max(0, 4 - outcome.attempts),
+        });
         return;
       }
+
+      // Successful login: clear any failed attempts for this IP
+      await loginSecurity.handleSuccessfulLogin(clientIp);
+
       const maxAge = Math.floor((result.expiresAtMs - (deps.now?.() ?? Date.now())) / 1000);
       sendJson(ctx.res, 200,
         { role: result.principal.role, expiresAtMs: result.expiresAtMs },
@@ -1443,6 +1494,29 @@ export function createHttpServer(deps: HttpDeps): Server {
       const tdb = forTenant(deps.db, principal.tenantId);
       const removed = await runAccountOp(() => deleteAccount(tdb, accountMatch[1] as string));
       sendJson(ctx.res, 200, { ok: true, removed });
+      return;
+    }
+
+    // ---- PATCH /api/accounts/:id — rename an account ----
+    if (method === 'PATCH' && accountMatch !== null) {
+      requireAction(principal, 'credential.write');
+      const body = (ctx.body ?? {}) as { name?: string };
+      if (typeof body.name !== 'string' || body.name.trim() === '') {
+        throw new HttpError(400, 'name is required');
+      }
+      const newName = body.name.trim();
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const updated = await runAccountOp(async () => {
+        try {
+          return await renameAccount(tdb, accountMatch[1] as string, newName);
+        } catch (err: unknown) {
+          if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === '23505') {
+            throw new AccountRepoError(`an account named "${newName}" already exists`);
+          }
+          throw err;
+        }
+      });
+      sendJson(ctx.res, 200, { ok: true, account: updated });
       return;
     }
 

@@ -9,6 +9,7 @@ import {
   fetchAccount,
   fetchFuturesPositions,
   fetchTradingAnalytics,
+  renameAccount,
   resumeAccount,
   setFuturesProtection,
   setTrailingProtection,
@@ -84,6 +85,27 @@ export function AccountDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+
+  const [accountName, setAccountName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+
+  const saveName = useMutation({
+    mutationFn: () => renameAccount(accountId, accountName),
+    onSuccess: () => {
+      setEditingName(false);
+      setOpError(null);
+      void queryClient.invalidateQueries({ queryKey: ['account', accountId] });
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      void queryClient.invalidateQueries({ queryKey: ['futures-positions'] });
+    },
+    onError: (e) => setOpError(e instanceof Error ? e.message : 'could not rename account'),
+  });
+
+  const startEditingName = (currentName: string) => {
+    setAccountName(currentName);
+    setEditingName(true);
+    setOpError(null);
+  };
 
   const account = useQuery({
     queryKey: ['account', accountId],
@@ -263,11 +285,67 @@ export function AccountDetail() {
       <div className="panel">
         {/* Account Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h2 style={{ margin: 0 }}>{a.name}</h2>
-            <span className={`badge ${statusBadgeClass(a.status)}`}>
-              {STATUS_LABEL[a.status] ?? a.status}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {editingName ? (
+              <form
+                className="rename-form"
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (accountName.trim() !== '') saveName.mutate();
+                }}
+              >
+                <input
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                  aria-label="Account name"
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--input-bg, #1f2937)',
+                    color: 'var(--text)',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                  }}
+                  autoFocus
+                />
+                <button
+                  className="btn btn-sm"
+                  type="submit"
+                  disabled={saveName.isPending || accountName.trim() === '' || accountName.trim() === a.name.trim()}
+                >
+                  {saveName.isPending ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  className="btn ghost btn-sm"
+                  type="button"
+                  onClick={() => {
+                    setEditingName(false);
+                    setOpError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <>
+                <h2 style={{ margin: 0 }}>{a.name}</h2>
+                <span className={`badge ${statusBadgeClass(a.status)}`}>
+                  {STATUS_LABEL[a.status] ?? a.status}
+                </span>
+                {isOwner && (
+                  <button
+                    className="btn ghost btn-sm"
+                    onClick={() => startEditingName(a.name)}
+                    style={{ padding: '3px 8px', fontSize: '12px' }}
+                    title="Rename this account"
+                  >
+                    Rename
+                  </button>
+                )}
+              </>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -293,6 +371,12 @@ export function AccountDetail() {
             </Link>
           </div>
         </div>
+
+        {opError !== null && (
+          <div className="error" style={{ marginBottom: 14 }}>
+            {opError}
+          </div>
+        )}
 
         {/* Sync Note Alert */}
         {syncNote !== null && (

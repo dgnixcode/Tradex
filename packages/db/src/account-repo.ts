@@ -309,3 +309,29 @@ export async function accountIsLive(tdb: TenantDb, accountId: string): Promise<b
     .executeTakeFirst();
   return row !== undefined;
 }
+
+/**
+ * Rename an account.
+ * Missing account -> AccountRepoError('account <id> was not found').
+ * Blank name -> AccountRepoError('an account name cannot be blank').
+ */
+export async function renameAccount(
+  tdb: TenantDb,
+  accountId: string,
+  newName: string,
+): Promise<{ id: string; name: string }> {
+  const trimmed = newName.trim();
+  if (trimmed === '') throw new AccountRepoError('an account name cannot be blank');
+
+  const updated = await tdb.updateTable('exchange_account')
+    .set({ name: trimmed } as never)
+    .where('id' as never, '=', accountId as never)
+    .returning(['id', 'name'] as never)
+    .executeTakeFirst() as { id: string; name: string } | undefined;
+
+  if (updated === undefined) {
+    throw new AccountRepoError(`account ${accountId} was not found`);
+  }
+
+  return { id: updated.id, name: updated.name };
+}
