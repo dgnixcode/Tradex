@@ -706,7 +706,23 @@ if (sending) {
       const sign = await signFor(actor.tenantId, actor.accountId);
       if (sign === null) return { ok: false, message: 'no credential for this account' };
       const out = await exitFuturesPositionSigned(sign, venuePositionId, { baseUrl: VENUE_BASE });
-      if (!out.ok) return { ok: false, message: out.failure.detail ?? 'exit refused' };
+      if (!out.ok) {
+        const isAlreadyClosed = out.failure && (
+          out.failure.code === 'no_active_position' ||
+          /no\s+active\s+position/i.test(out.failure.detail ?? '')
+        );
+        if (isAlreadyClosed) {
+          console.log(`[exitPosition] position ${venuePositionId} has no active position at venue (already exited)`);
+          try {
+            const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+            if (after.ok) await replaceFuturesPositions(forTenant(db, actor.tenantId), actor.accountId, after.positions);
+          } catch (e) {
+            console.error('[mirror] post-exit refresh failed:', e instanceof Error ? e.message : String(e));
+          }
+          return { ok: true, venueGroupId: null, alreadyClosed: true };
+        }
+        return { ok: false, message: out.failure.detail ?? 'exit refused' };
+      }
 
       // Refresh the mirror as part of the exit. The fan-out hook does not run for an
       // exit, so without this the position we just closed would keep rendering on
@@ -874,6 +890,14 @@ if (sending) {
     if (args.direction === 'reduce' && plan.isFull) {
       const out = await exitFuturesPositionSigned(sign, args.venuePositionId, { baseUrl: VENUE_BASE });
       if (!out.ok) {
+        const isAlreadyClosed = out.failure && (
+          out.failure.code === 'no_active_position' ||
+          /no\s+active\s+position/i.test(out.failure.detail ?? '')
+        );
+        if (isAlreadyClosed) {
+          await mirrorAccounts(args.actor.tenantId, [args.actor.accountId]);
+          return { ok: true, quantity: plan.quantity, venueOrderId: null, full: true };
+        }
         return { ok: false, code: out.failure.code ?? 'exit_refused', detail: out.failure.detail ?? 'the venue refused the exit' };
       }
       await mirrorAccounts(args.actor.tenantId, [args.actor.accountId]);

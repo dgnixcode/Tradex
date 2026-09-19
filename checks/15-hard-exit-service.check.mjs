@@ -124,7 +124,7 @@ export async function run(assert) {
     listPositions: async () => [{ venuePositionId: POSITION, pair: 'B-BTC_USDT', marginCurrency: 'USDT', activePos: '0.001' }],
   });
   let flatErr = null;
-  try { await hardExit(notFlat, req()); } catch (e) { flatErr = e; }
+  try { await hardExit(notFlat, req({ pollDelays: [5, 5] })); } catch (e) { flatErr = e; }
   assert(flatErr !== null && flatErr.reason === 'position_not_flat', `expected position_not_flat, got ${flatErr?.reason}`);
 
   // ------------------------------------------------ 8. a position the venue forgot
@@ -135,6 +135,33 @@ export async function run(assert) {
   const goneOut = await hardExit(absent, req());
   assert(goneOut.exited === true && goneOut.finalActivePos === '0',
     'a position absent from a successful read should read as flat');
+
+  // ------------------------------------------------ 9. position already exited (alreadyClosed: true)
+  // When an exit is retried or position was already closed, exitPosition reports alreadyClosed.
+  const alreadyClosedPort = fakePort({
+    exitPosition: async (actor, positionId) => ({ ok: true, alreadyClosed: true }),
+  });
+  const alreadyOut = await hardExit(alreadyClosedPort, req());
+  assert(alreadyOut.exited === true && alreadyOut.alreadyClosed === true,
+    'alreadyClosed position should succeed idempotently');
+
+  // ------------------------------------------------ 10. market order settles on retry
+  let pollCount = 0;
+  const settlingPort = fakePort({
+    listPositions: async (actor, margin) => {
+      pollCount++;
+      return [{
+        venuePositionId: POSITION,
+        pair: 'B-BTC_USDT',
+        marginCurrency: 'USDT',
+        activePos: pollCount > 1 ? '0' : '1.5',
+      }];
+    },
+  });
+  const settledOut = await hardExit(settlingPort, req({ pollDelays: [10, 10] }));
+  assert(settledOut.exited === true && settledOut.finalActivePos === '0',
+    'position settling to 0 on retry should succeed cleanly');
+  assert(pollCount === 2, `expected 2 position polls, got ${pollCount}`);
 
   console.log('     hardExit: conditionals → exit → verify; R1 guard blocks a stuck SL; actor on every call');
 }

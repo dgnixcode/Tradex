@@ -32,7 +32,7 @@ export interface FuturesActor {
 
 export interface FuturesExitPort {
   readonly cancelOrder: (actor: FuturesActor, venueOrderId: string) => Promise<{ ok: boolean; message?: string | undefined }>;
-  readonly exitPosition: (actor: FuturesActor, venuePositionId: string) => Promise<{ ok: boolean; venueGroupId?: string | null; message?: string | undefined }>;
+  readonly exitPosition: (actor: FuturesActor, venuePositionId: string) => Promise<{ ok: boolean; venueGroupId?: string | null; message?: string | undefined; alreadyClosed?: boolean | undefined }>;
   readonly listPositions: (actor: FuturesActor, margin: FuturesMarginCurrency) => Promise<readonly FuturesPositionSnapshot[]>;
   /**
    * Untriggered conditional orders attached to this position. In production the
@@ -47,6 +47,7 @@ export interface HardExitRequest {
   readonly actor: FuturesActor;
   readonly venuePositionId: string;
   readonly marginCurrency: FuturesMarginCurrency;
+  readonly pollDelays?: readonly number[] | undefined;
 }
 
 export interface HardExitOutcome {
@@ -56,6 +57,7 @@ export interface HardExitOutcome {
   readonly venueGroupId: string | null;
   /** Final observed activePos — must be '0' for a clean exit. */
   readonly finalActivePos: string;
+  readonly alreadyClosed?: boolean | undefined;
 }
 
 export class HardExitError extends Error {
@@ -105,9 +107,19 @@ export async function hardExit(port: FuturesExitPort, req: HardExitRequest): Pro
   }
 
   // ---- 4. reconcile to zero ----
-  const positions = await port.listPositions(req.actor, req.marginCurrency);
-  const p = positions.find((x) => x.venuePositionId === req.venuePositionId);
-  const finalActivePos = p?.activePos ?? '0';
+  // CoinDCX market exit orders can take a moment to match and reflect active_pos = 0.
+  // We check with short retry delays before declaring failure.
+  let finalActivePos = '0';
+  const pollDelays = exit.alreadyClosed ? [] : (req.pollDelays ?? [250, 500, 750, 1000]);
+  for (let attempt = 0; attempt <= pollDelays.length; attempt++) {
+    const positions = await port.listPositions(req.actor, req.marginCurrency);
+    const p = positions.find((x) => x.venuePositionId === req.venuePositionId);
+    finalActivePos = p?.activePos ?? '0';
+    if (finalActivePos === '0') break;
+    if (attempt < pollDelays.length) {
+      await new Promise((resolve) => setTimeout(resolve, pollDelays[attempt]));
+    }
+  }
   if (finalActivePos !== '0') {
     throw new HardExitError(
       `exit call returned ok but active_pos is still ${finalActivePos}`,
@@ -121,5 +133,6 @@ export async function hardExit(port: FuturesExitPort, req: HardExitRequest): Pro
     exited: true,
     venueGroupId: exit.venueGroupId ?? null,
     finalActivePos,
+    ...(exit.alreadyClosed ? { alreadyClosed: true } : {}),
   };
 }

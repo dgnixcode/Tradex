@@ -1821,8 +1821,13 @@ function GroupPositionManageModal({
         await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
         succeeded++;
       } catch (err) {
-        failed++;
-        errors.push(`${pos.accountName}: ${(err as Error).message}`);
+        const msg = (err as Error).message || '';
+        if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
+          succeeded++;
+        } else {
+          failed++;
+          errors.push(`${pos.accountName}: ${msg}`);
+        }
       }
     }
 
@@ -2637,8 +2642,13 @@ export function QuickExitModal({
           await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
           succeeded++;
         } catch (err) {
-          failed++;
-          errors.push(`${pos.accountName}: ${(err as Error).message}`);
+          const msg = (err as Error).message || '';
+          if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
+            succeeded++;
+          } else {
+            failed++;
+            errors.push(`${pos.accountName}: ${msg}`);
+          }
         }
       }
 
@@ -2671,12 +2681,22 @@ export function QuickExitModal({
         });
         setTimeout(() => onClose(), 1500);
       } catch (err) {
+        const msg = (err as Error).message || '';
         setIsExecuting(false);
         setProgress(null);
-        setExecResult({
-          kind: 'err',
-          message: `Exit failed: ${(err as Error).message}`,
-        });
+        if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
+          onRefreshPositions();
+          setExecResult({
+            kind: 'ok',
+            message: `Position for ${position.accountName} is already closed.`,
+          });
+          setTimeout(() => onClose(), 1500);
+        } else {
+          setExecResult({
+            kind: 'err',
+            message: `Exit failed: ${msg}`,
+          });
+        }
       }
     }
   };
@@ -3015,7 +3035,16 @@ export function Futures() {
       setManagingPosition(null);
       void qc.invalidateQueries({ queryKey: ['futures-positions'] });
     },
-    onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
+    onError: (e) => {
+      const msg = (e as Error).message || '';
+      if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
+        setMessage({ kind: 'ok', text: 'Position is already closed.' });
+        setManagingPosition(null);
+        void qc.invalidateQueries({ queryKey: ['futures-positions'] });
+      } else {
+        setMessage({ kind: 'err', text: msg });
+      }
+    },
   });
 
   const protMut = useMutation({

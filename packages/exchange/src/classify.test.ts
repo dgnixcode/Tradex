@@ -83,6 +83,7 @@ describe('business rejections are never retried', () => {
     ['This order cannot be cancelled', 'order_not_cancellable'],
     ['client_order_id already used', 'duplicate_client_order_id'],
     ['Invalid Request.', 'invalid_request'],
+    ['There is no active position to exit', 'no_active_position'],
   ];
 
   it.each(cases)('%s maps to %s', (message, code) => {

@@ -39,6 +39,7 @@ const BUSINESS_PREFIXES: ReadonlyArray<readonly [RegExp, string]> = [
   [/cannot\s+be\s+cancelled/i, 'order_not_cancellable'],
   [/client_order_id/i, 'duplicate_client_order_id'],
   [/invalid\s+request/i, 'invalid_request'],
+  [/no\s+active\s+position/i, 'no_active_position'],
 ];
 
 const signatureish = (text: string): boolean =>
