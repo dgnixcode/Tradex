@@ -11,6 +11,10 @@ import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { readPlatformKillSwitchDetails, setPlatformKillSwitch } from '../packages/db/dist/index.js';
 
+try {
+  process.loadEnvFile?.('.env');
+} catch {}
+
 const url = process.env['DATABASE_URL'];
 if (url === undefined || url === '') {
   console.error('DATABASE_URL is not set — see .env.example');
