@@ -62,6 +62,31 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Allow text input and selection in form fields, code, and designated content */
+input,
+textarea,
+[contenteditable="true"],
+.selectable,
+.selectable-text,
+code,
+pre {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* Ensure interactive elements show pointer cursor */
+button,
+.btn,
+a,
+[role="button"],
+.clickable {
+  cursor: pointer;
 }
 
 /* A soft ambient glow behind everything, so the base is not a dead flat black. */
