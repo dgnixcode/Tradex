@@ -25,9 +25,31 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { forTenant } from '../../packages/db/dist/index.js';
+import { forTenant, readPlatformFlags } from '../../packages/db/dist/index.js';
 import { LocalKms } from '../../packages/crypto/dist/index.js';
 import { Signer } from './dist/index.js';
+
+function isMutation(reason, payloadStr) {
+  if (typeof reason === 'string' && /(order|trade|exit|cancel|protection|leverage|adjust|tpsl|mutation)/i.test(reason)) {
+    if (/(list\s+orders|read\s+orders|order\s+history|test\s+order\s+history)/i.test(reason)) {
+      return false;
+    }
+    return true;
+  }
+  if (typeof payloadStr === 'string') {
+    try {
+      const p = JSON.parse(payloadStr);
+      if (p.total_quantity !== undefined || p.order_type !== undefined) return true;
+      if (p.stop_loss_trigger !== undefined || p.take_profit_trigger !== undefined || p.stop_loss_price !== undefined || p.take_profit_price !== undefined) return true;
+      if (p.leverage !== undefined) return true;
+    } catch {
+      if (/("total_quantity"|"order_type"|"stop_loss_trigger"|"take_profit_trigger"|"stop_loss_price"|"take_profit_price")/i.test(payloadStr)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 const PORT = Number(process.env['SIGNER_PORT'] ?? 8098);
 const url = process.env['DATABASE_URL'];
@@ -106,6 +128,23 @@ const server = createServer((req, res) => {
         json(res, 400, { message: 'tenantId and credentialId are required' });
         return;
       }
+
+      // Emergency Kill Switch Check:
+      // If the platform kill switch is engaged, refuse to sign any order placement,
+      // position exit, adjustment, or TP/SL mutation. Only read-only requests may be signed.
+      const platform = await readPlatformFlags(db);
+      const killSwitchActive = platform.killSwitch || platform.mode === 'read_only' || process.env['TRADEX_KILL_SWITCH'] === '1';
+      if (killSwitchActive && isMutation(reason, payload)) {
+        console.warn(`[signer] REFUSED signature: Kill Switch is active (reason: ${reason})`);
+        json(res, 403, {
+          ok: false,
+          refused: true,
+          code: 'KILL_SWITCH_ACTIVE',
+          message: `The Signer refused to sign: Emergency Kill Switch is ACTIVE (${platform.modeReason ?? 'Platform in read-only mode'}). No trading or position mutations are allowed.`,
+        });
+        return;
+      }
+
       const result = await new Signer({ tdb: forTenant(db, tenantId), kms }).sign({
         credentialId,
         payload,

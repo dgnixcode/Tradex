@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { confirmTrade, fetchTrade } from '../api.ts';
+import { confirmTrade, fetchKillSwitchStatus, fetchTrade } from '../api.ts';
 import type { PreviewResult, PreviewRow } from '../api.ts';
 import { Countdown } from '../components/Countdown.tsx';
 
@@ -22,6 +22,13 @@ import { Countdown } from '../components/Countdown.tsx';
 export function Confirmation() {
   const { groupTradeId = '' } = useParams();
   const navigate = useNavigate();
+
+  const killSwitchQuery = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: fetchKillSwitchStatus,
+    refetchInterval: 3000,
+  });
+  const isHalted = Boolean(killSwitchQuery.data?.active);
 
   const trade = useQuery({
     queryKey: ['trade', groupTradeId],
@@ -57,10 +64,36 @@ export function Confirmation() {
   const hasSkips = skippedCount > 0;
   const confirmed = confirm.isSuccess;
 
-  const canConfirm = !expired && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
+  const canConfirm = !expired && !isHalted && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
 
   return (
     <div className="panel full-width-page">
+      {isHalted && (
+        <div
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid var(--danger)',
+            borderRadius: 6,
+            padding: '12px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: 'var(--danger)', flexShrink: 0 }} />
+          <div>
+            <strong style={{ color: 'var(--danger)', fontSize: 13, textTransform: 'uppercase' }}>
+              EMERGENCY KILL SWITCH ACTIVE — Order Confirmation Blocked
+            </strong>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+              The platform is in Read-Only Mode. Order execution is disabled across all accounts.
+              {killSwitchQuery.data?.reason ? ` (${killSwitchQuery.data.reason})` : ''}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
         <div>
@@ -181,11 +214,13 @@ export function Confirmation() {
             disabled={!canConfirm || confirm.isPending}
             onClick={() => confirm.mutate(result)}
           >
-            {expired
-              ? 'Preview expired'
-              : confirm.isPending
-                ? 'Confirming…'
-                : `Confirm ${plannedCount}`}
+            {isHalted
+              ? 'Trading halted (Kill Switch)'
+              : expired
+                ? 'Preview expired'
+                : confirm.isPending
+                  ? 'Confirming…'
+                  : `Confirm ${plannedCount}`}
           </button>
         </div>
       )}

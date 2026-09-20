@@ -8,6 +8,7 @@ import {
   exitFuturesPosition,
   fetchAccount,
   fetchFuturesPositions,
+  fetchKillSwitchStatus,
   fetchTradingAnalytics,
   renameAccount,
   resumeAccount,
@@ -102,6 +103,13 @@ export function AccountDetail() {
   });
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
   const [quickExitPosition, setQuickExitPosition] = useState<FuturesPositionRow | null>(null);
+
+  const killSwitchQuery = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: fetchKillSwitchStatus,
+    refetchInterval: 3000,
+  });
+  const isHalted = Boolean(killSwitchQuery.data?.active);
 
   const [opError, setOpError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -310,6 +318,31 @@ export function AccountDetail() {
 
   return (
     <div className="account-detail-page full-width-page">
+      {isHalted && (
+        <div
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid var(--danger)',
+            borderRadius: 6,
+            padding: '12px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: 'var(--danger)', flexShrink: 0 }} />
+          <div>
+            <strong style={{ color: 'var(--danger)', fontSize: 13, textTransform: 'uppercase' }}>
+              EMERGENCY KILL SWITCH ACTIVE — Read-Only Mode
+            </strong>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+              Position closures, modifications, and order execution are disabled. All account metrics and balances are strictly read-only.
+              {killSwitchQuery.data?.reason ? ` (${killSwitchQuery.data.reason})` : ''}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="panel">
         {/* Account Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -721,17 +754,20 @@ export function AccountDetail() {
                                 <button
                                   type="button"
                                   className="btn btn-sm quick-exit-btn"
+                                  disabled={isHalted}
                                   style={{
                                     fontSize: 11.5,
                                     padding: '3px 8px',
                                     borderRadius: 'var(--radius-sm)',
+                                    opacity: isHalted ? 0.4 : 1,
+                                    cursor: isHalted ? 'not-allowed' : 'pointer',
                                   }}
                                   onClick={() => {
                                     setQuickExitPosition(p);
                                     setOpError(null);
                                     setSyncNote(null);
                                   }}
-                                  title={`Quick exit position for ${p.pair}`}
+                                  title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : `Quick exit position for ${p.pair}`}
                                 >
                                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -866,6 +902,7 @@ export function AccountDetail() {
                             <button
                               type="button"
                               className="btn btn-sm quick-exit-btn"
+                              disabled={isHalted}
                               style={{
                                 flex: 1,
                                 padding: '8px',
@@ -873,12 +910,15 @@ export function AccountDetail() {
                                 fontWeight: 700,
                                 borderRadius: 8,
                                 justifyContent: 'center',
+                                opacity: isHalted ? 0.4 : 1,
+                                cursor: isHalted ? 'not-allowed' : 'pointer',
                               }}
                               onClick={() => {
                                 setQuickExitPosition(p);
                                 setOpError(null);
                                 setSyncNote(null);
                               }}
+                              title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : undefined}
                             >
                               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -1486,6 +1526,7 @@ export function AccountDetail() {
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}
           isProtecting={protMut.isPending}
+          isHalted={isHalted}
         />
       )}
 
@@ -1495,6 +1536,7 @@ export function AccountDetail() {
           target={{ type: 'account', position: liveQuickExitPosition }}
           onClose={() => setQuickExitPosition(null)}
           onRefreshPositions={invalidate}
+          isHalted={isHalted}
         />
       )}
     </div>

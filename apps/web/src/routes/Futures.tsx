@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
-  refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
+  fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
+  toggleKillSwitch,
 } from '../api.js';
-import type { AccountListItem, FuturesPositionRow } from '../api.ts';
+import type { AccountListItem, FuturesPositionRow, KillSwitchStatus } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
 
 // The Positions page — modern UI/UX overhaul.
@@ -258,10 +259,12 @@ function AccountRow({
   p,
   onManage,
   onQuickExit,
+  isHalted,
 }: {
   readonly p: FuturesPositionRow;
   readonly onManage: (position: FuturesPositionRow) => void;
   readonly onQuickExit: (position: FuturesPositionRow) => void;
+  readonly isHalted?: boolean | undefined;
 }) {
   const roe = calcRoePct(p);
   const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
@@ -358,13 +361,16 @@ function AccountRow({
           <button
             type="button"
             className="btn btn-sm quick-exit-btn"
+            disabled={isHalted}
             style={{
               fontSize: 11.5,
               padding: '3px 8px',
               borderRadius: 'var(--radius-sm)',
+              opacity: isHalted ? 0.4 : 1,
+              cursor: isHalted ? 'not-allowed' : 'pointer',
             }}
             onClick={() => onQuickExit(p)}
-            title={`Quick exit position for ${p.accountName}`}
+            title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : `Quick exit position for ${p.accountName}`}
           >
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -385,10 +391,12 @@ function AccountMobileCard({
   p,
   onManage,
   onQuickExit,
+  isHalted,
 }: {
   readonly p: FuturesPositionRow;
   readonly onManage: (position: FuturesPositionRow) => void;
   readonly onQuickExit: (position: FuturesPositionRow) => void;
+  readonly isHalted?: boolean | undefined;
 }) {
   const roe = calcRoePct(p);
   const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
@@ -501,6 +509,7 @@ function AccountMobileCard({
           <button
             type="button"
             className="btn btn-sm quick-exit-btn"
+            disabled={isHalted}
             style={{
               flex: 1,
               padding: '8px',
@@ -508,8 +517,11 @@ function AccountMobileCard({
               fontWeight: 700,
               borderRadius: 8,
               justifyContent: 'center',
+              opacity: isHalted ? 0.4 : 1,
+              cursor: isHalted ? 'not-allowed' : 'pointer',
             }}
             onClick={() => onQuickExit(p)}
+            title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : undefined}
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -534,6 +546,7 @@ function GroupCard({
   onManageGroup,
   onQuickExit,
   onQuickExitGroup,
+  isHalted,
 }: {
   readonly group: PositionGroup;
   readonly collapsed: boolean;
@@ -542,6 +555,7 @@ function GroupCard({
   readonly onManageGroup: (group: PositionGroup) => void;
   readonly onQuickExit: (position: FuturesPositionRow) => void;
   readonly onQuickExitGroup: (group: PositionGroup) => void;
+  readonly isHalted?: boolean | undefined;
 }) {
   const [accountSearch, setAccountSearch] = useState('');
 
@@ -671,17 +685,20 @@ function GroupCard({
           <button
             type="button"
             className="btn btn-sm quick-exit-btn"
+            disabled={isHalted}
             style={{
               padding: '5px 12px',
               fontSize: 12,
               fontWeight: 700,
               borderRadius: 'var(--radius-sm)',
+              opacity: isHalted ? 0.4 : 1,
+              cursor: isHalted ? 'not-allowed' : 'pointer',
             }}
             onClick={(e) => {
               e.stopPropagation();
               onQuickExitGroup(group);
             }}
-            title="Quick exit all positions in this group"
+            title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : 'Quick exit all positions in this group'}
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -770,6 +787,7 @@ function GroupCard({
                     p={p}
                     onManage={onManage}
                     onQuickExit={onQuickExit}
+                    isHalted={isHalted}
                   />
                 ))}
               </tbody>
@@ -784,6 +802,7 @@ function GroupCard({
                 p={p}
                 onManage={onManage}
                 onQuickExit={onQuickExit}
+                isHalted={isHalted}
               />
             ))}
           </div>
@@ -809,6 +828,7 @@ export interface PositionManageModalProps {
   readonly isExiting: boolean;
   readonly isAdjusting: boolean;
   readonly isProtecting: boolean;
+  readonly isHalted?: boolean | undefined;
 }
 
 export function PositionManageModal({
@@ -820,6 +840,7 @@ export function PositionManageModal({
   isExiting,
   isAdjusting,
   isProtecting,
+  isHalted,
 }: PositionManageModalProps) {
   const [activeTab, setActiveTab] = useState<'protection' | 'partial' | 'increase' | 'close'>('protection');
   const [confirmExit, setConfirmExit] = useState(false);
@@ -952,6 +973,27 @@ export function PositionManageModal({
             ✕
           </button>
         </div>
+
+        {isHalted && (
+          <div
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid var(--danger)',
+              borderRadius: 6,
+              padding: '10px 14px',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12.5,
+              color: 'var(--danger)',
+              fontWeight: 600,
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
+            <span>EMERGENCY KILL SWITCH ACTIVE: Modifications, adjustments, and exits are strictly locked.</span>
+          </div>
+        )}
 
         {/* Live Metrics Header Card */}
         <div className="position-modal-metrics">
@@ -1227,7 +1269,7 @@ export function PositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm"
-                  disabled={!canSaveProtection || isProtecting}
+                  disabled={!canSaveProtection || isProtecting || isHalted}
                   onClick={() => onProtection({
                     id: position.venuePositionId,
                     slp: effectiveSl || undefined,
@@ -1349,7 +1391,7 @@ export function PositionManageModal({
                     fontWeight: 700,
                     border: 'none',
                   }}
-                  disabled={isAdjusting || reducePct <= 0 || reducePct >= 100}
+                  disabled={isAdjusting || isHalted || reducePct <= 0 || reducePct >= 100}
                   onClick={() => onAdjust(position.venuePositionId, 'reduce', Math.round(reducePct * 100))}
                 >
                   {isAdjusting ? 'Executing Partial Exit…' : `Close ${reducePct}% (${reduceQty} ${position.pair.split('_')[0].replace(/^[A-Z]-/, '')})`}
@@ -1555,7 +1597,7 @@ export function PositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isAdjusting || increasePct <= 0}
+                  disabled={isAdjusting || isHalted || increasePct <= 0}
                   onClick={() => onAdjust(position.venuePositionId, 'increase', Math.round(increasePct * 100))}
                 >
                   {isAdjusting ? 'Increasing Position…' : `Add +${increasePct}% (+${increaseQty}) • Est. ${addMarginMinor ? fmtMinor(addMarginMinor, position.marginCurrency) : ''}`}
@@ -1598,6 +1640,7 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm"
                     style={{ background: 'var(--danger)', color: '#fff', border: 'none' }}
+                    disabled={isExiting || isHalted}
                     onClick={() => setConfirmExit(true)}
                   >
                     Close Position at Market
@@ -1632,7 +1675,7 @@ export function PositionManageModal({
                       type="button"
                       className="btn btn-sm"
                       style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700 }}
-                      disabled={isExiting}
+                      disabled={isExiting || isHalted}
                       onClick={() => onExit(position.venuePositionId, position.marginCurrency)}
                     >
                       {isExiting ? 'Closing Position Now…' : 'YES, CONFIRM MARKET EXIT'}
@@ -1654,12 +1697,14 @@ interface GroupPositionManageModalProps {
   readonly group: PositionGroup;
   readonly onClose: () => void;
   readonly onRefreshPositions: () => void;
+  readonly isHalted?: boolean | undefined;
 }
 
 function GroupPositionManageModal({
   group,
   onClose,
   onRefreshPositions,
+  isHalted,
 }: GroupPositionManageModalProps) {
   const [activeTab, setActiveTab] = useState<'increase' | 'partial' | 'close' | 'protection'>('increase');
   const [confirmExit, setConfirmExit] = useState(false);
@@ -2037,6 +2082,27 @@ function GroupPositionManageModal({
           </button>
         </div>
 
+        {isHalted && (
+          <div
+            style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid var(--danger)',
+              borderRadius: 6,
+              padding: '10px 14px',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12.5,
+              color: 'var(--danger)',
+              fontWeight: 600,
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
+            <span>EMERGENCY KILL SWITCH ACTIVE: Bulk group position actions and market orders are locked.</span>
+          </div>
+        )}
+
         {/* Live Aggregated Metrics Header Card */}
         <div className="position-modal-metrics">
           <div className="modal-metric-card">
@@ -2360,7 +2426,7 @@ function GroupPositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isExecuting || fundedAccounts.length === 0 || increasePct <= 0}
+                  disabled={isExecuting || isHalted || fundedAccounts.length === 0 || increasePct <= 0}
                   onClick={handleExecuteIncrease}
                 >
                   {isExecuting
@@ -2502,7 +2568,7 @@ function GroupPositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: '#f59e0b', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isExecuting || group.positions.length === 0 || reducePct <= 0 || reducePct >= 100}
+                  disabled={isExecuting || isHalted || group.positions.length === 0 || reducePct <= 0 || reducePct >= 100}
                   onClick={handleExecuteReduce}
                 >
                   {isExecuting ? 'Executing Group Exit…' : `Close ${reducePct}% Across All ${group.positions.length} Accounts`}
@@ -2605,7 +2671,7 @@ function GroupPositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm"
-                  disabled={isExecuting || (!slPct && !tpPct)}
+                  disabled={isExecuting || isHalted || (!slPct && !tpPct)}
                   onClick={handleExecuteProtection}
                 >
                   {isExecuting ? 'Updating Protection…' : `Apply Rules to All ${group.positions.length} Accounts`}
@@ -2648,6 +2714,7 @@ function GroupPositionManageModal({
                     type="button"
                     className="btn btn-sm"
                     style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 600 }}
+                    disabled={isExecuting || isHalted}
                     onClick={() => setConfirmExit(true)}
                   >
                     Close Group Position at Market
@@ -2682,7 +2749,7 @@ function GroupPositionManageModal({
                       type="button"
                       className="btn btn-sm"
                       style={{ background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700 }}
-                      disabled={isExecuting}
+                      disabled={isExecuting || isHalted}
                       onClick={handleExecuteExit}
                     >
                       {isExecuting ? 'Closing All Positions…' : `YES, CONFIRM MARKET EXIT FOR ALL ${group.positions.length} ACCOUNTS`}
@@ -2708,10 +2775,12 @@ export function QuickExitModal({
   target,
   onClose,
   onRefreshPositions,
+  isHalted,
 }: {
   readonly target: QuickExitTarget;
   readonly onClose: () => void;
   readonly onRefreshPositions: () => void;
+  readonly isHalted?: boolean | undefined;
 }) {
   const [isExecuting, setIsExecuting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; accountName: string } | null>(null);
@@ -2722,7 +2791,7 @@ export function QuickExitModal({
   const position = !isGroup ? target.position : null;
 
   const handleConfirmExit = async () => {
-    if (isExecuting) return;
+    if (isExecuting || isHalted) return;
     setIsExecuting(true);
     setExecResult(null);
 
@@ -2864,6 +2933,25 @@ export function QuickExitModal({
         </div>
 
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {isHalted && (
+            <div
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid var(--danger)',
+                borderRadius: 6,
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12.5,
+                color: 'var(--danger)',
+                fontWeight: 600,
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
+              <span>EMERGENCY KILL SWITCH ACTIVE: Market exits and order cancellations are strictly locked.</span>
+            </div>
+          )}
           {/* Key Metrics */}
           <div style={{
             display: 'grid',
@@ -3040,7 +3128,7 @@ export function QuickExitModal({
               type="button"
               className="btn"
               onClick={handleConfirmExit}
-              disabled={isExecuting || execResult?.kind === 'ok'}
+              disabled={isExecuting || isHalted || execResult?.kind === 'ok'}
               style={{
                 padding: '8px 20px',
                 fontSize: 13,
@@ -3052,8 +3140,8 @@ export function QuickExitModal({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                cursor: isExecuting || execResult?.kind === 'ok' ? 'not-allowed' : 'pointer',
-                opacity: isExecuting || execResult?.kind === 'ok' ? 0.6 : 1,
+                cursor: isExecuting || isHalted || execResult?.kind === 'ok' ? 'not-allowed' : 'pointer',
+                opacity: isExecuting || isHalted || execResult?.kind === 'ok' ? 0.6 : 1,
               }}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -3074,6 +3162,217 @@ export function QuickExitModal({
   );
 }
 
+/* ─── Emergency Kill Switch Modal (Read-Only Safety Lock) ─── */
+
+export function KillSwitchModal({
+  isOpen,
+  isHalted,
+  status,
+  onClose,
+  onToggle,
+  isToggling,
+}: {
+  readonly isOpen: boolean;
+  readonly isHalted: boolean;
+  readonly status?: KillSwitchStatus | undefined;
+  readonly onClose: () => void;
+  readonly onToggle: (active: boolean, reason?: string) => void;
+  readonly isToggling: boolean;
+}) {
+  const [confirmInput, setConfirmInput] = useState('');
+  const [reasonInput, setReasonInput] = useState('');
+
+  if (!isOpen) return null;
+
+  const canDisengage = confirmInput.trim().toUpperCase() === 'CONFIRM';
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+        backdropFilter: 'blur(4px)',
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: 'var(--panel-bg, #1a1d24)',
+          border: `1px solid ${isHalted ? 'var(--danger)' : 'var(--line)'}`,
+          borderRadius: 8,
+          maxWidth: 540,
+          width: '100%',
+          padding: 24,
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                backgroundColor: isHalted ? 'var(--danger)' : 'var(--ok)',
+                display: 'inline-block',
+                boxShadow: isHalted ? '0 0 10px var(--danger)' : 'none',
+              }}
+            />
+            <h3 style={{ margin: 0, fontSize: 18 }}>
+              {isHalted ? 'Emergency Kill Switch (ACTIVE)' : 'Emergency Kill Switch'}
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm secondary"
+            onClick={onClose}
+            style={{ padding: '2px 8px', fontSize: 13 }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {isHalted ? (
+          <div>
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid var(--danger)',
+                borderRadius: 6,
+                padding: '12px 14px',
+                marginBottom: 16,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ color: 'var(--danger)' }}>Platform is currently LOCKED in Read-Only Mode.</strong>
+              <div style={{ color: 'var(--text-dim)', marginTop: 4 }}>
+                All order placement, position exits, adjustments, and SL/TP updates are rejected at the API, background worker, and Signer levels.
+              </div>
+              {status?.reason && (
+                <div style={{ marginTop: 6, fontSize: 12 }}>
+                  <span className="muted">Reason: </span>
+                  <code>{status.reason}</code>
+                </div>
+              )}
+              {status?.changedAt && (
+                <div style={{ marginTop: 2, fontSize: 12 }}>
+                  <span className="muted">Locked at: </span>
+                  <span>{new Date(status.changedAt).toLocaleString('en-IN')}</span>
+                </div>
+              )}
+            </div>
+
+            <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12 }}>
+              To disengage the Kill Switch and resume live trading and order execution, type <strong>CONFIRM</strong> below:
+            </p>
+
+            <input
+              type="text"
+              placeholder="Type CONFIRM to resume trading"
+              value={confirmInput}
+              onChange={(e) => setConfirmInput(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                background: 'var(--input-bg, #0e1117)',
+                border: `1px solid ${canDisengage ? 'var(--ok)' : 'var(--line)'}`,
+                borderRadius: 6,
+                color: 'var(--text)',
+                fontSize: 14,
+                fontFamily: 'monospace',
+                marginBottom: 16,
+                boxSizing: 'border-box',
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn secondary" onClick={onClose} disabled={isToggling}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!canDisengage || isToggling}
+                onClick={() => onToggle(false, 'Trading resumed via UI')}
+                style={{
+                  backgroundColor: canDisengage ? 'var(--ok)' : undefined,
+                  borderColor: canDisengage ? 'var(--ok)' : undefined,
+                }}
+              >
+                {isToggling ? 'Resuming…' : 'Resume Live Trading'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5, marginBottom: 14 }}>
+              Engaging the Emergency Kill Switch immediately puts the entire platform into <strong>Read-Only Mode</strong>.
+            </p>
+            <ul style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6, paddingLeft: 20, margin: '0 0 16px' }}>
+              <li><strong>Signer Deadbolt:</strong> The cryptographic signer refuses to sign any order placement, cancel, or exit requests.</li>
+              <li><strong>API Guard:</strong> All trade placement, exit, adjustment, and SL/TP endpoints return HTTP 403 Forbidden.</li>
+              <li><strong>Background Workers:</strong> Trailing SL and automated execution loops are paused.</li>
+              <li><strong>Safe Read-Only:</strong> Balances, live position tracking, mark prices, and order books remain fully readable.</li>
+            </ul>
+
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              Lock Reason (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Code update in progress / Maintenance / Market volatility"
+              value={reasonInput}
+              onChange={(e) => setReasonInput(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                background: 'var(--input-bg, #0e1117)',
+                border: '1px solid var(--line)',
+                borderRadius: 6,
+                color: 'var(--text)',
+                fontSize: 13,
+                marginBottom: 20,
+                boxSizing: 'border-box',
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn secondary" onClick={onClose} disabled={isToggling}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={isToggling}
+                onClick={() => onToggle(true, reasonInput.trim() || 'Manual emergency lock engaged via UI')}
+                style={{
+                  backgroundColor: 'var(--danger)',
+                  borderColor: 'var(--danger)',
+                  color: '#fff',
+                  fontWeight: 600,
+                }}
+              >
+                {isToggling ? 'Locking…' : 'Engage Emergency Kill Switch'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Component ─── */
 
 export function Futures() {
@@ -3081,9 +3380,32 @@ export function Futures() {
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
   const [managingGroup, setManagingGroup] = useState<PositionGroup | null>(null);
   const [quickExitTarget, setQuickExitTarget] = useState<QuickExitTarget | null>(null);
+  const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pnlFilter, setPnlFilter] = useState<'all' | 'profit' | 'loss'>('all');
+
+  const killSwitchQuery = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: fetchKillSwitchStatus,
+    refetchInterval: 3000,
+  });
+  const isHalted = Boolean(killSwitchQuery.data?.active);
+
+  const toggleKillSwitchMut = useMutation({
+    mutationFn: ({ active, reason }: { active: boolean; reason?: string | undefined }) => toggleKillSwitch(active, reason),
+    onSuccess: (res) => {
+      setMessage({
+        kind: 'ok',
+        text: res.active
+          ? 'Emergency Kill Switch ENGAGED. Platform is in read-only mode.'
+          : 'Emergency Kill Switch DISENGAGED. Live trading resumed.',
+      });
+      setShowKillSwitchModal(false);
+      void qc.invalidateQueries({ queryKey: ['kill-switch'] });
+    },
+    onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
+  });
 
   // By default, cards are EXPANDED so all critical details are visible immediately.
   // collapsedGroups keeps track of cards the user explicitly minimized.
@@ -3344,6 +3666,38 @@ export function Futures() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
+            className={`btn btn-sm ${isHalted ? '' : 'secondary'}`}
+            style={{
+              fontSize: 11.5,
+              padding: '3px 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: isHalted ? 'rgba(239, 68, 68, 0.15)' : undefined,
+              color: isHalted ? 'var(--danger)' : undefined,
+              borderColor: isHalted ? 'var(--danger)' : undefined,
+              fontWeight: isHalted ? 700 : 500,
+            }}
+            onClick={() => setShowKillSwitchModal(true)}
+            title="Emergency Kill Switch (Read-Only Safety Lock)"
+          >
+            {isHalted ? (
+              <>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--danger)', display: 'inline-block', boxShadow: '0 0 6px var(--danger)' }} />
+                KILL SWITCH ACTIVE
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                Kill Switch
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
             className="btn secondary btn-sm"
             disabled={refreshMut.isPending}
             onClick={() => refreshMut.mutate()}
@@ -3359,6 +3713,54 @@ export function Futures() {
           </span>
         </div>
       </div>
+
+      {/* ── Emergency Kill Switch Banner ── */}
+      {isHalted && (
+        <div
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid var(--danger)',
+            borderRadius: 6,
+            padding: '12px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                backgroundColor: 'var(--danger)',
+                display: 'inline-block',
+                boxShadow: '0 0 8px var(--danger)',
+              }}
+            />
+            <div>
+              <strong style={{ color: 'var(--danger)', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                EMERGENCY KILL SWITCH ACTIVE — Read-Only Mode
+              </strong>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+                All order placement, position exits, adjustments, and SL/TP modifications are locked. Live positions and balances are strictly read-only.
+                {killSwitchQuery.data?.reason ? ` (${killSwitchQuery.data.reason})` : ''}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)', fontWeight: 600 }}
+            onClick={() => setShowKillSwitchModal(true)}
+          >
+            Manage Kill Switch
+          </button>
+        </div>
+      )}
 
       {/* ── Summary ── */}
       {hasAny && (
@@ -3655,6 +4057,7 @@ export function Futures() {
                 onManageGroup={(grp) => { setManagingGroup(grp); setMessage(null); }}
                 onQuickExit={(pos) => { setQuickExitTarget({ type: 'account', position: pos }); setMessage(null); }}
                 onQuickExitGroup={(grp) => { setQuickExitTarget({ type: 'group', group: grp }); setMessage(null); }}
+                isHalted={isHalted}
               />
             ))
           )}
@@ -3672,6 +4075,7 @@ export function Futures() {
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}
           isProtecting={protMut.isPending}
+          isHalted={isHalted}
         />
       )}
 
@@ -3681,6 +4085,7 @@ export function Futures() {
           group={liveManagingGroup}
           onClose={() => setManagingGroup(null)}
           onRefreshPositions={handleRefreshAll}
+          isHalted={isHalted}
         />
       )}
 
@@ -3690,8 +4095,19 @@ export function Futures() {
           target={liveQuickExitTarget}
           onClose={() => setQuickExitTarget(null)}
           onRefreshPositions={handleRefreshAll}
+          isHalted={isHalted}
         />
       )}
+
+      {/* ── Emergency Kill Switch Modal (Read-Only Safety Lock) ── */}
+      <KillSwitchModal
+        isOpen={showKillSwitchModal}
+        isHalted={isHalted}
+        status={killSwitchQuery.data}
+        onClose={() => setShowKillSwitchModal(false)}
+        onToggle={(active, reason) => toggleKillSwitchMut.mutate({ active, reason })}
+        isToggling={toggleKillSwitchMut.isPending}
+      />
     </div>
   );
 }

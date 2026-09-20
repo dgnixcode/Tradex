@@ -953,3 +953,27 @@ export const updateInquiryStatus = (
     body: JSON.stringify({ status }),
   });
 
+// --- Emergency Kill Switch / Read-Only Mode ---------------------------------
+
+export interface KillSwitchStatus {
+  readonly active: boolean;
+  readonly envHalted: boolean;
+  readonly dbHalted: boolean;
+  readonly mode: 'normal' | 'read_only';
+  readonly reason: string | null;
+  readonly changedAt: string | null;
+  readonly changedBy: string | null;
+}
+
+export const fetchKillSwitchStatus = (): Promise<KillSwitchStatus> =>
+  request<KillSwitchStatus>('/system/kill-switch');
+
+export const toggleKillSwitch = (
+  active: boolean,
+  reason?: string,
+): Promise<{ readonly ok: boolean } & KillSwitchStatus> =>
+  request<{ readonly ok: boolean } & KillSwitchStatus>('/system/kill-switch/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ active, reason }),
+  });
+

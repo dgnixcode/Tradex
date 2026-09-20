@@ -42,6 +42,7 @@ import {
   deleteAccount, renameAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
   getPlatformBranding, updatePlatformBranding, createSession,
+  readPlatformFlags, readPlatformKillSwitchDetails, setPlatformKillSwitch,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
 import { sql } from 'kysely';
@@ -374,6 +375,20 @@ export function createHttpServer(deps: HttpDeps): Server {
     } catch (e) {
       if (e instanceof AuthorisationError) throw new HttpError(403, e.message);
       throw e;
+    }
+  };
+
+  /** Emergency Kill Switch check — rejects mutations when trading is halted. */
+  const assertTradingNotHalted = async (): Promise<void> => {
+    if (process.env['TRADEX_KILL_SWITCH'] === '1') {
+      throw new HttpError(403, 'Trading and position modifications are blocked: Emergency Kill Switch is ACTIVE via environment override.');
+    }
+    const platform = await readPlatformFlags(deps.db);
+    if (platform.killSwitch || platform.mode === 'read_only') {
+      throw new HttpError(
+        403,
+        `Trading and position modifications are blocked: Emergency Kill Switch is ACTIVE (${platform.modeReason ?? 'read-only mode'}).`,
+      );
     }
   };
 
@@ -1073,6 +1088,49 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- GET /api/system/kill-switch — check emergency kill switch status ----
+    if (method === 'GET' && path === '/api/system/kill-switch') {
+      const details = await readPlatformKillSwitchDetails(deps.db);
+      const envHalted = process.env['TRADEX_KILL_SWITCH'] === '1';
+      sendJson(ctx.res, 200, {
+        active: envHalted || details.active,
+        envHalted,
+        dbHalted: details.active,
+        mode: envHalted ? 'read_only' : details.mode,
+        reason: envHalted ? 'TRADEX_KILL_SWITCH environment override' : details.reason,
+        changedAt: details.changedAt,
+        changedBy: details.changedBy,
+      });
+      return;
+    }
+
+    // ---- POST /api/system/kill-switch/toggle — engage or disengage emergency kill switch ----
+    if (method === 'POST' && path === '/api/system/kill-switch/toggle') {
+      if (principal.role !== 'owner') {
+        throw new HttpError(403, 'only workspace owners may toggle the emergency kill switch');
+      }
+      const body = (ctx.body ?? {}) as { active?: unknown; reason?: unknown };
+      if (typeof body.active !== 'boolean') {
+        throw new HttpError(400, 'active (boolean) is required');
+      }
+      const reason = typeof body.reason === 'string' && body.reason.trim()
+        ? body.reason.trim()
+        : (body.active ? 'Manual emergency lock engaged via UI' : 'Trading resumed via UI');
+      const updated = await setPlatformKillSwitch(deps.db, body.active, reason, principal.userId);
+      const envHalted = process.env['TRADEX_KILL_SWITCH'] === '1';
+      sendJson(ctx.res, 200, {
+        ok: true,
+        active: envHalted || updated.active,
+        envHalted,
+        dbHalted: updated.active,
+        mode: envHalted ? 'read_only' : updated.mode,
+        reason: envHalted ? 'TRADEX_KILL_SWITCH environment override' : updated.reason,
+        changedAt: updated.changedAt,
+        changedBy: updated.changedBy,
+      });
+      return;
+    }
+
         // ---- GET /api/positions — the books per account/asset (phase-09 T09.6) ----
     // Read-only over the `holding` projection (the fold of the ledger). Optional
     // ?groupId narrows to a group's ENABLED members; absent, it covers the whole
@@ -1202,6 +1260,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     const futAdjustMatch = /^\/api\/futures\/positions\/([^/]+)\/adjust$/.exec(path);
     if (method === 'POST' && futAdjustMatch !== null) {
       requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
       if (deps.futuresAdjust === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
@@ -1237,6 +1296,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     const futTpslMatch = /^\/api\/futures\/positions\/([^/]+)\/tpsl$/.exec(path);
     if (method === 'POST' && futTpslMatch !== null) {
       requireAction(principal, 'trade.cancel');
+      await assertTradingNotHalted();
       if (deps.futuresTpSl === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
@@ -1271,6 +1331,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     const futTrailingMatch = /^\/api\/futures\/positions\/([^/]+)\/trailing-tpsl$/.exec(path);
     if (method === 'POST' && futTrailingMatch !== null) {
       requireAction(principal, 'trade.cancel');
+      await assertTradingNotHalted();
       const body = (ctx.body ?? {}) as { enable?: unknown; distanceBp?: unknown; stepBp?: unknown; currentSlPrice?: unknown };
       const venuePositionId = futTrailingMatch[1] as string;
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), venuePositionId);
@@ -1334,6 +1395,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     const futExitMatch = /^\/api\/futures\/positions\/([^/]+)\/exit$/.exec(path);
     if (method === 'POST' && futExitMatch !== null) {
       requireAction(principal, 'trade.cancel');
+      await assertTradingNotHalted();
       if (deps.futuresExit === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
@@ -1793,6 +1855,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     // before any network call; a settled leg is refused with no venue request.
     if (method === 'POST' && path === '/api/orders/cancel') {
       requireAction(principal, 'trade.cancel');
+      await assertTradingNotHalted();
       const body = (ctx.body ?? {}) as { groupTradeId?: string; accountIds?: string[] };
       if (typeof body.groupTradeId !== 'string' || body.groupTradeId === '') {
         throw new HttpError(400, 'groupTradeId is required');
@@ -1879,6 +1942,7 @@ export function createHttpServer(deps: HttpDeps): Server {
     const confirmMatch = /^\/api\/group-trades\/([0-9a-f-]{36})\/confirm$/.exec(path);
     if (method === 'POST' && confirmMatch !== null) {
       requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
       const body = (ctx.body ?? {}) as { previewToken?: string };
       if (typeof body.previewToken !== 'string') throw new HttpError(400, 'previewToken is required');
       const tradeId = confirmMatch[1] as string;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAssets, fetchGroups, fetchMarketPrice, previewTrade } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
 import type { GroupSummary, PlanRequest } from '../api.ts';
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
@@ -533,6 +533,13 @@ export function TradeTicket() {
   const [stopLossPrice, setStopLossPrice] = useState<string>(() => draft.stopLossPrice || '');
   const [takeProfitPrice, setTakeProfitPrice] = useState<string>(() => draft.takeProfitPrice || '');
   const [trailingStopLoss, setTrailingStopLoss] = useState<boolean>(() => draft.trailingStopLoss ?? false);
+
+  const killSwitchQuery = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: fetchKillSwitchStatus,
+    refetchInterval: 3000,
+  });
+  const isHalted = Boolean(killSwitchQuery.data?.active);
   const [trailingDistancePercent, setTrailingDistancePercent] = useState<string>(() => draft.trailingDistancePercent || '5');
   const [trailingStepPercent, setTrailingStepPercent] = useState<string>(() => draft.trailingStepPercent || '1');
   const [fetchingPrice, setFetchingPrice] = useState(false);
@@ -807,7 +814,8 @@ export function TradeTicket() {
   const tpValid = slTpMode === 'price' ? priceOk(takeProfitPrice) : pctOk(tpPercent);
 
   const canPreview =
-    groupId !== '' && asset !== '' && accountCount > 0
+    !isHalted
+    && groupId !== '' && asset !== '' && accountCount > 0
     && leverageValid && sizeValid
     && (orderType !== 'limit' || (limitPrice !== '' && priceOk(limitPrice)))
     && slValid && tpValid;
@@ -906,6 +914,26 @@ export function TradeTicket() {
         {/* Tab 1: Trade Order Form */}
         <div style={{ display: rightPanelTab === 'trade' ? 'flex' : 'none', flexDirection: 'column', width: '100%' }}>
           <div className="panel trading-ticket-panel">
+            {isHalted && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid var(--danger)',
+                  borderRadius: 6,
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 12.5,
+                  color: 'var(--danger)',
+                  fontWeight: 600,
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
+                <span>EMERGENCY KILL SWITCH ACTIVE: Order placement is locked across all groups (Read-Only Mode).</span>
+              </div>
+            )}
       <div className="field">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <label htmlFor="group" style={{ margin: 0 }}>Group</label>
@@ -1494,7 +1522,11 @@ export function TradeTicket() {
           boxShadow: '0 2px 10px rgba(255, 255, 255, 0.1)',
         }}
       >
-        {preview.isPending ? 'Previewing…' : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
+        {isHalted
+          ? 'Trading Halted (Kill Switch Active)'
+          : preview.isPending
+            ? 'Previewing…'
+            : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
       </button>
           </div>
         </div>

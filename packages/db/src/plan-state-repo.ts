@@ -38,6 +38,81 @@ export async function readPlatformFlags(db: Kysely<DB>): Promise<PlatformFlags> 
   return { killSwitch: row.global_kill_switch, mode: row.mode, modeReason: row.mode_reason };
 }
 
+export interface PlatformKillSwitchDetails extends PlatformFlags {
+  readonly active: boolean;
+  readonly reason: string | null;
+  readonly changedAt: Date | null;
+  readonly changedBy: string | null;
+}
+
+/** Read full kill switch details including timestamp and operator who toggled it. */
+export async function readPlatformKillSwitchDetails(db: Kysely<DB>): Promise<PlatformKillSwitchDetails> {
+  const row = await db.selectFrom('platform_state')
+    .select(['global_kill_switch', 'mode', 'mode_reason', 'changed_at', 'changed_by'])
+    .where('id', '=', 'singleton')
+    .executeTakeFirst();
+  if (row === undefined) {
+    return {
+      active: true,
+      killSwitch: true,
+      mode: 'read_only',
+      reason: 'platform_state missing',
+      modeReason: 'platform_state missing',
+      changedAt: null,
+      changedBy: null,
+    };
+  }
+  const at = row.changed_at ? new Date(row.changed_at as unknown as string | number | Date) : null;
+  return {
+    active: row.global_kill_switch || row.mode === 'read_only',
+    killSwitch: row.global_kill_switch,
+    mode: row.mode,
+    reason: row.mode_reason,
+    modeReason: row.mode_reason,
+    changedAt: at,
+    changedBy: row.changed_by,
+  };
+}
+
+/**
+ * Toggle the global kill switch.
+ *
+ * When active:
+ * - mode becomes 'read_only'
+ * - all order creation, position exit, adjust, and TP/SL mutations are blocked.
+ */
+export async function setPlatformKillSwitch(
+  db: Kysely<DB>,
+  active: boolean,
+  reason?: string,
+  changedBy?: string,
+): Promise<PlatformKillSwitchDetails> {
+  const mode: PlatformMode = active ? 'read_only' : 'normal';
+  const modeReason = active ? (reason ?? 'emergency kill switch active') : null;
+  const at = new Date();
+
+  await db.updateTable('platform_state')
+    .set({
+      global_kill_switch: active,
+      mode,
+      mode_reason: modeReason,
+      changed_at: at,
+      changed_by: changedBy ?? null,
+    } as never)
+    .where('id' as never, '=', 'singleton' as never)
+    .execute();
+
+  return {
+    active,
+    killSwitch: active,
+    mode,
+    reason: modeReason,
+    modeReason,
+    changedAt: at,
+    changedBy: changedBy ?? null,
+  };
+}
+
 export interface TenantCaps {
   readonly perOrderNotionalMinor: string;
   readonly dailyNotionalMinor: string;

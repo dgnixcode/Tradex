@@ -1,3 +1,4 @@
+import { readPlatformFlags } from '@tradex/db';
 import type { FuturesTrailingSlTable, DB } from '@tradex/db';
 import type { Kysely, Selectable } from 'kysely';
 import type { MarketRef, OrderBook } from '@tradex/exchange';
@@ -47,6 +48,14 @@ export class TrailingSlEngine {
   }
 
   private async evaluate(): Promise<void> {
+    if (process.env['TRADEX_KILL_SWITCH'] === '1') return;
+    try {
+      const platform = await readPlatformFlags(this.db);
+      if (platform.killSwitch || platform.mode === 'read_only') return;
+    } catch {
+      return;
+    }
+
     try {
       const activeRows = await this.db.selectFrom('futures_trailing_sl')
         .selectAll()
