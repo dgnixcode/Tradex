@@ -100,6 +100,8 @@ export async function upsertFuturesPositions(
       throw new FuturesPositionRepoError('a venue position must carry an id and a pair');
     }
 
+    const openedAt = snap.updatedAtMs ? new Date(snap.updatedAtMs) : at;
+    const exchangeUpdatedAt = snap.updatedAtMs ? new Date(snap.updatedAtMs) : null;
     const values = {
       account_id: accountId,
       pair: snap.pair,
@@ -120,6 +122,8 @@ export async function upsertFuturesPositions(
       margin_type: snap.marginType,
       funding_rate_bp: snap.fundingRateBp,
       settlement_currency_avg_price: dec(snap.settlementCurrencyAvgPrice ?? null),
+      opened_at: openedAt,
+      exchange_updated_at: exchangeUpdatedAt,
       updated_at: at,
     };
 
@@ -140,6 +144,7 @@ export async function upsertFuturesPositions(
           margin_type: snap.marginType,
           funding_rate_bp: snap.fundingRateBp,
           settlement_currency_avg_price: dec(snap.settlementCurrencyAvgPrice ?? null),
+          exchange_updated_at: exchangeUpdatedAt,
           updated_at: at,
         } as never) as never)
       .execute();

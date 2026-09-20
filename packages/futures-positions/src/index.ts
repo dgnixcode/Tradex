@@ -32,6 +32,7 @@ export interface FuturesPositionRow {
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice?: string | null;
   readonly groupName?: string | null;
+  readonly entryTimeMs?: number | null;
 }
 
 export interface FuturesPositionView {
@@ -57,6 +58,7 @@ export interface FuturesPositionView {
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice?: string | null;
   readonly markStaleForMs: number | null;
+  readonly entryTimeMs?: number | null;
 }
 
 const parseDecimal = (s: string): { v: bigint; scale: number } => {
@@ -152,6 +154,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
     fundingRateBp: row.fundingRateBp,
     settlementCurrencyAvgPrice: row.settlementCurrencyAvgPrice ?? null,
     markStaleForMs: row.markObservedAtMs === null ? null : Math.max(0, nowMs - row.markObservedAtMs),
+    entryTimeMs: row.entryTimeMs ?? null,
   };
 }
 

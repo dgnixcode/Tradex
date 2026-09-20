@@ -118,6 +118,25 @@ export function fmtPrice(priceStr: string | null | undefined): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 }
 
+/** Formats epoch timestamp into clean date string and relative time (e.g. "20 Sep, 17:29" and "2h ago") */
+export function fmtEntryTime(ms: number | null | undefined): { dateStr: string; relStr: string } | null {
+  if (!ms || !Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  const now = Date.now();
+  const diffSec = Math.max(0, Math.floor((now - ms) / 1000));
+  let relStr = '';
+  if (diffSec < 60) relStr = 'just now';
+  else if (diffSec < 3600) relStr = `${Math.floor(diffSec / 60)}m ago`;
+  else if (diffSec < 86400) relStr = `${Math.floor(diffSec / 3600)}h ago`;
+  else relStr = `${Math.floor(diffSec / 86400)}d ago`;
+
+  const day = d.getDate();
+  const month = d.toLocaleString('en-US', { month: 'short' });
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const dateStr = `${day} ${month}, ${time}`;
+  return { dateStr, relStr };
+}
+
 function pctToTrigger(refPrice: number, pct: number, side: 'long' | 'short', leg: 'sl' | 'tp'): number {
   const down = (side === 'long' && leg === 'sl') || (side === 'short' && leg === 'tp');
   return down ? refPrice * (1 - pct / 100) : refPrice * (1 + pct / 100);
@@ -170,6 +189,8 @@ export interface PositionGroup {
   totalMarginMinor: string | null;
   /** Aggregated unrealised PnL in minor units. */
   totalPnlMinor: string | null;
+  /** Earliest entry time among positions in this group. */
+  entryTimeMs: number | null;
   /** Per-account positions in this group. */
   positions: FuturesPositionRow[];
   /** Unique group names across positions in this instrument. */
@@ -193,6 +214,7 @@ export function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[
         totalQty: 0,
         totalMarginMinor: null,
         totalPnlMinor: null,
+        entryTimeMs: null,
         positions: [],
         groupNames: [],
       };
@@ -200,6 +222,9 @@ export function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[
     }
     g.positions.push(p);
     g.totalQty += Number(p.quantity);
+    if (p.entryTimeMs && Number.isFinite(p.entryTimeMs)) {
+      g.entryTimeMs = g.entryTimeMs === null ? p.entryTimeMs : Math.min(g.entryTimeMs, p.entryTimeMs);
+    }
     if (p.groupName && !g.groupNames.includes(p.groupName)) {
       g.groupNames.push(p.groupName);
     }
@@ -241,6 +266,7 @@ function AccountRow({
   const roe = calcRoePct(p);
   const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
   const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+  const entryTime = fmtEntryTime(p.entryTimeMs);
 
   return (
     <tr>
@@ -258,6 +284,16 @@ function AccountRow({
         {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : <span className="muted">—</span>}
       </td>
       <td className="mono" style={{ textAlign: 'right' }}>{fmtPrice(p.avgEntryPrice)}</td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        {entryTime ? (
+          <div>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', display: 'block' }}>{entryTime.dateStr}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
+          </div>
+        ) : (
+          <span className="muted">—</span>
+        )}
+      </td>
       <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</td>
       <td className="mono" style={{ textAlign: 'right' }}>
         <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
@@ -358,6 +394,7 @@ function AccountMobileCard({
   const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
   const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
   const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+  const entryTime = fmtEntryTime(p.entryTimeMs);
 
   return (
     <div className="pos-mobile-card">
@@ -413,8 +450,14 @@ function AccountMobileCard({
           <span className="pos-mobile-val mono">{p.quantity}</span>
         </div>
         <div className="pos-mobile-cell">
-          <span className="pos-mobile-label">Entry</span>
+          <span className="pos-mobile-label">Entry Price</span>
           <span className="pos-mobile-val mono">{fmtPrice(p.avgEntryPrice)}</span>
+        </div>
+        <div className="pos-mobile-cell">
+          <span className="pos-mobile-label">Entry Time</span>
+          <span className="pos-mobile-val" style={{ fontSize: 12 }}>
+            {entryTime ? `${entryTime.dateStr} (${entryTime.relStr})` : '—'}
+          </span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Mark</span>
@@ -564,6 +607,12 @@ function GroupCard({
         <span className="card-meta">
           {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
         </span>
+        {group.entryTimeMs && (
+          <span className="card-meta" title={`Earliest entry: ${fmtEntryTime(group.entryTimeMs)?.dateStr}`}>
+            Entry <strong style={{ color: 'var(--text)' }}>{fmtEntryTime(group.entryTimeMs)?.dateStr}</strong>
+            <span style={{ color: 'var(--muted)', marginLeft: 3 }}>({fmtEntryTime(group.entryTimeMs)?.relStr})</span>
+          </span>
+        )}
 
         {/* Right side: PnL, ROE, Manage Group button, Quick Exit, and Expand */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -705,7 +754,8 @@ function GroupCard({
                   <th style={{ textAlign: 'right' }}>Qty</th>
                   <th>Lev</th>
                   <th style={{ textAlign: 'right' }}>Margin</th>
-                  <th style={{ textAlign: 'right' }}>Entry</th>
+                  <th style={{ textAlign: 'right' }}>Entry Price</th>
+                  <th>Entry Time</th>
                   <th style={{ textAlign: 'right' }}>Mark (Live)</th>
                   <th style={{ textAlign: 'right' }}>Liquidation</th>
                   <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
@@ -3033,6 +3083,7 @@ export function Futures() {
   const [quickExitTarget, setQuickExitTarget] = useState<QuickExitTarget | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pnlFilter, setPnlFilter] = useState<'all' | 'profit' | 'loss'>('all');
 
   // By default, cards are EXPANDED so all critical details are visible immediately.
   // collapsedGroups keeps track of cards the user explicitly minimized.
@@ -3147,6 +3198,18 @@ export function Futures() {
   // Build grouped positions
   const groups = useMemo(() => buildGroups(rows), [rows]);
 
+  // Compute counts for Profit / Loss tabs
+  const { profitCount, lossCount, allCount } = useMemo(() => {
+    let profit = 0;
+    let loss = 0;
+    for (const g of groups) {
+      const pnl = Number(g.totalPnlMinor ?? 0);
+      if (pnl > 0) profit++;
+      else if (pnl < 0) loss++;
+    }
+    return { profitCount: profit, lossCount: loss, allCount: groups.length };
+  }, [groups]);
+
   // Filter grouped positions by group name, coin/asset, pair, or member account
   const filteredGroups = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -3160,6 +3223,17 @@ export function Futures() {
       return false;
     });
   }, [groups, searchQuery]);
+
+  // Apply Profit / Loss filter tab
+  const displayedGroups = useMemo(() => {
+    if (pnlFilter === 'profit') {
+      return filteredGroups.filter((g) => Number(g.totalPnlMinor ?? 0) > 0);
+    }
+    if (pnlFilter === 'loss') {
+      return filteredGroups.filter((g) => Number(g.totalPnlMinor ?? 0) < 0);
+    }
+    return filteredGroups;
+  }, [filteredGroups, pnlFilter]);
 
   // Keep managingPosition up-to-date with live polling
   const liveManagingPosition = useMemo(() => {
@@ -3375,15 +3449,113 @@ export function Futures() {
       {hasAny && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', margin: 0 }}>
-                Grouped Positions
-              </h3>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {searchQuery.trim() !== ''
-                  ? `Showing ${filteredGroups.length} of ${groups.length} group${groups.length === 1 ? '' : 's'}`
-                  : 'All metrics and accounts visible by default'}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-dim)', margin: 0 }}>
+                  Grouped Positions
+                </h3>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {searchQuery.trim() !== ''
+                    ? `Showing ${displayedGroups.length} of ${groups.length} group${groups.length === 1 ? '' : 's'}`
+                    : pnlFilter !== 'all'
+                      ? `Showing ${displayedGroups.length} ${pnlFilter === 'profit' ? 'profit-making' : 'loss-making'} group${displayedGroups.length === 1 ? '' : 's'}`
+                      : 'All metrics and accounts visible by default'}
+                </span>
+              </div>
+
+              {/* Profit / Loss Filter Tabs */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--line)', gap: 3 }}>
+                <button
+                  type="button"
+                  style={{
+                    padding: '4px 11px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: pnlFilter === 'all' ? 'var(--accent)' : 'transparent',
+                    color: pnlFilter === 'all' ? '#ffffff' : 'var(--muted)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onClick={() => setPnlFilter('all')}
+                >
+                  All Positions
+                  <span style={{
+                    marginLeft: 6,
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: pnlFilter === 'all' ? 'rgba(255,255,255,0.25)' : 'var(--surface-3)',
+                    color: pnlFilter === 'all' ? '#ffffff' : 'var(--text-dim)',
+                  }}>
+                    {allCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    padding: '4px 11px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: pnlFilter === 'profit' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                    color: pnlFilter === 'profit' ? '#10b981' : 'var(--muted)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onClick={() => setPnlFilter('profit')}
+                >
+                  In Profit
+                  <span style={{
+                    marginLeft: 6,
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: pnlFilter === 'profit' ? '#10b981' : 'rgba(16, 185, 129, 0.15)',
+                    color: pnlFilter === 'profit' ? '#ffffff' : '#10b981',
+                  }}>
+                    {profitCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    padding: '4px 11px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: pnlFilter === 'loss' ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
+                    color: pnlFilter === 'loss' ? '#ef4444' : 'var(--muted)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onClick={() => setPnlFilter('loss')}
+                >
+                  In Loss
+                  <span style={{
+                    marginLeft: 6,
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: pnlFilter === 'loss' ? '#ef4444' : 'rgba(239, 68, 68, 0.15)',
+                    color: pnlFilter === 'loss' ? '#ffffff' : '#ef4444',
+                  }}>
+                    {lossCount}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Group or Coin Search Input */}
@@ -3442,16 +3614,38 @@ export function Futures() {
             </div>
           </div>
 
-          {filteredGroups.length === 0 ? (
+          {displayedGroups.length === 0 ? (
             <div className="empty-state" style={{ padding: '36px 16px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No groups or coins match "{searchQuery}"</p>
-              <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try searching by coin symbol (e.g. BTC, ETH), group name, or account name.</p>
-              <button type="button" className="btn secondary btn-sm" onClick={() => setSearchQuery('')}>
-                Clear search
-              </button>
+              {searchQuery.trim() !== '' ? (
+                <>
+                  <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No groups or coins match "{searchQuery}"</p>
+                  <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>Try searching by coin symbol (e.g. BTC, ETH), group name, or account name.</p>
+                  <button type="button" className="btn secondary btn-sm" onClick={() => setSearchQuery('')}>
+                    Clear search
+                  </button>
+                </>
+              ) : pnlFilter === 'profit' ? (
+                <>
+                  <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No profit-making positions</p>
+                  <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>None of your active positions currently have positive unrealised PnL.</p>
+                  <button type="button" className="btn secondary btn-sm" onClick={() => setPnlFilter('all')}>
+                    View all positions
+                  </button>
+                </>
+              ) : pnlFilter === 'loss' ? (
+                <>
+                  <p style={{ margin: 0, fontSize: '14.5px', fontWeight: 600 }}>No loss-making positions</p>
+                  <p className="muted" style={{ margin: '6px 0 14px', fontSize: '13px' }}>None of your active positions currently have negative unrealised PnL.</p>
+                  <button type="button" className="btn secondary btn-sm" onClick={() => setPnlFilter('all')}>
+                    View all positions
+                  </button>
+                </>
+              ) : (
+                <p className="muted">No positions to display.</p>
+              )}
             </div>
           ) : (
-            filteredGroups.map((g) => (
+            displayedGroups.map((g) => (
               <GroupCard
                 key={g.key}
                 group={g}

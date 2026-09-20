@@ -24,6 +24,7 @@ import {
   QuickExitModal,
   addMinors,
   calcRoePct,
+  fmtEntryTime,
   fmtMinor,
   fmtPrice,
   pnlClass,
@@ -585,6 +586,7 @@ export function AccountDetail() {
                         <th>Side</th>
                         <th style={{ textAlign: 'right' }}>Size</th>
                         <th style={{ textAlign: 'right' }}>Avg Entry</th>
+                        <th>Entry Time</th>
                         <th style={{ textAlign: 'right' }}>Mark</th>
                         <th style={{ textAlign: 'right' }}>Liq Price</th>
                         <th style={{ textAlign: 'right' }}>Margin</th>
@@ -599,6 +601,7 @@ export function AccountDetail() {
                         const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
                         const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
                         const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+                        const entryTime = fmtEntryTime(p.entryTimeMs);
                         return (
                           <tr key={p.venuePositionId}>
                             <td style={{ fontWeight: 600 }}>
@@ -632,6 +635,16 @@ export function AccountDetail() {
                             </td>
                             <td className="mono" style={{ textAlign: 'right' }}>
                               {fmtPrice(p.avgEntryPrice)}
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {entryTime ? (
+                                <div>
+                                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', display: 'block' }}>{entryTime.dateStr}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
+                                </div>
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
                             </td>
                             <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>
                               {fmtPrice(p.markPrice)}
@@ -743,6 +756,7 @@ export function AccountDetail() {
                     const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
                     const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
                     const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+                    const entryTime = fmtEntryTime(p.entryTimeMs);
                     return (
                       <div key={`mobile-${p.venuePositionId}`} className="pos-mobile-card">
                         <div className="pos-mobile-card-top">
@@ -797,8 +811,14 @@ export function AccountDetail() {
                             <span className="pos-mobile-val mono">{p.quantity}</span>
                           </div>
                           <div className="pos-mobile-cell">
-                            <span className="pos-mobile-label">Entry</span>
+                            <span className="pos-mobile-label">Entry Price</span>
                             <span className="pos-mobile-val mono">{fmtPrice(p.avgEntryPrice)}</span>
+                          </div>
+                          <div className="pos-mobile-cell">
+                            <span className="pos-mobile-label">Entry Time</span>
+                            <span className="pos-mobile-val" style={{ fontSize: 12 }}>
+                              {entryTime ? `${entryTime.dateStr} (${entryTime.relStr})` : '—'}
+                            </span>
                           </div>
                           <div className="pos-mobile-cell">
                             <span className="pos-mobile-label">Mark</span>

@@ -574,6 +574,8 @@ export interface FuturesPositionTable {
   margin_type: PositionMarginType | null;
   funding_rate_bp: number | null;
   settlement_currency_avg_price: string | null;
+  opened_at?: Generated<Timestamp>;
+  exchange_updated_at?: Timestamp | null;
   updated_at: Generated<Timestamp>;
 }
 

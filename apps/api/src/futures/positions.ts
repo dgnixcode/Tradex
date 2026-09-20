@@ -63,6 +63,8 @@ interface RawFuturesPositionRow {
   readonly takeProfitTrigger: string | null;
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice: string | null;
+  readonly openedAt: Date | null;
+  readonly exchangeUpdatedAt: Date | null;
 }
 
 async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]): Promise<readonly RawFuturesPositionRow[]> {
@@ -77,6 +79,8 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
       'stop_loss_trigger as stopLossTrigger', 'take_profit_trigger as takeProfitTrigger',
       'funding_rate_bp as fundingRateBp',
       'settlement_currency_avg_price as settlementCurrencyAvgPrice',
+      'opened_at as openedAt',
+      'exchange_updated_at as exchangeUpdatedAt',
     ] as unknown as never)
     .where('account_id' as never, 'in', accountIds as never)
     .execute();
@@ -96,6 +100,8 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
     takeProfitTrigger: r['takeProfitTrigger'] === null ? null : String(r['takeProfitTrigger']),
     fundingRateBp: r['fundingRateBp'] === null ? null : Number(r['fundingRateBp']),
     settlementCurrencyAvgPrice: r['settlementCurrencyAvgPrice'] === null ? null : String(r['settlementCurrencyAvgPrice']),
+    openedAt: r['openedAt'] === null || r['openedAt'] === undefined ? null : new Date(String(r['openedAt'])),
+    exchangeUpdatedAt: r['exchangeUpdatedAt'] === null || r['exchangeUpdatedAt'] === undefined ? null : new Date(String(r['exchangeUpdatedAt'])),
   }));
 }
 
@@ -137,6 +143,30 @@ export async function buildFuturesPositions(
   const raw = await readFuturesPositions(tdb, accountIds);
   const prices = rtPrices ?? await getFuturesRtPrices().catch(() => new Map<string, FuturesRtPrice>());
 
+  const filledOrders = accountIds.length > 0
+    ? await tdb.selectFrom('child_order')
+        .select([
+          'account_id as accountId',
+          'pair',
+          'sent_at as sentAt',
+          'created_at as createdAt',
+        ] as unknown as never)
+        .where('account_id' as never, 'in', accountIds as never)
+        .where('leg_kind' as never, '=', 'entry' as never)
+        .where('state' as never, '=', 'filled' as never)
+        .orderBy('created_at' as never, 'desc' as never)
+        .execute() as unknown as ReadonlyArray<{ accountId: string; pair: string; sentAt: Date | null; createdAt: Date }>
+    : [];
+
+  const entryOrderByAccountPair = new Map<string, number>();
+  for (const o of filledOrders) {
+    const key = `${o.accountId}|${o.pair}`;
+    if (!entryOrderByAccountPair.has(key)) {
+      const t = o.sentAt ? new Date(o.sentAt).getTime() : new Date(o.createdAt).getTime();
+      entryOrderByAccountPair.set(key, t);
+    }
+  }
+
   const shaped: FuturesPositionRow[] = raw
     .filter((r) => r.marginCurrency === 'INR' || r.marginCurrency === 'USDT')
     .map((r) => {
@@ -145,6 +175,11 @@ export async function buildFuturesPositions(
       const markObservedAtMs = live ? nowMs : (r.markObservedAt === null ? null : r.markObservedAt.getTime());
       const grp = groupsByAccount.get(r.accountId);
       const groupName = grp?.custom ?? grp?.default ?? null;
+      const orderEntryTime = entryOrderByAccountPair.get(`${r.accountId}|${r.pair}`);
+      const entryTimeMs = orderEntryTime
+        ?? (r.openedAt ? r.openedAt.getTime() : null)
+        ?? (r.exchangeUpdatedAt ? r.exchangeUpdatedAt.getTime() : null);
+
       return {
         accountId: r.accountId,
         accountName: nameOf.get(r.accountId) ?? r.accountId.slice(0, 8),
@@ -163,6 +198,7 @@ export async function buildFuturesPositions(
         takeProfitTrigger: r.takeProfitTrigger,
         fundingRateBp: r.fundingRateBp,
         settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
+        entryTimeMs,
       };
     });
   return {

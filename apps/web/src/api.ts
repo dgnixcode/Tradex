@@ -795,6 +795,7 @@ export interface FuturesPositionRow {
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice?: string | null;
   readonly markStaleForMs: number | null;
+  readonly entryTimeMs?: number | null;
 }
 
 export interface FuturesPositionsResponse {

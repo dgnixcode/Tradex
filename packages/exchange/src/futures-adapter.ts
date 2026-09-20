@@ -166,6 +166,7 @@ export interface FuturesPositionSnapshot {
   readonly fundingRateBp: number | null;
   readonly settlementCurrencyAvgPrice?: string | null;
   readonly observedAtMs: number;
+  readonly updatedAtMs?: number | null;
 }
 
 /** The response shape of a futures order create — no `clientOrderId` echo. */

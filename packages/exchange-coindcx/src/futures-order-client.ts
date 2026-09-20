@@ -143,6 +143,16 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
   if (pair === null || activePos === null || margin === null || venuePositionId === null) return null;
   if (margin !== 'INR' && margin !== 'USDT') return null;
   const peg = settlementPeg(row['settlement_currency_avg_price']);
+  const toUpdatedAtMs = (v: unknown): number | null => {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+    if (typeof v === 'string' && v !== '') {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) return n;
+      const parsed = Date.parse(v);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return null;
+  };
   return {
     venuePositionId,
     pair,
@@ -161,6 +171,7 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     fundingRateBp: (typeof row['funding_rate_bp'] === 'number') ? (row['funding_rate_bp'] as number) : null,
     settlementCurrencyAvgPrice: peg,
     observedAtMs,
+    updatedAtMs: toUpdatedAtMs(row['updated_at']),
   };
 }
 
