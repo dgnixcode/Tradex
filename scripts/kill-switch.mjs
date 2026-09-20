@@ -13,7 +13,9 @@ import { readPlatformKillSwitchDetails, setPlatformKillSwitch } from '../package
 
 try {
   process.loadEnvFile?.('.env');
-} catch {}
+} catch {
+  // Ignore if .env does not exist; environment variables may be provided externally.
+}
 
 const url = process.env['DATABASE_URL'];
 if (url === undefined || url === '') {

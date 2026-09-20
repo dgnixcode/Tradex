@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
@@ -152,6 +153,102 @@ function triggerToPct(refPrice: number, triggerPrice: number, side: 'long' | 'sh
   return Math.abs(pct);
 }
 
+export interface EstimatedTpSl {
+  readonly hasTp: boolean;
+  readonly hasSl: boolean;
+  readonly tpPriceText: string;
+  readonly slPriceText: string;
+  readonly tpEstPnlText: string | null;
+  readonly slEstPnlText: string | null;
+  readonly tpEstRoeText: string | null;
+  readonly slEstRoeText: string | null;
+  readonly tpEstPnlNum: number | null;
+  readonly slEstPnlNum: number | null;
+}
+
+export function calcEstimatedTpSl(p: FuturesPositionRow): EstimatedTpSl {
+  const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
+  const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+
+  let tpEstPnlText: string | null = null;
+  let slEstPnlText: string | null = null;
+  let tpEstRoeText: string | null = null;
+  let slEstRoeText: string | null = null;
+  let tpEstPnlNum: number | null = null;
+  let slEstPnlNum: number | null = null;
+
+  const entry = Number(p.avgEntryPrice);
+  const qty = Number(p.quantity);
+  const validEntry = Number.isFinite(entry) && entry > 0;
+  const validQty = Number.isFinite(qty) && qty > 0;
+  const lev = p.leverage !== null && Number(p.leverage) > 0 ? Number(p.leverage) : 1;
+  const isLong = p.side === 'long';
+  const isShort = p.side === 'short';
+
+  const marginVal = p.lockedMarginMinor && Number(p.lockedMarginMinor) > 0
+    ? Number(p.lockedMarginMinor) / (p.marginCurrency === 'INR' ? 100 : 1e8)
+    : (validEntry && validQty ? (entry * qty) / lev : null);
+
+  if (hasTp && validEntry && validQty && (isLong || isShort)) {
+    const tp = Number(p.takeProfitTrigger);
+    if (Number.isFinite(tp) && tp > 0) {
+      const priceDiff = isLong ? (tp - entry) : (entry - tp);
+      const estPnl = priceDiff * qty;
+      tpEstPnlNum = estPnl;
+      const roePct = marginVal && marginVal > 0
+        ? (estPnl / marginVal) * 100
+        : ((tp - entry) / entry) * 100 * lev * (isShort ? -1 : 1);
+
+      const sign = estPnl > 0 ? '+' : estPnl < 0 ? '−' : '';
+      const absVal = Math.abs(estPnl).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      tpEstPnlText = p.marginCurrency === 'INR' ? `${sign}₹${absVal}` : `${sign}${absVal} USDT`;
+      if (Number.isFinite(roePct)) {
+        const roeSign = roePct >= 0 ? '+' : '';
+        tpEstRoeText = `(${roeSign}${roePct.toFixed(1)}%)`;
+      }
+    }
+  }
+
+  if (hasSl && validEntry && validQty && (isLong || isShort)) {
+    const sl = Number(p.stopLossTrigger);
+    if (Number.isFinite(sl) && sl > 0) {
+      const priceDiff = isLong ? (sl - entry) : (entry - sl);
+      const estPnl = priceDiff * qty;
+      slEstPnlNum = estPnl;
+      const roePct = marginVal && marginVal > 0
+        ? (estPnl / marginVal) * 100
+        : ((sl - entry) / entry) * 100 * lev * (isShort ? -1 : 1);
+
+      const sign = estPnl > 0 ? '+' : estPnl < 0 ? '−' : '';
+      const absVal = Math.abs(estPnl).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      slEstPnlText = p.marginCurrency === 'INR' ? `${sign}₹${absVal}` : `${sign}${absVal} USDT`;
+      if (Number.isFinite(roePct)) {
+        const roeSign = roePct >= 0 ? '+' : '';
+        slEstRoeText = `(${roeSign}${roePct.toFixed(1)}%)`;
+      }
+    }
+  }
+
+  return {
+    hasTp,
+    hasSl,
+    tpPriceText: fmtPrice(p.takeProfitTrigger),
+    slPriceText: fmtPrice(p.stopLossTrigger),
+    tpEstPnlText,
+    slEstPnlText,
+    tpEstRoeText,
+    slEstRoeText,
+    tpEstPnlNum,
+    slEstPnlNum,
+  };
+}
+
 /**
  * Execute an async worker over items concurrently with a bounded pool size,
  * ensuring high throughput while keeping the UI responsive.
@@ -268,37 +365,58 @@ function AccountRow({
   readonly isHalted?: boolean | undefined;
 }) {
   const roe = calcRoePct(p);
-  const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
-  const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+  const tpSl = calcEstimatedTpSl(p);
   const entryTime = fmtEntryTime(p.entryTimeMs);
 
   return (
     <tr>
       <td>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <strong style={{ fontSize: 13.5, color: 'var(--text)' }}>{p.accountName}</strong>
-          <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+          <Link
+            to={`/app/accounts/${p.accountId}`}
+            className="pos-account-link"
+            title={`View account details for ${p.accountName}`}
+          >
+            <span>{p.accountName}</span>
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="pos-account-link-icon">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </Link>
+          <div style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
             {p.groupName || 'Ungrouped'}
           </div>
         </div>
       </td>
-      <td className="mono" style={{ textAlign: 'right' }}>{p.quantity}</td>
-      <td>{p.leverage === null ? <span className="muted">—</span> : `${p.leverage}×`}</td>
-      <td className="mono" style={{ textAlign: 'right' }}>
-        {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : <span className="muted">—</span>}
+      <td className="mono" style={{ textAlign: 'right', color: '#f8fafc', fontWeight: 600 }}>{p.quantity}</td>
+      <td>
+        {p.leverage === null ? (
+          <span className="muted">—</span>
+        ) : (
+          <span className="pos-lev-pill">{p.leverage}×</span>
+        )}
       </td>
-      <td className="mono" style={{ textAlign: 'right' }}>{fmtPrice(p.avgEntryPrice)}</td>
+      <td className="mono" style={{ textAlign: 'right' }}>
+        {p.lockedMarginMinor && p.lockedMarginMinor !== '0' ? (
+          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>
+            {fmtMinor(p.lockedMarginMinor, p.marginCurrency)}
+          </span>
+        ) : (
+          <span className="muted">—</span>
+        )}
+      </td>
+      <td className="mono" style={{ textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>{fmtPrice(p.avgEntryPrice)}</td>
       <td style={{ whiteSpace: 'nowrap' }}>
         {entryTime ? (
           <div>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', display: 'block' }}>{entryTime.dateStr}</span>
-            <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', display: 'block' }}>{entryTime.dateStr}</span>
+            <span style={{ fontSize: 10.5, color: '#64748b', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
           </div>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
-      <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</td>
       <td className="mono" style={{ textAlign: 'right' }}>
         <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
           {fmtPrice(p.liquidationPrice)}
@@ -333,12 +451,34 @@ function AccountRow({
         )}
       </td>
       <td>
-        {!hasSl && !hasTp ? (
+        {!tpSl.hasSl && !tpSl.hasTp ? (
           <span className="muted" style={{ fontSize: 11.5 }}>none</span>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
-            {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {tpSl.hasTp && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                  TP {tpSl.tpPriceText}
+                </span>
+                {tpSl.tpEstPnlText && (
+                  <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.tpEstPnlNum ?? 0) >= 0 ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
+                    {tpSl.tpEstPnlText} {tpSl.tpEstRoeText}
+                  </span>
+                )}
+              </div>
+            )}
+            {tpSl.hasSl && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                  SL {tpSl.slPriceText}
+                </span>
+                {tpSl.slEstPnlText && (
+                  <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.slEstPnlNum ?? 0) <= 0 ? '#ef4444' : '#10b981', whiteSpace: 'nowrap' }}>
+                    {tpSl.slEstPnlText} {tpSl.slEstRoeText}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </td>
@@ -400,8 +540,7 @@ function AccountMobileCard({
   readonly isHalted?: boolean | undefined;
 }) {
   const roe = calcRoePct(p);
-  const hasSl = p.stopLossTrigger !== null && p.stopLossTrigger !== '0' && p.stopLossTrigger !== '0.0' && Number(p.stopLossTrigger) > 0;
-  const hasTp = p.takeProfitTrigger !== null && p.takeProfitTrigger !== '0' && p.takeProfitTrigger !== '0.0' && Number(p.takeProfitTrigger) > 0;
+  const tpSl = calcEstimatedTpSl(p);
   const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
   const entryTime = fmtEntryTime(p.entryTimeMs);
 
@@ -409,7 +548,19 @@ function AccountMobileCard({
     <div className="pos-mobile-card">
       <div className="pos-mobile-card-top">
         <div>
-          <div className="pos-mobile-acc-name">{p.accountName}</div>
+          <Link
+            to={`/app/accounts/${p.accountId}`}
+            className="pos-account-link"
+            style={{ fontSize: 14, fontWeight: 700 }}
+            title={`View account details for ${p.accountName}`}
+          >
+            <span>{p.accountName}</span>
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="pos-account-link-icon">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </Link>
           <div className="pos-mobile-grp-badge">{p.groupName || 'Ungrouped'}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -456,21 +607,17 @@ function AccountMobileCard({
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Qty</span>
-          <span className="pos-mobile-val mono">{p.quantity}</span>
+          <span className="pos-mobile-val mono" style={{ color: '#f8fafc', fontWeight: 600 }}>{p.quantity}</span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Entry Price</span>
-          <span className="pos-mobile-val mono">{fmtPrice(p.avgEntryPrice)}</span>
+          <span className="pos-mobile-val mono" style={{ color: '#94a3b8', fontWeight: 600 }}>{fmtPrice(p.avgEntryPrice)}</span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Entry Time</span>
-          <span className="pos-mobile-val" style={{ fontSize: 12 }}>
+          <span className="pos-mobile-val" style={{ fontSize: 11.5, color: '#cbd5e1' }}>
             {entryTime ? `${entryTime.dateStr} (${entryTime.relStr})` : '—'}
           </span>
-        </div>
-        <div className="pos-mobile-cell">
-          <span className="pos-mobile-label">Mark</span>
-          <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</span>
         </div>
         <div className="pos-mobile-cell">
           <span className="pos-mobile-label">Liq Price</span>
@@ -486,14 +633,36 @@ function AccountMobileCard({
       </div>
 
       <div className="pos-mobile-card-foot">
-        <div className="pos-mobile-prot">
-          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 4 }}>Protection:</span>
-          {!hasSl && !hasTp ? (
+        <div className="pos-mobile-prot" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TP/SL:</span>
+          {!tpSl.hasSl && !tpSl.hasTp ? (
             <span className="muted" style={{ fontSize: 11 }}>None</span>
           ) : (
-            <div style={{ display: 'inline-flex', gap: 4 }}>
-              {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
-              {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {tpSl.hasTp && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                    TP {tpSl.tpPriceText}
+                  </span>
+                  {tpSl.tpEstPnlText && (
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.tpEstPnlNum ?? 0) >= 0 ? '#10b981' : '#ef4444' }}>
+                      {tpSl.tpEstPnlText} {tpSl.tpEstRoeText}
+                    </span>
+                  )}
+                </div>
+              )}
+              {tpSl.hasSl && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                    SL {tpSl.slPriceText}
+                  </span>
+                  {tpSl.slEstPnlText && (
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.slEstPnlNum ?? 0) <= 0 ? '#ef4444' : '#10b981' }}>
+                      {tpSl.slEstPnlText} {tpSl.slEstRoeText}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -622,10 +791,13 @@ function GroupCard({
         <span className="card-meta">
           {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
         </span>
-        {group.entryTimeMs && (
-          <span className="card-meta" title={`Earliest entry: ${fmtEntryTime(group.entryTimeMs)?.dateStr}`}>
-            Entry <strong style={{ color: 'var(--text)' }}>{fmtEntryTime(group.entryTimeMs)?.dateStr}</strong>
-            <span style={{ color: 'var(--muted)', marginLeft: 3 }}>({fmtEntryTime(group.entryTimeMs)?.relStr})</span>
+        {group.positions[0]?.markPrice && (
+          <span className="card-meta group-mark-chip" title="Live Coin Mark Price">
+            <span className="live-pulse-dot" />
+            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>Mark</span>
+            <strong style={{ color: '#38bdf8', fontSize: 13, fontWeight: 700 }}>
+              {fmtPrice(group.positions[0].markPrice)}
+            </strong>
           </span>
         )}
 
@@ -774,10 +946,9 @@ function GroupCard({
                   <th style={{ textAlign: 'right' }}>Margin</th>
                   <th style={{ textAlign: 'right' }}>Entry Price</th>
                   <th>Entry Time</th>
-                  <th style={{ textAlign: 'right' }}>Mark (Live)</th>
                   <th style={{ textAlign: 'right' }}>Liquidation</th>
                   <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
-                  <th>Protection</th>
+                  <th>TP/SL</th>
                   <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
