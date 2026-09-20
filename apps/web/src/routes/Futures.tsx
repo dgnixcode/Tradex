@@ -4,11 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
   fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
-  toggleKillSwitch,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
-import { KillSwitchModal } from '../components/KillSwitchModal.tsx';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -3335,9 +3333,6 @@ export function QuickExitModal({
   );
 }
 
-/* ─── Emergency Kill Switch Modal (Read-Only Safety Lock) ─── */
-export { KillSwitchModal } from '../components/KillSwitchModal.tsx';
-
 /* ─── Main Component ─── */
 
 export function Futures() {
@@ -3345,7 +3340,6 @@ export function Futures() {
   const [managingPosition, setManagingPosition] = useState<FuturesPositionRow | null>(null);
   const [managingGroup, setManagingGroup] = useState<PositionGroup | null>(null);
   const [quickExitTarget, setQuickExitTarget] = useState<QuickExitTarget | null>(null);
-  const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pnlFilter, setPnlFilter] = useState<'all' | 'profit' | 'loss'>('all');
@@ -3356,21 +3350,6 @@ export function Futures() {
     refetchInterval: 3000,
   });
   const isHalted = Boolean(killSwitchQuery.data?.active);
-
-  const toggleKillSwitchMut = useMutation({
-    mutationFn: ({ active, reason }: { active: boolean; reason?: string | undefined }) => toggleKillSwitch(active, reason),
-    onSuccess: (res) => {
-      setMessage({
-        kind: 'ok',
-        text: res.active
-          ? 'Emergency Kill Switch ENGAGED. Platform is in read-only mode.'
-          : 'Emergency Kill Switch DISENGAGED. Live trading resumed.',
-      });
-      setShowKillSwitchModal(false);
-      void qc.invalidateQueries({ queryKey: ['kill-switch'] });
-    },
-    onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
-  });
 
   // By default, cards are EXPANDED so all critical details are visible immediately.
   // collapsedGroups keeps track of cards the user explicitly minimized.
@@ -3631,38 +3610,6 @@ export function Futures() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
-            className={`btn btn-sm ${isHalted ? '' : 'secondary'}`}
-            style={{
-              fontSize: 11.5,
-              padding: '3px 10px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: isHalted ? 'rgba(239, 68, 68, 0.15)' : undefined,
-              color: isHalted ? 'var(--danger)' : undefined,
-              borderColor: isHalted ? 'var(--danger)' : undefined,
-              fontWeight: isHalted ? 700 : 500,
-            }}
-            onClick={() => setShowKillSwitchModal(true)}
-            title="Emergency Kill Switch (Read-Only Safety Lock)"
-          >
-            {isHalted ? (
-              <>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--danger)', display: 'inline-block', boxShadow: '0 0 6px var(--danger)' }} />
-                KILL SWITCH ACTIVE
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-                Kill Switch
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
             className="btn secondary btn-sm"
             disabled={refreshMut.isPending}
             onClick={() => refreshMut.mutate()}
@@ -3716,14 +3663,25 @@ export function Futures() {
               </div>
             </div>
           </div>
-          <button
-            type="button"
+          <Link
+            to="/app/settings?tab=controls"
             className="btn btn-sm"
-            style={{ background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)', fontWeight: 600 }}
-            onClick={() => setShowKillSwitchModal(true)}
+            style={{
+              background: 'var(--danger)',
+              color: '#fff',
+              borderColor: 'var(--danger)',
+              fontWeight: 600,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
           >
-            Manage Kill Switch
-          </button>
+            Manage in Settings
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </Link>
         </div>
       )}
 
@@ -4066,16 +4024,6 @@ export function Futures() {
           isHalted={isHalted}
         />
       )}
-
-      {/* ── Emergency Kill Switch Modal (Read-Only Safety Lock) ── */}
-      <KillSwitchModal
-        isOpen={showKillSwitchModal}
-        isHalted={isHalted}
-        status={killSwitchQuery.data}
-        onClose={() => setShowKillSwitchModal(false)}
-        onToggle={(active, reason) => toggleKillSwitchMut.mutate({ active, reason })}
-        isToggling={toggleKillSwitchMut.isPending}
-      />
     </div>
   );
 }
