@@ -185,19 +185,21 @@ export function calcEstimatedTpSl(p: FuturesPositionRow): EstimatedTpSl {
   const isLong = p.side === 'long';
   const isShort = p.side === 'short';
 
-  const marginVal = p.lockedMarginMinor && Number(p.lockedMarginMinor) > 0
-    ? Number(p.lockedMarginMinor) / (p.marginCurrency === 'INR' ? 100 : 1e8)
-    : (validEntry && validQty ? (entry * qty) / lev : null);
+  // For INR-margined positions on USDT-quoted contracts (e.g. B-BCH_USDT), convert USDT PnL to INR.
+  // CoinDCX records the USDT->INR peg at entry in settlementCurrencyAvgPrice (typically ~100-103).
+  const isUsdtContractWithInrMargin = p.marginCurrency === 'INR' && (p.pair.endsWith('_USDT') || p.pair.includes('USDT'));
+  const fxPeg = isUsdtContractWithInrMargin
+    ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 100)
+    : 1;
 
   if (hasTp && validEntry && validQty && (isLong || isShort)) {
     const tp = Number(p.takeProfitTrigger);
     if (Number.isFinite(tp) && tp > 0) {
       const priceDiff = isLong ? (tp - entry) : (entry - tp);
-      const estPnl = priceDiff * qty;
+      const estPnl = priceDiff * qty * fxPeg;
       tpEstPnlNum = estPnl;
-      const roePct = marginVal && marginVal > 0
-        ? (estPnl / marginVal) * 100
-        : ((tp - entry) / entry) * 100 * lev * (isShort ? -1 : 1);
+      const dir = isShort ? -1 : 1;
+      const roePct = ((tp - entry) / entry) * 100 * lev * dir;
 
       const sign = estPnl > 0 ? '+' : estPnl < 0 ? '−' : '';
       const absVal = Math.abs(estPnl).toLocaleString('en-US', {
@@ -216,11 +218,10 @@ export function calcEstimatedTpSl(p: FuturesPositionRow): EstimatedTpSl {
     const sl = Number(p.stopLossTrigger);
     if (Number.isFinite(sl) && sl > 0) {
       const priceDiff = isLong ? (sl - entry) : (entry - sl);
-      const estPnl = priceDiff * qty;
+      const estPnl = priceDiff * qty * fxPeg;
       slEstPnlNum = estPnl;
-      const roePct = marginVal && marginVal > 0
-        ? (estPnl / marginVal) * 100
-        : ((sl - entry) / entry) * 100 * lev * (isShort ? -1 : 1);
+      const dir = isShort ? -1 : 1;
+      const roePct = ((sl - entry) / entry) * 100 * lev * dir;
 
       const sign = estPnl > 0 ? '+' : estPnl < 0 ? '−' : '';
       const absVal = Math.abs(estPnl).toLocaleString('en-US', {
