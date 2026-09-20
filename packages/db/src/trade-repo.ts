@@ -636,10 +636,16 @@ export async function recordDirectOrder(
     const sizingMode = input.sizingMode ?? (isFutures ? 'sell_all' : 'base_quantity');
     const sizingValue = sizingMode === 'sell_all' ? null : (input.sizingValue ?? input.quantity);
 
+    let createdBy = input.createdBy;
+    if (!createdBy) {
+      const u = await tx.selectFrom('app_user').select('id').executeTakeFirst();
+      createdBy = (u as { id: string } | undefined)?.id ?? '09524cdd-89d1-4862-9a56-903526b3eed3';
+    }
+
     await tx.insertInto('group_trade', {
       id: input.groupTradeId,
       group_id: groupId,
-      created_by: input.createdBy,
+      created_by: createdBy,
       asset,
       side: input.side,
       order_type: input.orderType ?? 'market',
