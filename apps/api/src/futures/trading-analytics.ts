@@ -535,7 +535,8 @@ export async function buildTradingAnalytics(
       r['sizingMode'] === 'sell_all' ||
       r['sizingMode'] === 'pct_position' ||
       r['legKind'] === 'stop_loss' ||
-      r['legKind'] === 'take_profit'
+      r['legKind'] === 'take_profit' ||
+      r['legKind'] === 'exit'
     );
     const qtyStr = (r['filledQuantity'] && r['filledQuantity'] !== '0')
       ? String(r['filledQuantity'])
@@ -662,26 +663,13 @@ export async function buildTradingAnalytics(
       while (queue.length > 0) {
         const entry = queue.shift()!;
         if (entry.qty <= 0.000001) continue;
-        const isLong = entry.side === 'buy';
-        const dir = isLong ? 1 : -1;
         const entryPrice = entry.price;
-        // Use live mark price or entry price as fallback exit price
-        const livePriceObj = findRtPrice(rtPricesMap, entry.pair) ?? findRtPrice(rtPricesMap, entry.market);
-        const exitPrice = livePriceObj ? Number(livePriceObj.markPrice) : entryPrice;
-        const priceDiff = (exitPrice - entryPrice) * dir;
-        const pnl = entry.qty * priceDiff;
-
-        const isUsdtContract = entry.pair.includes('USDT') || entry.pair.endsWith('USDT') || entry.market.includes('USDT');
-        let pnlMinorVal: string;
-        if (entry.marginCurrency === 'INR' && isUsdtContract) {
-          pnlMinorVal = Math.round(pnl * 100 * 100).toString();
-        } else if (entry.marginCurrency === 'USDT') {
-          pnlMinorVal = Math.round(pnl * 100_000_000).toString();
-        } else {
-          pnlMinorVal = Math.round(pnl * 100).toString();
-        }
-
-        const roePct = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 * entry.leverage * dir : null;
+        // Never use live real-time market tickers for closed trades (fixes fluctuating PnL/ROE on refresh).
+        // Closed trades without recorded fills fall back deterministically to entry price (breakeven PnL 0).
+        const exitPrice = entryPrice;
+        const isLong = entry.side === 'buy';
+        const pnlMinorVal = '0';
+        const roePct = entryPrice > 0 ? 0 : null;
         const closedAtMs = entry.createdAtMs + 60_000; // estimated close time
 
         if (closedAtMs >= fromMs && closedAtMs <= toMs) {
