@@ -19,7 +19,7 @@ export function DeskStatus() {
   const label = paused ? 'trading paused' : data?.platform.killSwitch ? 'platform halted' : platformOff ? `${data?.platform.mode}` : 'market restricted';
 
   return (
-    <Link to="/app/trading" className={`status-chip${paused || data?.platform.killSwitch ? ' danger' : ''}`} title="View desk controls">
+    <Link to="/app/settings?tab=controls" className={`status-chip${paused || data?.platform.killSwitch ? ' danger' : ''}`} title="View desk controls">
       {label}
     </Link>
   );

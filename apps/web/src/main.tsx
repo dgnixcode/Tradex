@@ -1,7 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom';
 import { ApiError, SESSION_EXPIRED_EVENT, notifySessionExpired } from './api.ts';
 import { AuthProvider, RequireAuth } from './auth.tsx';
 import { BrandingProvider, useBranding } from './branding.tsx';
@@ -30,7 +30,6 @@ import { Futures } from './routes/Futures.tsx';
 import { Analytics } from './routes/Analytics.tsx';
 import { ConnectAccount } from './routes/ConnectAccount.tsx';
 import { AccountDetail } from './routes/AccountDetail.tsx';
-import { DeskControls } from './routes/DeskControls.tsx';
 import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
@@ -305,7 +304,7 @@ const router = createBrowserRouter([
           { path: 'settings', element: <Settings /> },
           { path: 'accounts/connect', element: <ConnectAccount /> },
           { path: 'accounts/:accountId', element: <AccountDetail /> },
-          { path: 'trading', element: <DeskControls /> },
+          { path: 'trading', element: <Navigate to="/app/settings?tab=controls" replace /> },
           { path: 'security', element: <Security /> },
           { path: 'audit', element: <Audit /> },
           { path: 'inquiries', element: <Inquiries /> },

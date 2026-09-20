@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchFuturesPositions,
+  fetchKillSwitchStatus,
+  fetchTradingState,
   fetchWorkspace,
+  pauseTrading,
   renameWorkspace,
+  resumeTrading,
   stepUp,
+  toggleKillSwitch,
   updateServerBranding,
 } from '../api.ts';
 import type { ApiError } from '../api.ts';
@@ -28,10 +33,20 @@ import {
   DEFAULT_HOURS,
 } from '../branding.tsx';
 import { Brand } from '../components/Brand.tsx';
+import { KillSwitchModal } from '../components/KillSwitchModal.tsx';
 import { buildGroups, calcGroupRoePct } from './Futures.tsx';
 
 // Category tabs for organized settings management
-type SettingsCategory = 'alerts' | 'branding' | 'contact' | 'security';
+type SettingsCategory = 'controls' | 'alerts' | 'branding' | 'contact' | 'security';
+
+const minorLabel = (minor: string, currency: 'INR' | 'USDT'): string => {
+  const scale = currency === 'INR' ? 2 : 8;
+  const digits = minor.padStart(scale + 1, '0');
+  const whole = digits.slice(0, -scale);
+  const frac = digits.slice(-scale).replace(/0+$/, '');
+  const num = `${whole}${frac === '' ? '' : `.${frac}`}`;
+  return currency === 'INR' ? `₹${num}` : `${num} ${currency}`;
+};
 
 const PRESET_ICONS = ['◆', '◈', '▲', '✦', '◉', '■', '❖', '✚', 'Ω', '§'];
 const DOWN_PRESETS = [3, 5, 10, 15, 20];
@@ -48,8 +63,77 @@ export function Settings() {
 
   const { branding, updateBranding, resetBranding } = useBranding();
 
-  // Active Category Tab
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('alerts');
+  // Active Category Tab with URL query param sync (?tab=controls)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const validTabs: SettingsCategory[] = ['controls', 'alerts', 'branding', 'contact', 'security'];
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(() => {
+    if (tabParam && (validTabs as string[]).includes(tabParam)) {
+      return tabParam as SettingsCategory;
+    }
+    return 'controls';
+  });
+
+  useEffect(() => {
+    if (tabParam && (validTabs as string[]).includes(tabParam) && tabParam !== activeCategory) {
+      setActiveCategory(tabParam as SettingsCategory);
+    }
+  }, [tabParam, activeCategory]);
+
+  // =========================================================================
+  // CATEGORY 0: DESK CONTROLS & EMERGENCY KILL SWITCH STATE
+  // =========================================================================
+  const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
+  const [controlsMsg, setControlsMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [deskPausing, setDeskPausing] = useState(false);
+  const [deskPauseReason, setDeskPauseReason] = useState('');
+
+  const killSwitchQuery = useQuery({
+    queryKey: ['kill-switch'],
+    queryFn: fetchKillSwitchStatus,
+    refetchInterval: 3000,
+  });
+  const isHalted = Boolean(killSwitchQuery.data?.active);
+
+  const toggleKillSwitchMut = useMutation({
+    mutationFn: ({ active, reason }: { active: boolean; reason?: string | undefined }) => toggleKillSwitch(active, reason),
+    onSuccess: (res) => {
+      setControlsMsg({
+        kind: 'ok',
+        text: res.active
+          ? 'Emergency Kill Switch ENGAGED. Platform is in read-only mode.'
+          : 'Emergency Kill Switch DISENGAGED. Live trading resumed.',
+      });
+      setShowKillSwitchModal(false);
+      void qc.invalidateQueries({ queryKey: ['kill-switch'] });
+    },
+    onError: (e) => setControlsMsg({ kind: 'err', text: (e as Error).message }),
+  });
+
+  const ts = useQuery({ queryKey: ['trading-state'], queryFn: fetchTradingState, refetchInterval: 5000 });
+  const tradingData = ts.data;
+  const deskPaused = tradingData?.tenant.tradingPaused === true;
+  const canPause = role === 'owner' || role === 'trader';
+
+  const pauseDeskMut = useMutation({
+    mutationFn: () => pauseTrading(deskPauseReason),
+    onSuccess: () => {
+      setDeskPausing(false);
+      setDeskPauseReason('');
+      setControlsMsg({ kind: 'ok', text: 'Desk trading has been paused.' });
+      void qc.invalidateQueries({ queryKey: ['trading-state'] });
+    },
+    onError: (e) => setControlsMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Could not pause desk' }),
+  });
+
+  const resumeDeskMut = useMutation({
+    mutationFn: () => resumeTrading(),
+    onSuccess: () => {
+      setControlsMsg({ kind: 'ok', text: 'Desk trading has been resumed.' });
+      void qc.invalidateQueries({ queryKey: ['trading-state'] });
+    },
+    onError: (e) => setControlsMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Could not resume desk' }),
+  });
 
   // =========================================================================
   // CATEGORY 1: POSITION & RISK ALERTS STATE
@@ -397,11 +481,44 @@ export function Settings() {
       <nav className="settings-categories-nav" aria-label="Settings Categories">
         <button
           type="button"
+          className={`settings-category-btn ${activeCategory === 'controls' ? 'active' : ''}`}
+          onClick={() => {
+            if (isTestingSound) alertSound.stopAlertLoop();
+            setIsTestingSound(false);
+            setActiveCategory('controls');
+            setSearchParams({ tab: 'controls' }, { replace: true });
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>Desk Controls</span>
+          {isHalted && (
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: 'var(--danger, #ef4444)',
+                boxShadow: '0 0 6px var(--danger, #ef4444)',
+                display: 'inline-block',
+                marginLeft: 4,
+              }}
+              title="Emergency Kill Switch Active"
+            />
+          )}
+        </button>
+
+        <button
+          type="button"
           className={`settings-category-btn ${activeCategory === 'alerts' ? 'active' : ''}`}
           onClick={() => {
             if (isTestingSound) alertSound.stopAlertLoop();
             setIsTestingSound(false);
             setActiveCategory('alerts');
+            setSearchParams({ tab: 'alerts' }, { replace: true });
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -418,6 +535,7 @@ export function Settings() {
             if (isTestingSound) alertSound.stopAlertLoop();
             setIsTestingSound(false);
             setActiveCategory('branding');
+            setSearchParams({ tab: 'branding' }, { replace: true });
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -439,6 +557,7 @@ export function Settings() {
             if (isTestingSound) alertSound.stopAlertLoop();
             setIsTestingSound(false);
             setActiveCategory('contact');
+            setSearchParams({ tab: 'contact' }, { replace: true });
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -454,6 +573,7 @@ export function Settings() {
             if (isTestingSound) alertSound.stopAlertLoop();
             setIsTestingSound(false);
             setActiveCategory('security');
+            setSearchParams({ tab: 'security' }, { replace: true });
           }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -463,6 +583,409 @@ export function Settings() {
           <span>Security &amp; 2FA</span>
         </button>
       </nav>
+
+      {/* =========================================================================
+          TAB 0: DESK CONTROLS & EMERGENCY KILL SWITCH
+         ========================================================================= */}
+      {activeCategory === 'controls' && (
+        <div>
+          {controlsMsg !== null && (
+            <div
+              className={controlsMsg.kind === 'ok' ? 'desk-ok-banner' : 'error'}
+              style={{
+                marginBottom: 16,
+                padding: '10px 14px',
+                borderRadius: 6,
+                background: controlsMsg.kind === 'ok' ? 'rgba(52, 211, 153, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                border: `1px solid ${controlsMsg.kind === 'ok' ? 'var(--ok, #34d399)' : 'var(--danger, #ef4444)'}`,
+                color: controlsMsg.kind === 'ok' ? 'var(--ok, #34d399)' : 'var(--danger, #ef4444)',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>{controlsMsg.text}</span>
+              <button
+                type="button"
+                onClick={() => setControlsMsg(null)}
+                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 14 }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* CARD 1: Emergency Kill Switch (Read-Only Safety Deadbolt) */}
+          <div
+            className="settings-section-card"
+            style={{
+              borderColor: isHalted ? 'var(--danger, #ef4444)' : undefined,
+              boxShadow: isHalted ? '0 0 25px rgba(239, 68, 68, 0.2)' : undefined,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 8,
+                    background: isHalted ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: isHalted ? 'var(--danger, #ef4444)' : 'var(--ok, #10b981)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16 }}>Platform Emergency Kill Switch</h3>
+                  <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+                    Cryptographic deadbolt that freezes all order placement, exits, adjustments, and SL/TP modifications across the entire platform.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <span
+                  className="badge"
+                  style={{
+                    background: isHalted ? 'rgba(239, 68, 68, 0.18)' : 'rgba(52, 211, 153, 0.12)',
+                    color: isHalted ? 'var(--danger, #ef4444)' : 'var(--ok, #34d399)',
+                    border: `1px solid ${isHalted ? 'var(--danger, #ef4444)' : 'var(--ok, #34d399)'}`,
+                    padding: '5px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: isHalted ? 'var(--danger, #ef4444)' : 'var(--ok, #34d399)',
+                      boxShadow: isHalted ? '0 0 8px var(--danger, #ef4444)' : 'none',
+                    }}
+                  />
+                  {isHalted ? 'KILL SWITCH ENGAGED (READ-ONLY)' : 'NORMAL (LIVE TRADING)'}
+                </span>
+              </div>
+            </div>
+
+            {isHalted ? (
+              <div
+                style={{
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: 8,
+                  padding: '16px 18px',
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: 'var(--danger, #ef4444)', fontSize: 14, marginBottom: 6 }}>
+                  Platform is in Read-Only Mode
+                </div>
+                <div style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+                  All order execution, position exits, bracket adjustments, and automated triggers are rejected.
+                  Live balances, active positions, mark prices, and order books remain 100% visible and update in real time.
+                </div>
+                {killSwitchQuery.data?.reason && (
+                  <div style={{ fontSize: 12.5, color: 'var(--text, #e2e8f0)', marginBottom: 4 }}>
+                    <span className="muted">Engagement reason: </span>
+                    <strong style={{ color: '#fff' }}>{killSwitchQuery.data.reason}</strong>
+                  </div>
+                )}
+                {killSwitchQuery.data?.changedAt && (
+                  <div style={{ fontSize: 12, color: 'var(--text-dim, #94a3b8)', marginBottom: 14 }}>
+                    <span className="muted">Engaged at: </span>
+                    <span>{new Date(killSwitchQuery.data.changedAt).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setShowKillSwitchModal(true)}
+                  style={{
+                    backgroundColor: 'var(--ok, #10b981)',
+                    borderColor: 'var(--ok, #10b981)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    padding: '8px 16px',
+                  }}
+                >
+                  Disengage Kill Switch / Resume Trading
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ color: 'var(--text-dim, #94a3b8)', fontSize: 13, lineHeight: 1.5, margin: '0 0 16px' }}>
+                  If you need to perform server updates, investigate a suspected anomaly, or halt execution during extreme volatility,
+                  activate this kill switch. The platform's cryptographic signer will instantly refuse to sign any order or cancel requests,
+                  and all API mutation routes will reject requests with HTTP 403 Forbidden.
+                </p>
+                <button
+                  type="button"
+                  className="btn danger"
+                  onClick={() => setShowKillSwitchModal(true)}
+                  style={{
+                    backgroundColor: 'var(--danger, #ef4444)',
+                    borderColor: 'var(--danger, #ef4444)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    padding: '8px 16px',
+                  }}
+                >
+                  Engage Emergency Kill Switch
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* CARD 2: Desk Trading Status (Tenant Pause) */}
+          <div className="settings-section-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 8,
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#3b82f6',
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="10" y1="15" x2="10" y2="9" />
+                    <line x1="14" y1="15" x2="14" y2="9" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16 }}>Desk Trading Status</h3>
+                  <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+                    Tenant-level pause. Pausing stops new trades immediately; resuming requires workspace owner authority.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <span className={`badge ${deskPaused ? 'skipped' : 'planned'}`} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700 }}>
+                  {deskPaused ? 'DESK PAUSED' : 'DESK TRADING'}
+                </span>
+              </div>
+            </div>
+
+            {deskPaused && tradingData?.tenant.pausedReason !== null && (
+              <div style={{ background: '#171f33', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
+                <span className="muted">Pause reason: </span>
+                <span style={{ color: '#fff' }}>{tradingData?.tenant.pausedReason}</span>
+              </div>
+            )}
+
+            {deskPaused ? (
+              <div>
+                {isOwner ? (
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={resumeDeskMut.isPending}
+                    onClick={() => resumeDeskMut.mutate()}
+                  >
+                    {resumeDeskMut.isPending ? 'Resuming…' : 'Resume Desk Trading'}
+                  </button>
+                ) : (
+                  <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                    Only a workspace <strong>owner</strong> can resume desk trading.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                {canPause ? (
+                  deskPausing ? (
+                    <form
+                      style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (deskPauseReason.trim() !== '') pauseDeskMut.mutate();
+                      }}
+                    >
+                      <input
+                        style={{ maxWidth: 360 }}
+                        value={deskPauseReason}
+                        onChange={(e) => setDeskPauseReason(e.target.value)}
+                        placeholder="Why are you pausing the desk?"
+                        aria-label="Pause reason"
+                      />
+                      <button
+                        className="btn danger btn-sm"
+                        type="submit"
+                        disabled={pauseDeskMut.isPending || deskPauseReason.trim() === ''}
+                      >
+                        {pauseDeskMut.isPending ? 'Pausing…' : 'Confirm Pause'}
+                      </button>
+                      <button className="btn secondary btn-sm" type="button" onClick={() => setDeskPausing(false)}>
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <button className="btn secondary" type="button" onClick={() => setDeskPausing(true)}>
+                      Pause Desk Trading
+                    </button>
+                  )
+                ) : (
+                  <p className="muted" style={{ margin: 0, fontSize: 13 }}>A viewer cannot pause desk trading.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* CARD 3: Platform Exchange Mode & Market Restrictions */}
+          <div className="settings-section-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 8,
+                  background: 'rgba(168, 85, 247, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#a855f7',
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                  <line x1="6" y1="6" x2="6.01" y2="6" />
+                  <line x1="6" y1="18" x2="6.01" y2="18" />
+                </svg>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Exchange Venue &amp; Markets</h3>
+                <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+                  Upstream exchange operational mode and market-specific trade restrictions.
+                </p>
+              </div>
+            </div>
+
+            {tradingData !== undefined ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                  <span className="desk-k" style={{ fontSize: 13, color: 'var(--text-dim, #94a3b8)' }}>Exchange Mode:</span>
+                  <span className={`badge ${tradingData.platform.mode === 'normal' ? 'planned' : 'skipped'}`}>
+                    {tradingData.platform.mode}
+                  </span>
+                </div>
+                {tradingData.platform.mode !== 'normal' && (
+                  <div style={{ marginBottom: 14, fontSize: 13 }}>
+                    <span className="muted">Venue note: </span>
+                    <span>{tradingData.platform.modeReason ?? 'No reason provided by exchange'}</span>
+                  </div>
+                )}
+
+                {tradingData.restrictedMarkets.length > 0 ? (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Restricted Markets ({tradingData.restrictedMarkets.length})</div>
+                    <div className="table-scroll-container">
+                      <table style={{ width: '100%', fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '8px' }}>Market</th>
+                            <th style={{ textAlign: 'left', padding: '8px' }}>Mode</th>
+                            <th style={{ textAlign: 'left', padding: '8px' }}>Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tradingData.restrictedMarkets.map((m) => (
+                            <tr key={m.market}>
+                              <td style={{ padding: '8px' }}>{m.market}</td>
+                              <td style={{ padding: '8px' }}><span className="badge skipped">{m.mode}</span></td>
+                              <td style={{ padding: '8px' }} className="muted">{m.reason ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="muted" style={{ margin: '8px 0 0', fontSize: 13 }}>All exchange futures markets are unrestricted.</p>
+                )}
+              </>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>Loading exchange status…</p>
+            )}
+          </div>
+
+          {/* CARD 4: Desk Risk Limits & Caps */}
+          <div className="settings-section-card" style={{ marginBottom: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 8,
+                  background: 'rgba(234, 179, 8, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#eab308',
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>Desk Risk Limits</h3>
+                <p className="muted" style={{ margin: '3px 0 0', fontSize: 13 }}>
+                  Safety caps enforced on maximum order notional and daily cumulative turnover.
+                </p>
+              </div>
+            </div>
+
+            {tradingData !== undefined ? (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 14 }}>
+                  <div style={{ background: '#171f33', padding: '14px 18px', borderRadius: 8, border: '1px solid #28354d' }}>
+                    <div className="muted" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Per-Order Cap</div>
+                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 4 }}>
+                      {minorLabel(tradingData.caps.perOrderNotionalMinor, 'INR')}
+                    </div>
+                  </div>
+                  <div style={{ background: '#171f33', padding: '14px 18px', borderRadius: 8, border: '1px solid #28354d' }}>
+                    <div className="muted" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Daily Turnover Cap</div>
+                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 4 }}>
+                      {minorLabel(tradingData.caps.dailyNotionalMinor, 'INR')}
+                    </div>
+                  </div>
+                </div>
+                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+                  Adjusting these limits requires workspace owner authentication and step-up 2FA verification.
+                </p>
+              </div>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>Loading risk limits…</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           TAB 1: POSITION & RISK ALERTS
@@ -1698,6 +2221,16 @@ export function Settings() {
           <span>{status.message}</span>
         </div>
       )}
+
+      {/* ── Emergency Kill Switch Modal (Read-Only Safety Lock) ── */}
+      <KillSwitchModal
+        isOpen={showKillSwitchModal}
+        isHalted={isHalted}
+        status={killSwitchQuery.data}
+        onClose={() => setShowKillSwitchModal(false)}
+        onToggle={(active, reason) => toggleKillSwitchMut.mutate({ active, reason })}
+        isToggling={toggleKillSwitchMut.isPending}
+      />
     </div>
   );
 }
