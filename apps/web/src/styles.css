@@ -1083,39 +1083,157 @@ tr.skipped td { color: var(--muted); }
 
 .positions-summary {
   display: flex;
-  gap: 28px;
-  align-items: center;
+  gap: 24px;
+  align-items: stretch;
   padding: 18px 24px;
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, #131720 0%, #0d0f14 100%);
   border: 1px solid #1f2533;
   margin-bottom: 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  box-sizing: border-box;
+  width: 100%;
 }
+
+.summary-stat-block {
+  display: flex;
+  flex-direction: column;
+  justifyContent: center;
+  min-width: 0;
+}
+
+.summary-pnl-block {
+  flex: 1 1 360px;
+}
+
+.summary-margin-block {
+  flex: 0 1 auto;
+  border-left: 1px solid var(--line, #1f2533);
+  padding-left: 20px;
+}
+
+.summary-count-block {
+  flex: 0 0 auto;
+  border-left: 1px solid var(--line, #1f2533);
+  padding-left: 20px;
+}
+
+.pnl-entries-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pnl-entry-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.margin-entries-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .positions-summary .pnl-big {
   font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.5px;
   line-height: 1.1;
+  white-space: nowrap;
 }
+
 .positions-summary .pnl-pct-badge {
   font-size: 13.5px;
   font-weight: 700;
   padding: 3px 9px;
   border-radius: 6px;
   line-height: 1.2;
+  white-space: nowrap;
 }
+
 .positions-summary .stat-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
+  white-space: nowrap;
 }
+
 .positions-summary .stat-value {
   font-size: 17px;
   font-weight: 700;
   color: var(--text);
+  white-space: nowrap;
+}
+
+@media (max-width: 992px) {
+  .positions-summary {
+    flex-wrap: wrap;
+    gap: 16px 20px;
+    padding: 16px 20px;
+  }
+  .summary-pnl-block {
+    flex: 1 1 100%;
+    width: 100%;
+    border-bottom: 1px solid var(--line, #1f2533);
+    padding-bottom: 14px;
+  }
+  .summary-margin-block {
+    border-left: none;
+    padding-left: 0;
+    flex: 1 1 auto;
+  }
+  .positions-summary .pnl-big {
+    font-size: 22px;
+  }
+  .positions-summary .pnl-pct-badge {
+    font-size: 12.5px;
+  }
+}
+
+@media (max-width: 580px) {
+  .positions-summary {
+    padding: 14px 16px;
+    gap: 14px;
+  }
+  .summary-pnl-block {
+    padding-bottom: 12px;
+  }
+  .pnl-entries-row {
+    gap: 10px 14px;
+  }
+  .pnl-entry-item {
+    gap: 8px;
+  }
+  .positions-summary .pnl-big {
+    font-size: 19px;
+  }
+  .positions-summary .pnl-pct-badge {
+    font-size: 11.5px;
+    padding: 2px 7px;
+  }
+  .summary-margin-block {
+    flex: 1 1 100%;
+    width: 100%;
+    border-bottom: 1px solid var(--line, #1f2533);
+    padding-bottom: 12px;
+  }
+  .summary-count-block:first-of-type {
+    border-left: none;
+    padding-left: 0;
+  }
+  .summary-count-block {
+    padding-left: 14px;
+  }
+  .positions-summary .stat-value {
+    font-size: 15px;
+  }
 }
 
 .position-card {
@@ -3442,7 +3560,15 @@ body:has(.panel-dark)::before {
   }
 }
 
-/* Header and light containers: show dark logo */
+/* Default across dark trading platform: show white logo, hide dark logo */
+.brand-official-logo .brand-logo-white {
+  display: block !important;
+}
+.brand-official-logo .brand-logo-dark {
+  display: none !important;
+}
+
+/* Header and light containers only: show dark logo, hide white logo */
 .mk-header .brand-official-logo .brand-logo-dark,
 .branding-preview-card.light .brand-official-logo .brand-logo-dark {
   display: block !important;
@@ -3452,15 +3578,17 @@ body:has(.panel-dark)::before {
   display: none !important;
 }
 
-/* Dark containers (Footer, App Sidebar): show white logo */
+/* Dark containers (Footer, App Sidebar, Mobile Header, Preview Cards): explicitly ensure white logo */
 .mk-footer .brand-official-logo .brand-logo-white,
 .app-sidebar .brand-official-logo .brand-logo-white,
+.panel-mobile-header .brand-official-logo .brand-logo-white,
 .landing-dark .mk-footer .brand-official-logo .brand-logo-white,
 .branding-preview-card.dark .brand-official-logo .brand-logo-white {
   display: block !important;
 }
 .mk-footer .brand-official-logo .brand-logo-dark,
 .app-sidebar .brand-official-logo .brand-logo-dark,
+.panel-mobile-header .brand-official-logo .brand-logo-dark,
 .landing-dark .mk-footer .brand-official-logo .brand-logo-dark,
 .branding-preview-card.dark .brand-official-logo .brand-logo-dark {
   display: none !important;
@@ -6344,6 +6472,21 @@ body:has(.panel-dark)::before {
 .mobile-header-brand {
   display: flex;
   align-items: center;
+}
+
+.mobile-header-brand .brand-official-logo .brand-logo-dark {
+  display: none !important;
+}
+
+.mobile-header-brand .brand-official-logo .brand-logo-white {
+  display: block !important;
+}
+
+.mobile-header-brand .brand-official-logo .brand-logo-img {
+  height: 32px;
+  width: auto;
+  max-width: 170px;
+  object-fit: contain;
 }
 
 .mobile-header-actions {

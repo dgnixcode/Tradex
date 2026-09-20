@@ -3558,9 +3558,9 @@ export function Futures() {
       {/* ── Summary ── */}
       {hasAny && (
         <div className="positions-summary">
-          <div>
+          <div className="summary-stat-block summary-pnl-block">
             <div className="stat-label">Unrealised PnL</div>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div className="pnl-entries-row">
               {Object.entries(totalPnl).map(([cur, minor]) => {
                 const pnlVal = Number(minor);
                 const marginMinor = totalMargin[cur];
@@ -3574,7 +3574,7 @@ export function Futures() {
                 const pctBorder = isProf ? 'rgba(16, 185, 129, 0.35)' : isLoss ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255, 255, 255, 0.1)';
 
                 return (
-                  <div key={cur} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div key={cur} className="pnl-entry-item">
                     <span className={`pnl-big ${pnlClass(minor)}`}>
                       {pnlText(minor, cur as 'INR' | 'USDT')}
                     </span>
@@ -3598,9 +3598,10 @@ export function Futures() {
               )}
             </div>
           </div>
-          <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
+
+          <div className="summary-stat-block summary-margin-block">
             <div className="stat-label">Margin Invested</div>
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div className="margin-entries-row">
               {Object.entries(totalMargin).map(([cur, minor]) => (
                 <span key={cur} className="stat-value" style={{ fontWeight: 600 }}>
                   {fmtMinor(minor, cur as 'INR' | 'USDT')}
@@ -3611,11 +3612,13 @@ export function Futures() {
               )}
             </div>
           </div>
-          <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
+
+          <div className="summary-stat-block summary-count-block">
             <div className="stat-label">Positions</div>
             <div className="stat-value">{rows.length}</div>
           </div>
-          <div>
+
+          <div className="summary-stat-block summary-count-block">
             <div className="stat-label">Groups</div>
             <div className="stat-value">{groups.length}</div>
           </div>
