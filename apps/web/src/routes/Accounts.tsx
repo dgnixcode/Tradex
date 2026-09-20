@@ -194,17 +194,15 @@ export function Accounts() {
 
           {/* Search and Counts Toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', minWidth: '260px', maxWidth: '380px', flex: 1 }}>
+            <div className={`tradex-search-bar ${search.trim() !== '' ? 'has-query' : ''}`} style={{ minWidth: 260, maxWidth: 360 }}>
               <svg
-                width="14"
-                height="14"
+                className="tradex-search-icon"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}
               >
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -214,36 +212,18 @@ export function Accounts() {
                 placeholder="Search accounts by name, group, status..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="card-account-search"
-                style={{
-                  width: '100%',
-                  padding: '7px 30px 7px 32px',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                  borderRadius: '6px',
-                }}
+                className="tradex-search-input"
                 aria-label="Search accounts"
               />
               {search.trim() !== '' && (
                 <button
                   type="button"
+                  className="tradex-search-clear"
                   onClick={() => setSearch('')}
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--muted)',
-                    cursor: 'pointer',
-                    padding: '2px 6px',
-                    fontSize: '13px',
-                    lineHeight: 1,
-                  }}
+                  title="Clear search"
                   aria-label="Clear search"
                 >
-                  x
+                  ✕
                 </button>
               )}
             </div>

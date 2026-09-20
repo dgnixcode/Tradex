@@ -250,17 +250,15 @@ export function Groups() {
         <>
           {/* Groups Toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 24, marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', minWidth: '240px', maxWidth: '340px', flex: 1 }}>
+            <div className={`tradex-search-bar ${search.trim() !== '' ? 'has-query' : ''}`} style={{ minWidth: 260, maxWidth: 360 }}>
               <svg
-                width="14"
-                height="14"
+                className="tradex-search-icon"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}
               >
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -270,33 +268,15 @@ export function Groups() {
                 placeholder="Search groups or coins (e.g. BTC, Scalping)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="card-account-search"
-                style={{
-                  width: '100%',
-                  padding: '7px 28px 7px 32px',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                  borderRadius: '6px',
-                }}
+                className="tradex-search-input"
                 aria-label="Search groups or coins"
               />
               {search.trim() !== '' && (
                 <button
                   type="button"
+                  className="tradex-search-clear"
                   onClick={() => setSearch('')}
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--muted)',
-                    cursor: 'pointer',
-                    padding: '2px 6px',
-                    fontSize: '13px',
-                    lineHeight: 1,
-                  }}
+                  title="Clear search"
                   aria-label="Clear search"
                 >
                   ✕
