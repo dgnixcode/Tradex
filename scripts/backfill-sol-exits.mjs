@@ -29,7 +29,7 @@ async function main() {
   try {
     await client.query('BEGIN');
 
-    const gtId = 'c01ddcx-sol-exit-20260919';
+    const gtId = 'c01ddc00-0000-4000-8000-000020260919';
     const gtCheck = await client.query('SELECT id FROM group_trade WHERE id = $1', [gtId]);
     if (gtCheck.rows.length === 0) {
       await client.query(
