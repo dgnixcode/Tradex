@@ -3473,7 +3473,7 @@ export function Futures() {
                     fontWeight: 700,
                     borderRadius: 6,
                     border: 'none',
-                    background: pnlFilter === 'all' ? 'var(--accent)' : 'transparent',
+                    background: pnlFilter === 'all' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
                     color: pnlFilter === 'all' ? '#ffffff' : 'var(--muted)',
                     cursor: 'pointer',
                     display: 'inline-flex',
@@ -3489,7 +3489,7 @@ export function Futures() {
                     borderRadius: 10,
                     fontSize: 11,
                     fontWeight: 700,
-                    background: pnlFilter === 'all' ? 'rgba(255,255,255,0.25)' : 'var(--surface-3)',
+                    background: pnlFilter === 'all' ? 'rgba(255, 255, 255, 0.2)' : 'var(--surface-3)',
                     color: pnlFilter === 'all' ? '#ffffff' : 'var(--text-dim)',
                   }}>
                     {allCount}

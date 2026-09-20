@@ -588,8 +588,21 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
   // matched. A row we cannot use is dropped rather than half-read.
   if (id === null || pair === null) return null;
   const statusRaw = strOrNull(row['status']) ?? '';
-  const createdRaw = strOrNull(row['created_at']);
-  const created = createdRaw === null ? NaN : Date.parse(createdRaw);
+  const createdVal = row['created_at'];
+  let createdAtMs: number | null = null;
+  if (typeof createdVal === 'number' && Number.isFinite(createdVal) && createdVal > 0) {
+    createdAtMs = createdVal;
+  } else if (typeof createdVal === 'string' && createdVal.trim() !== '') {
+    const n = Number(createdVal);
+    if (Number.isFinite(n) && n > 0) {
+      createdAtMs = n;
+    } else {
+      const parsed = Date.parse(createdVal);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        createdAtMs = parsed;
+      }
+    }
+  }
   return {
     venueOrderId: id,
     pair,
@@ -599,7 +612,7 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
     price: strOrNull(row['price']),
     statusRaw,
     status: canonicalFuturesOrderState(statusRaw),
-    createdAtMs: Number.isNaN(created) ? null : created,
+    createdAtMs,
   };
 }
 

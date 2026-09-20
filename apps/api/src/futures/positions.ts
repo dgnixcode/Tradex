@@ -105,6 +105,16 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
   }));
 }
 
+function extractBaseAsset(sym: string | null | undefined): string | null {
+  if (!sym) return null;
+  const matchB = sym.match(/^(?:B-|INR-)?([A-Z0-9]+)[-_](?:USDT|INR)$/i);
+  if (matchB && matchB[1]) return matchB[1].toUpperCase();
+  const clean = sym.replace(/[-_]/g, '').toUpperCase();
+  if (clean.endsWith('USDT')) return clean.slice(0, -4);
+  if (clean.endsWith('INR')) return clean.slice(0, -3);
+  return clean;
+}
+
 export async function buildFuturesPositions(
   db: Kysely<DB>,
   tenantId: string,
@@ -145,25 +155,40 @@ export async function buildFuturesPositions(
 
   const filledOrders = accountIds.length > 0
     ? await tdb.selectFrom('child_order')
+        .leftJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
         .select([
-          'account_id as accountId',
-          'pair',
-          'sent_at as sentAt',
-          'created_at as createdAt',
+          'child_order.account_id as accountId',
+          'child_order.pair as pair',
+          'child_order.market as market',
+          'group_trade.asset as asset',
+          'child_order.sent_at as sentAt',
+          'child_order.created_at as createdAt',
         ] as unknown as never)
-        .where('account_id' as never, 'in', accountIds as never)
-        .where('leg_kind' as never, '=', 'entry' as never)
-        .where('state' as never, '=', 'filled' as never)
-        .orderBy('created_at' as never, 'desc' as never)
-        .execute() as unknown as ReadonlyArray<{ accountId: string; pair: string; sentAt: Date | null; createdAt: Date }>
+        .where('child_order.account_id' as never, 'in', accountIds as never)
+        .where('child_order.leg_kind' as never, '=', 'entry' as never)
+        .where('child_order.state' as never, '=', 'filled' as never)
+        .orderBy('child_order.created_at' as never, 'desc' as never)
+        .execute() as unknown as ReadonlyArray<{
+          accountId: string;
+          pair: string | null;
+          market: string | null;
+          asset: string | null;
+          sentAt: Date | null;
+          createdAt: Date;
+        }>
     : [];
 
   const entryOrderByAccountPair = new Map<string, number>();
   for (const o of filledOrders) {
-    const key = `${o.accountId}|${o.pair}`;
-    if (!entryOrderByAccountPair.has(key)) {
-      const t = o.sentAt ? new Date(o.sentAt).getTime() : new Date(o.createdAt).getTime();
-      entryOrderByAccountPair.set(key, t);
+    const t = o.sentAt ? new Date(o.sentAt).getTime() : new Date(o.createdAt).getTime();
+    if (o.pair) {
+      const k = `${o.accountId}|${o.pair}`;
+      if (!entryOrderByAccountPair.has(k)) entryOrderByAccountPair.set(k, t);
+    }
+    const asset = o.asset ?? extractBaseAsset(o.market) ?? extractBaseAsset(o.pair);
+    if (asset) {
+      const k = `${o.accountId}|${asset}`;
+      if (!entryOrderByAccountPair.has(k)) entryOrderByAccountPair.set(k, t);
     }
   }
 
@@ -175,9 +200,11 @@ export async function buildFuturesPositions(
       const markObservedAtMs = live ? nowMs : (r.markObservedAt === null ? null : r.markObservedAt.getTime());
       const grp = groupsByAccount.get(r.accountId);
       const groupName = grp?.custom ?? grp?.default ?? null;
-      const orderEntryTime = entryOrderByAccountPair.get(`${r.accountId}|${r.pair}`);
-      const entryTimeMs = orderEntryTime
-        ?? (r.openedAt ? r.openedAt.getTime() : null)
+      const asset = extractBaseAsset(r.pair);
+      const orderEntryTime = (asset ? entryOrderByAccountPair.get(`${r.accountId}|${asset}`) : null)
+        ?? entryOrderByAccountPair.get(`${r.accountId}|${r.pair}`);
+      const entryTimeMs = (r.openedAt ? r.openedAt.getTime() : null)
+        ?? orderEntryTime
         ?? (r.exchangeUpdatedAt ? r.exchangeUpdatedAt.getTime() : null);
 
       return {
