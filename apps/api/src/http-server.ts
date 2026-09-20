@@ -24,6 +24,7 @@
 // dry run that the operator mistakes for a send.
 
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +44,7 @@ import {
   createInquiry, listInquiries, updateInquiryStatus,
   getPlatformBranding, updatePlatformBranding, createSession,
   readPlatformFlags, readPlatformKillSwitchDetails, setPlatformKillSwitch,
+  recordDirectOrder,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
 import { sql } from 'kysely';
@@ -51,7 +53,7 @@ import { SESSION_TTL_MS } from './login-service.js';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
-import { analyticsReport, blotterPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
+import { analyticsReport, blotterPage, blotterGroupPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
 import { SettingsService, SettingsServiceError } from './settings-service.js';
 import { buildFuturesPositions, venuePositionOwner } from './futures/positions.js';
 import { getFuturesRtPrices } from './futures/rt-prices.js';
@@ -1274,6 +1276,20 @@ export function createHttpServer(deps: HttpDeps): Server {
       const pct = body.percentBp;
       const adjustOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futAdjustMatch[1] as string);
       if (adjustOwner === null) throw new HttpError(404, 'no such futures position');
+
+      // Snapshot position before adjust for blotter audit trail
+      const posSnapshot = await forTenant(deps.db, principal.tenantId)
+        .selectFrom('futures_position')
+        .select(['account_id as accountId', 'pair', 'margin_currency as marginCurrency',
+          'active_pos as activePos', 'avg_entry_price as avgEntryPrice', 'mark_price as markPrice',
+          'leverage', 'venue_position_id as venuePositionId'] as unknown as never)
+        .where('venue_position_id' as never, '=', futAdjustMatch[1] as never)
+        .executeTakeFirst() as {
+          accountId: string; pair: string; marginCurrency: string;
+          activePos: string; avgEntryPrice: string | null; markPrice: string | null;
+          leverage: string | null; venuePositionId: string;
+        } | undefined;
+
       const adjusted = await deps.futuresAdjust.adjustPosition({
         actor: { tenantId: principal.tenantId, accountId: adjustOwner.accountId },
         venuePositionId: futAdjustMatch[1] as string,
@@ -1284,6 +1300,37 @@ export function createHttpServer(deps: HttpDeps): Server {
       // minimum notional, smaller than one step), not a server fault — so it is a
       // 400 carrying the reason, never a silent success.
       if (!adjusted.ok) throw new HttpError(400, adjusted.detail);
+
+      if (posSnapshot !== undefined && adjusted.ok && adjusted.quantity) {
+        const isLong = !posSnapshot.activePos.startsWith('-');
+        const side = body.direction === 'reduce'
+          ? (isLong ? 'sell' : 'buy')
+          : (isLong ? 'buy' : 'sell');
+        const reqTradeId = (body as { groupTradeId?: unknown }).groupTradeId;
+        const groupTradeId = typeof reqTradeId === 'string' && reqTradeId.trim() !== ''
+          ? reqTradeId.trim()
+          : randomUUID();
+
+        await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
+          groupTradeId,
+          accountId: posSnapshot.accountId,
+          createdBy: principal.userId,
+          pair: posSnapshot.pair,
+          side,
+          orderType: 'market',
+          quantity: adjusted.quantity,
+          price: posSnapshot.markPrice ?? posSnapshot.avgEntryPrice,
+          isFutures: true,
+          marginCurrency: posSnapshot.marginCurrency as 'INR' | 'USDT',
+          leverage: posSnapshot.leverage ?? '1',
+          sizingMode: 'pct_position',
+          sizingValue: String(pct / 100),
+          venueOrderId: adjusted.venueOrderId ?? null,
+          venuePositionId: posSnapshot.venuePositionId,
+          state: 'filled',
+        }).catch((err) => console.error('[adjust-blotter] failed to record adjust order:', err));
+      }
+
       sendJson(ctx.res, 200, adjusted);
       return;
     }
@@ -1406,12 +1453,54 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
       const exitOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futExitMatch[1] as string);
       if (exitOwner === null) throw new HttpError(404, 'no such futures position');
+
+      // Snapshot position before exit for blotter audit trail
+      const posSnapshot = await forTenant(deps.db, principal.tenantId)
+        .selectFrom('futures_position')
+        .select(['account_id as accountId', 'pair', 'margin_currency as marginCurrency',
+          'active_pos as activePos', 'avg_entry_price as avgEntryPrice', 'mark_price as markPrice',
+          'leverage', 'venue_position_id as venuePositionId'] as unknown as never)
+        .where('venue_position_id' as never, '=', futExitMatch[1] as never)
+        .executeTakeFirst() as {
+          accountId: string; pair: string; marginCurrency: string;
+          activePos: string; avgEntryPrice: string | null; markPrice: string | null;
+          leverage: string | null; venuePositionId: string;
+        } | undefined;
+
       try {
         const out = await hardExit(deps.futuresExit, {
           actor: { tenantId: principal.tenantId, accountId: exitOwner.accountId },
           venuePositionId: futExitMatch[1] as string,
           marginCurrency: mc,
         });
+
+        if (posSnapshot !== undefined && out.exited) {
+          const isLong = !posSnapshot.activePos.startsWith('-');
+          const side = isLong ? 'sell' : 'buy';
+          const qty = Math.abs(Number(posSnapshot.activePos)).toString();
+          const reqTradeId = (body as { groupTradeId?: unknown }).groupTradeId;
+          const groupTradeId = typeof reqTradeId === 'string' && reqTradeId.trim() !== ''
+            ? reqTradeId.trim()
+            : randomUUID();
+
+          await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
+            groupTradeId,
+            accountId: posSnapshot.accountId,
+            createdBy: principal.userId,
+            pair: posSnapshot.pair,
+            side,
+            orderType: 'market',
+            quantity: qty,
+            price: posSnapshot.markPrice ?? posSnapshot.avgEntryPrice,
+            isFutures: true,
+            marginCurrency: posSnapshot.marginCurrency as 'INR' | 'USDT',
+            leverage: posSnapshot.leverage ?? '1',
+            sizingMode: 'sell_all',
+            venueOrderId: out.venueGroupId ?? null,
+            venuePositionId: posSnapshot.venuePositionId,
+            state: 'filled',
+          }).catch((err) => console.error('[exit-blotter] failed to record exit order:', err));
+        }
 
         // Clean up the position from the database mirror immediately so subsequent reads reflect the exit with 0 delay
         await forTenant(deps.db, principal.tenantId)
@@ -1432,6 +1521,22 @@ export function createHttpServer(deps: HttpDeps): Server {
         if (e instanceof HardExitError) throw new HttpError(409, e.message);
         throw new HttpError(500, e instanceof Error ? e.message : 'position exit failed');
       }
+      return;
+    }
+
+    // ---- GET /api/blotter/groups — cursor-paginated group orders with aggregated metrics ----
+    if (method === 'GET' && path === '/api/blotter/groups') {
+      requireAction(principal, 'view.dashboards');
+      const sp = ctx.url.searchParams;
+      const page = await blotterGroupPage(forTenant(deps.db, principal.tenantId), {
+        accountId: sp.get('accountId'),
+        groupId: sp.get('groupId'),
+        market: sp.get('market'),
+        outcome: sp.get('outcome'),
+        limit: sp.get('limit') === null ? null : Number(sp.get('limit')),
+        cursor: sp.get('cursor'),
+      });
+      sendJson(ctx.res, 200, page);
       return;
     }
 

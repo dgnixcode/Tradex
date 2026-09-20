@@ -154,6 +154,204 @@ export async function listBlotterChildren(tdb: TenantDb, q: BlotterQuery = {}): 
   };
 }
 
+export interface BlotterGroupQuery {
+  readonly limit?: number | undefined;
+  readonly cursor?: BlotterCursor | undefined;
+  readonly accountId?: string | undefined;
+  readonly groupId?: string | undefined;
+  readonly market?: string | undefined;
+  readonly outcome?: BlotterOutcome | undefined;
+}
+
+export interface BlotterGroupItem {
+  readonly groupTradeId: string;
+  readonly groupId: string;
+  readonly groupName: string;
+  readonly asset: string;
+  readonly market: string;
+  readonly side: 'buy' | 'sell';
+  readonly orderType: 'market' | 'limit';
+  readonly isFutures: boolean;
+  readonly sizingMode: string;
+  readonly status: string;
+  readonly createdAtMs: number;
+  readonly totalAccounts: number;
+  readonly filledCount: number;
+  readonly skippedCount: number;
+  readonly failedCount: number;
+  readonly totalQuantity: string;
+  readonly children: readonly BlotterChildRow[];
+}
+
+export interface BlotterGroupPage {
+  readonly groups: readonly BlotterGroupItem[];
+  readonly nextCursor: BlotterCursor | null;
+}
+
+export async function listBlotterGroups(tdb: TenantDb, q: BlotterGroupQuery = {}): Promise<BlotterGroupPage> {
+  const limit = Math.min(Math.max(q.limit ?? 25, 1), 100);
+  const c = q.cursor;
+
+  let builder = tdb.selectFrom('group_trade')
+    .leftJoin('account_group', 'account_group.id', 'group_trade.group_id')
+    .select([
+      'group_trade.id as id',
+      'group_trade.group_id as groupId',
+      'account_group.name as groupName',
+      'group_trade.asset as asset',
+      'group_trade.side as side',
+      'group_trade.order_type as orderType',
+      'group_trade.sizing_mode as sizingMode',
+      'group_trade.is_futures as isFutures',
+      'group_trade.margin_currency as marginCurrency',
+      'group_trade.status as status',
+      'group_trade.created_at as createdAt',
+    ] as unknown as never)
+    .where('group_trade.status' as never, 'not in', ['draft', 'previewed'] as never)
+    .orderBy('group_trade.created_at', 'desc' as never)
+    .orderBy('group_trade.id', 'desc' as never)
+    .limit(limit + 1);
+
+  if (q.groupId !== undefined) {
+    builder = builder.where('group_trade.group_id' as never, '=', q.groupId as never);
+  }
+  if (q.accountId !== undefined) {
+    builder = builder.where(sql`EXISTS (
+      SELECT 1 FROM child_order WHERE child_order.group_trade_id = group_trade.id AND child_order.account_id = ${q.accountId}
+    )` as never);
+  }
+  if (q.market !== undefined) {
+    builder = builder.where(sql`EXISTS (
+      SELECT 1 FROM child_order WHERE child_order.group_trade_id = group_trade.id AND child_order.market = ${q.market}
+    )` as never);
+  }
+  if (q.outcome !== undefined) {
+    const states = OUTCOME_STATES[q.outcome];
+    builder = builder.where(sql`EXISTS (
+      SELECT 1 FROM child_order WHERE child_order.group_trade_id = group_trade.id AND child_order.state IN (${sql.join(states.map((s) => sql`${s}`))})
+    )` as never);
+  }
+  if (c !== undefined) {
+    builder = builder.where(sql`(group_trade.created_at, group_trade.id) < (${new Date(c.createdAtMs)}, ${c.id})` as never);
+  }
+
+  const tradeRows = (await builder.execute()) as unknown as Array<Record<string, unknown>>;
+  const hasMore = tradeRows.length > limit;
+  const trades = hasMore ? tradeRows.slice(0, limit) : tradeRows;
+
+  if (trades.length === 0) {
+    return { groups: [], nextCursor: null };
+  }
+
+  const tradeIds = trades.map((t) => String(t['id']));
+
+  let childBuilder = tdb.selectFrom('child_order')
+    .innerJoin('exchange_account', 'exchange_account.id', 'child_order.account_id')
+    .innerJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
+    .select([
+      'child_order.id as id', 'child_order.created_at as createdAt',
+      'child_order.account_id as accountId', 'exchange_account.name as accountName',
+      'child_order.group_trade_id as groupTradeId',
+      'group_trade.side as side', 'group_trade.order_type as orderType',
+      'child_order.market as market', 'child_order.quote_currency as quoteCurrency',
+      'child_order.state as state', 'child_order.refusal_code as refusalCode',
+      'child_order.refusal_detail as refusalDetail', 'child_order.final_quantity as finalQuantity',
+      'child_order.notional_minor as notionalMinor', 'child_order.price_used as priceUsed',
+      'child_order.slippage_bp as slippageBp', 'child_order.spread_bp as spreadBp',
+      'child_order.client_order_id as clientOrderId', 'child_order.exchange_order_id as exchangeOrderId',
+      'child_order.sent_at as sentAt', 'child_order.terminal_at as terminalAt',
+    ] as unknown as never)
+    .where('child_order.group_trade_id' as never, 'in', tradeIds as never)
+    .orderBy('child_order.created_at', 'asc' as never)
+    .orderBy('child_order.id', 'asc' as never);
+
+  if (q.accountId !== undefined) childBuilder = childBuilder.where('child_order.account_id' as never, '=', q.accountId as never);
+  if (q.market !== undefined) childBuilder = childBuilder.where('child_order.market' as never, '=', q.market as never);
+  if (q.outcome !== undefined) {
+    childBuilder = childBuilder.where('child_order.state' as never, 'in', OUTCOME_STATES[q.outcome] as never);
+  }
+
+  const childRowsRaw = (await childBuilder.execute()) as unknown as Array<Record<string, unknown>>;
+  const childrenByTrade = new Map<string, BlotterChildRow[]>();
+  for (const tid of tradeIds) childrenByTrade.set(tid, []);
+
+  for (const r of childRowsRaw) {
+    const tid = String(r['groupTradeId']);
+    const list = childrenByTrade.get(tid);
+    if (list !== undefined) {
+      list.push({
+        id: String(r['id']),
+        createdAtMs: asMs(r['createdAt']) ?? 0,
+        accountId: String(r['accountId']),
+        accountName: r['accountName'] as string,
+        groupTradeId: tid,
+        side: r['side'] as 'buy' | 'sell',
+        orderType: r['orderType'] as 'market' | 'limit',
+        market: r['market'] as string,
+        quoteCurrency: r['quoteCurrency'] as 'INR' | 'USDT' | null,
+        state: r['state'] as string,
+        refusalCode: r['refusalCode'] === null ? null : String(r['refusalCode']),
+        refusalDetail: r['refusalDetail'] === null ? null : String(r['refusalDetail']),
+        finalQuantity: r['finalQuantity'] === null ? null : String(r['finalQuantity']),
+        notionalMinor: r['notionalMinor'] === null ? null : String(r['notionalMinor']),
+        priceUsed: r['priceUsed'] === null ? null : String(r['priceUsed']),
+        slippageBp: r['slippageBp'] === null ? null : String(r['slippageBp']),
+        spreadBp: r['spreadBp'] === null ? null : String(r['spreadBp']),
+        clientOrderId: r['clientOrderId'] === null ? null : String(r['clientOrderId']),
+        exchangeOrderId: r['exchangeOrderId'] === null ? null : String(r['exchangeOrderId']),
+        sentAtMs: asMs(r['sentAt']),
+        terminalAtMs: asMs(r['terminalAt']),
+      });
+    }
+  }
+
+  const groups: BlotterGroupItem[] = trades.map((t) => {
+    const tid = String(t['id']);
+    const kids = childrenByTrade.get(tid) ?? [];
+    let totQty = 0;
+    let hasValidQty = false;
+    for (const k of kids) {
+      if (k.finalQuantity !== null && k.finalQuantity !== '') {
+        const n = Number(k.finalQuantity);
+        if (Number.isFinite(n)) {
+          totQty += n;
+          hasValidQty = true;
+        }
+      }
+    }
+    const formattedQty = hasValidQty ? (totQty.toFixed(6).replace(/\.?0+$/, '')) : '—';
+    const repMarket = kids[0]?.market ?? (String(t['asset']) + (t['marginCurrency'] ? String(t['marginCurrency']) : 'INR'));
+
+    return {
+      groupTradeId: tid,
+      groupId: String(t['groupId']),
+      groupName: (t['groupName'] as string | null) ?? 'Default (All Accounts)',
+      asset: String(t['asset']),
+      market: repMarket,
+      side: t['side'] as 'buy' | 'sell',
+      orderType: t['orderType'] as 'market' | 'limit',
+      isFutures: Boolean(t['isFutures']),
+      sizingMode: String(t['sizingMode'] ?? ''),
+      status: String(t['status']),
+      createdAtMs: asMs(t['createdAt']) ?? 0,
+      totalAccounts: kids.length,
+      filledCount: kids.filter((k) => k.state === 'filled').length,
+      skippedCount: kids.filter((k) => k.state === 'skipped').length,
+      failedCount: kids.filter((k) => k.state === 'rejected' || k.state === 'not_placed' || k.state === 'needs_human' || k.state === 'cancelled').length,
+      totalQuantity: formattedQty,
+      children: kids,
+    };
+  });
+
+  const lastTrade = trades[trades.length - 1];
+  const nextCursor = (hasMore && lastTrade !== undefined)
+    ? { createdAtMs: asMs(lastTrade['createdAt']) ?? 0, id: String(lastTrade['id']) }
+    : null;
+
+  return { groups, nextCursor };
+}
+
+
 // ------------------------------------------------------------------ ledger
 
 export interface LedgerScopeWindow {

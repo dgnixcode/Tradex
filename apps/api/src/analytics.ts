@@ -10,11 +10,11 @@
 // the same fill rows into text.
 
 import type { TenantDb } from '@tradex/db';
-import type { BlotterChildRow, BlotterOutcome } from '@tradex/db';
+import type { BlotterChildRow, BlotterGroupItem, BlotterOutcome } from '@tradex/db';
 import {
   getEnabledMembers, listHeldPositions,
   accountScopeRows, childWindowRows, completedTradeRows, ledgerRowsForAccount,
-  listBlotterChildren, scopeBalanceRows,
+  listBlotterChildren, listBlotterGroups, scopeBalanceRows,
 } from '@tradex/db';
 import { foldLedger } from '@tradex/ledger';
 import type { Holding, LedgerRow } from '@tradex/ledger';
@@ -33,7 +33,7 @@ export interface AnalyticsWindow {
   readonly label: string;
 }
 
-export type { BlotterChildRow, BlotterOutcome };
+export type { BlotterChildRow, BlotterGroupItem, BlotterOutcome };
 
 // ------------------------------------------------------------------ windows
 
@@ -130,6 +130,34 @@ export async function blotterPage(tdb: TenantDb, req: BlotterRequest): Promise<{
     nextCursor: page.nextCursor === null ? null : encodeCursor(page.nextCursor.createdAtMs, page.nextCursor.id),
   };
 }
+
+export interface BlotterGroupRequest {
+  readonly accountId?: string | null;
+  readonly groupId?: string | null;
+  readonly market?: string | null;
+  readonly outcome?: string | null;
+  readonly limit?: number | null;
+  readonly cursor?: string | null;
+}
+
+export async function blotterGroupPage(tdb: TenantDb, req: BlotterGroupRequest): Promise<{
+  readonly groups: readonly BlotterGroupItem[];
+  readonly nextCursor: string | null;
+}> {
+  const page = await listBlotterGroups(tdb, {
+    accountId: req.accountId ?? undefined,
+    groupId: req.groupId ?? undefined,
+    market: req.market ?? undefined,
+    outcome: (req.outcome ?? undefined) as BlotterOutcome | undefined,
+    limit: req.limit ?? undefined,
+    cursor: decodeCursor(req.cursor ?? null) ?? undefined,
+  });
+  return {
+    groups: page.groups,
+    nextCursor: page.nextCursor === null ? null : encodeCursor(page.nextCursor.createdAtMs, page.nextCursor.id),
+  };
+}
+
 
 // ------------------------------------------------------------------ realised
 

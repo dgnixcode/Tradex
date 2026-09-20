@@ -576,3 +576,117 @@ export async function beginExecution(
       .execute();
   });
 }
+
+export interface RecordDirectOrderInput {
+  readonly groupTradeId: string;
+  readonly accountId: string;
+  readonly createdBy: string;
+  readonly pair: string;
+  readonly side: 'buy' | 'sell';
+  readonly orderType?: 'market' | 'limit';
+  readonly quantity: string;
+  readonly price?: string | null;
+  readonly isFutures?: boolean;
+  readonly marginCurrency?: 'INR' | 'USDT' | null;
+  readonly leverage?: string | null;
+  readonly sizingMode?: 'sell_all' | 'pct_position' | 'base_quantity';
+  readonly sizingValue?: string | null;
+  readonly venueOrderId?: string | null;
+  readonly venuePositionId?: string | null;
+  readonly state?: ChildOrderState;
+  readonly refusalCode?: string | null;
+  readonly refusalDetail?: string | null;
+  readonly atMs?: number;
+}
+
+/**
+ * Record a direct exchange order (e.g. futures hard exit, quick exit, or partial adjustment)
+ * into group_trade and child_order so it is durably captured and visible in the Blotter.
+ */
+export async function recordDirectOrder(
+  tdb: TenantDb,
+  input: RecordDirectOrderInput,
+): Promise<{ groupTradeId: string; childOrderId: string }> {
+  const at = new Date(input.atMs ?? Date.now());
+  const asset = (input.pair.includes('-')
+    ? input.pair.split('-')[1]?.split('_')[0] ?? input.pair
+    : input.pair.replace(/_?(INR|USDT)$/, '')).toUpperCase().slice(0, 32);
+
+  return tdb.transaction(async (tx) => {
+    const { DEFAULT_GROUP_NAME, ensureDefaultGroup } = await import('./group-repo.js');
+
+    // 1. Resolve group_id for this account
+    const memberRow = await tx.selectFrom('group_member')
+      .innerJoin('account_group', 'account_group.id', 'group_member.group_id')
+      .select(['group_member.group_id as groupId'])
+      .where('group_member.account_id' as never, '=', input.accountId as never)
+      .where('account_group.archived_at' as never, 'is', null as never)
+      .where('account_group.name' as never, '<>', DEFAULT_GROUP_NAME as never)
+      .executeTakeFirst();
+
+    let groupId: string;
+    if (memberRow !== undefined && typeof (memberRow as { groupId?: string }).groupId === 'string') {
+      groupId = (memberRow as { groupId: string }).groupId;
+    } else {
+      groupId = await ensureDefaultGroup(tx);
+    }
+
+    // 2. Ensure group_trade exists
+    const isFutures = input.isFutures ?? false;
+    const sizingMode = input.sizingMode ?? (isFutures ? 'sell_all' : 'base_quantity');
+    const sizingValue = sizingMode === 'sell_all' ? null : (input.sizingValue ?? input.quantity);
+
+    await tx.insertInto('group_trade', {
+      id: input.groupTradeId,
+      group_id: groupId,
+      created_by: input.createdBy,
+      asset,
+      side: input.side,
+      order_type: input.orderType ?? 'market',
+      sizing_mode: sizingMode,
+      sizing_value: sizingValue,
+      status: 'completed',
+      is_futures: isFutures,
+      leverage: isFutures ? (input.leverage ?? '1') : null,
+      margin_currency: isFutures ? (input.marginCurrency ?? 'INR') : null,
+      quote_currency: isFutures ? (input.marginCurrency ?? 'INR') : null,
+      position_margin_type: isFutures ? 'isolated' : null,
+      reduce_only: isFutures,
+      dry_run: false,
+      send_suppressed: false,
+      submitted_at: at,
+      completed_at: at,
+      created_at: at,
+    } as never)
+      .onConflict((oc) => oc.column('id').doNothing() as never)
+      .execute();
+
+    // 3. Insert child_order
+    const childRow = await tx.insertInto('child_order', {
+      group_trade_id: input.groupTradeId,
+      account_id: input.accountId,
+      leg_seq: 0,
+      market: input.pair,
+      pair: input.pair,
+      quote_currency: input.marginCurrency ?? null,
+      state: input.state ?? 'filled',
+      final_quantity: input.quantity,
+      filled_quantity: input.quantity,
+      price_used: input.price ?? null,
+      exchange_order_id: input.venueOrderId ?? null,
+      venue_position_id: input.venuePositionId ?? null,
+      refusal_code: input.refusalCode ?? null,
+      refusal_detail: input.refusalDetail ?? null,
+      sent_at: at,
+      terminal_at: at,
+      created_at: at,
+    } as never)
+      .onConflict((oc) => oc.columns(['group_trade_id', 'account_id', 'leg_seq']).doNothing() as never)
+      .returning('id')
+      .executeTakeFirst();
+
+    const childOrderId = childRow ? (childRow as { id: string }).id : '';
+    return { groupTradeId: input.groupTradeId, childOrderId };
+  });
+}
+

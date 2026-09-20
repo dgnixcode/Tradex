@@ -580,6 +580,45 @@ export interface BlotterPage {
 export const fetchBlotter = (q: BlotterQuery = {}): Promise<BlotterPage> =>
   request<BlotterPage>(`/blotter${qs(q)}`);
 
+export interface BlotterGroupItem {
+  readonly groupTradeId: string;
+  readonly groupId: string;
+  readonly groupName: string;
+  readonly asset: string;
+  readonly market: string;
+  readonly side: 'buy' | 'sell';
+  readonly orderType: 'market' | 'limit';
+  readonly isFutures: boolean;
+  readonly sizingMode: string;
+  readonly status: string;
+  readonly createdAtMs: number;
+  readonly totalAccounts: number;
+  readonly filledCount: number;
+  readonly skippedCount: number;
+  readonly failedCount: number;
+  readonly totalQuantity: string;
+  readonly children: readonly BlotterChildRow[];
+}
+
+export interface BlotterGroupPage {
+  readonly groups: readonly BlotterGroupItem[];
+  readonly nextCursor: string | null;
+}
+
+export interface BlotterGroupQuery {
+  readonly accountId?: string | undefined;
+  readonly groupId?: string | undefined;
+  readonly market?: string | undefined;
+  readonly outcome?: string | undefined;
+  readonly limit?: number | undefined;
+  readonly cursor?: string | undefined;
+}
+
+/** One page of grouped orders (cursor-paginated, newest first). */
+export const fetchBlotterGroups = (q: BlotterGroupQuery = {}): Promise<BlotterGroupPage> =>
+  request<BlotterGroupPage>(`/blotter/groups${qs(q)}`);
+
+
 export interface AnalyticsQuery {
   readonly groupId?: string | undefined;
   readonly accountId?: string | undefined;
@@ -809,11 +848,11 @@ export interface FuturesPositionsResponse {
  * refuses below the venue's minimums rather than nudging the size up.
  */
 export const adjustFuturesPosition = (
-  venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number,
+  venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number, groupTradeId?: string,
 ): Promise<{ quantity: string; venueOrderId: string | null; full: boolean }> =>
   request<{ quantity: string; venueOrderId: string | null; full: boolean }>(
     `/futures/positions/${venuePositionId}/adjust`,
-    { method: 'POST', body: JSON.stringify({ direction, percentBp }) },
+    { method: 'POST', body: JSON.stringify({ direction, percentBp, ...(groupTradeId ? { groupTradeId } : {}) }) },
   );
 
 /**
@@ -868,7 +907,7 @@ export const fetchMarketPrice = (asset: string, marginCurrency: 'INR' | 'USDT'):
  * A 409 means the safe sequence could not complete (e.g. a conditional could
  * not be cancelled) — the position is untouched.
  */
-export const exitFuturesPosition = (venuePositionId: string, marginCurrency: 'INR' | 'USDT'): Promise<{
+export const exitFuturesPosition = (venuePositionId: string, marginCurrency: 'INR' | 'USDT', groupTradeId?: string): Promise<{
   readonly cancelled: readonly string[];
   readonly cancelFailures: readonly { readonly venueOrderId: string; readonly reason: string }[];
   readonly exited: boolean;
@@ -877,7 +916,7 @@ export const exitFuturesPosition = (venuePositionId: string, marginCurrency: 'IN
 }> =>
   request(`/futures/positions/${encodeURIComponent(venuePositionId)}/exit`, {
     method: 'POST',
-    body: JSON.stringify({ marginCurrency }),
+    body: JSON.stringify({ marginCurrency, ...(groupTradeId ? { groupTradeId } : {}) }),
   });
 
 /**

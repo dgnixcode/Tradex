@@ -2082,9 +2082,10 @@ function GroupPositionManageModal({
 
     const bp = Math.round(reducePct * 100);
     let completed = 0;
+    const batchGroupTradeId = crypto.randomUUID();
     await mapConcurrent(group.positions, 12, async (pos) => {
       try {
-        await adjustFuturesPosition(pos.venuePositionId, 'reduce', bp);
+        await adjustFuturesPosition(pos.venuePositionId, 'reduce', bp, batchGroupTradeId);
         succeeded++;
       } catch (err) {
         failed++;
@@ -2123,9 +2124,10 @@ function GroupPositionManageModal({
     const errors: string[] = [];
 
     let completed = 0;
+    const batchGroupTradeId = crypto.randomUUID();
     await mapConcurrent(group.positions, 12, async (pos) => {
       try {
-        await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
+        await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency, batchGroupTradeId);
         succeeded++;
       } catch (err) {
         const msg = (err as Error).message || '';
@@ -2972,9 +2974,10 @@ export function QuickExitModal({
       const errors: string[] = [];
 
       let completed = 0;
+      const batchGroupTradeId = crypto.randomUUID();
       await mapConcurrent(group.positions, 12, async (pos) => {
         try {
-          await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency);
+          await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency, batchGroupTradeId);
           succeeded++;
         } catch (err) {
           const msg = (err as Error).message || '';
