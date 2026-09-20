@@ -111,7 +111,7 @@ async function main() {
             s.qty,
             s.qty,
             'filled',
-            'exit',
+            'entry',
             s.venueOrderId,
             notionalMinor,
             s.at,
