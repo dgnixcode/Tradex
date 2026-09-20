@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchBlotterGroups, fetchGroup, fetchTradingAnalytics } from '../api.ts';
 import type { TradingAnalyticsReport } from '../api.ts';
-import { fmtCurrency, fmtSignedCurrency, getPnlSentiment, renderMultiCurrency } from './Analytics.tsx';
+import { fmtCurrency, fmtSignedCurrency, getPnlSentiment, renderMultiCurrency, renderKpiValue, downloadCsv } from './Analytics.tsx';
 import { fmtPrice } from './Futures.tsx';
 import { GroupOrderItem } from './Blotter.tsx';
 
@@ -13,6 +13,8 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
   const isEmbedded = Boolean(propGroupId);
 
   const [timeframe, setTimeframe] = useState<'all' | '30d' | '7d' | 'today' | 'custom'>('all');
+  const [currencyFilter, setCurrencyFilter] = useState<'all' | 'INR' | 'USDT'>('all');
+  const [tableSearch, setTableSearch] = useState('');
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     return d.toISOString().slice(0, 10);
@@ -77,6 +79,89 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
   const isUnrealProf = unrealSentiment === 'prof';
   const isUnrealLoss = unrealSentiment === 'loss';
 
+  // Filtered lists for table search
+  const filteredClosedTrades = useMemo(() => {
+    const list = data?.closedTrades ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((t) =>
+      t.pair.toLowerCase().includes(q) ||
+      t.accountName.toLowerCase().includes(q) ||
+      t.side.toLowerCase().includes(q)
+    );
+  }, [data?.closedTrades, tableSearch]);
+
+  const filteredSymbols = useMemo(() => {
+    const list = data?.symbols ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((s) =>
+      s.symbol.toLowerCase().includes(q) ||
+      s.pair.toLowerCase().includes(q) ||
+      s.marginCurrency.toLowerCase().includes(q) ||
+      s.side.toLowerCase().includes(q)
+    );
+  }, [data?.symbols, tableSearch]);
+
+  const filteredMembers = useMemo(() => {
+    const list = data?.accounts ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((a) =>
+      a.accountName.toLowerCase().includes(q)
+    );
+  }, [data?.accounts, tableSearch]);
+
+  const handleExportCsv = () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const gName = (group?.name ?? 'group').replace(/\s+/g, '_').toLowerCase();
+    if (activeTab === 'closed') {
+      const headers = ['Closed Time', 'Account', 'Pair', 'Side', 'Quantity', 'Entry Price', 'Exit Price', 'Realized PnL', 'Currency', 'ROE %', 'Outcome'];
+      const rows = filteredClosedTrades.map((t) => [
+        new Date(t.closedAtMs).toLocaleString('en-IN'),
+        t.accountName,
+        t.pair,
+        t.side.toUpperCase(),
+        t.quantity,
+        t.avgEntryPrice,
+        t.avgExitPrice,
+        (Number(t.realizedPnlMinor) / (t.marginCurrency === 'USDT' ? 100_000_000 : 100)).toFixed(2),
+        t.marginCurrency,
+        t.roePct !== null ? `${t.roePct.toFixed(2)}%` : '—',
+        Number(t.realizedPnlMinor) > 0 ? 'WIN' : Number(t.realizedPnlMinor) < 0 ? 'LOSS' : 'FLAT',
+      ]);
+      downloadCsv(`${gName}_closed_trades_${dateStr}.csv`, headers, rows);
+    } else if (activeTab === 'exposure') {
+      const headers = ['Asset', 'Pair', 'Margin Mode', 'Side', 'Total Size', 'Positions Count', 'Avg Entry Price', 'Mark Price', 'Locked Margin', 'Unrealised PnL', 'ROE %'];
+      const rows = filteredSymbols.map((s) => [
+        s.symbol,
+        s.pair,
+        s.marginCurrency,
+        s.side.toUpperCase(),
+        s.totalQuantity,
+        s.positionsCount,
+        s.avgEntryPrice,
+        s.markPrice,
+        s.lockedMarginMinor,
+        s.unrealisedPnlMinor,
+        s.roePct !== null ? `${s.roePct.toFixed(2)}%` : '—',
+      ]);
+      downloadCsv(`${gName}_exposure_${dateStr}.csv`, headers, rows);
+    } else if (activeTab === 'members') {
+      const headers = ['Account', 'Status', 'Allocated Capital', 'Open Trades', 'ROE %', 'Orders Count', 'Fill Rate %'];
+      const rows = filteredMembers.map((a) => [
+        a.accountName,
+        a.status,
+        a.allocatedCapitalMinor,
+        a.openPositionsCount,
+        a.roePct !== null ? `${a.roePct.toFixed(2)}%` : '—',
+        a.totalOrders,
+        `${a.fillRatePct.toFixed(1)}%`,
+      ]);
+      downloadCsv(`${gName}_members_${dateStr}.csv`, headers, rows);
+    }
+  };
+
   return (
     <div className={isEmbedded ? 'group-analytics-embedded' : 'panel full-width-page'}>
       {/* ── Top Header Bar ── */}
@@ -125,6 +210,35 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
 
         {/* Filters Toolbar */}
         <div className="telemetry-toolbar">
+          {/* Currency Filter */}
+          <div className="telemetry-pills">
+            <button
+              type="button"
+              className={`telemetry-pill ${currencyFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setCurrencyFilter('all')}
+              title="Show all currencies"
+            >
+              All Currencies
+            </button>
+            <button
+              type="button"
+              className={`telemetry-pill ${currencyFilter === 'INR' ? 'active' : ''}`}
+              onClick={() => setCurrencyFilter('INR')}
+              title="Filter INR margin metrics only"
+            >
+              INR Margin
+            </button>
+            <button
+              type="button"
+              className={`telemetry-pill ${currencyFilter === 'USDT' ? 'active' : ''}`}
+              onClick={() => setCurrencyFilter('USDT')}
+              title="Filter USDT margin metrics only"
+            >
+              USDT Margin
+            </button>
+          </div>
+
+          {/* Timeframe Filter */}
           <div className="telemetry-pills">
             {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
               <button
@@ -183,99 +297,73 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
       {data && kpis && (
         <>
           {/* ── KPI Summary Cards ── */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: 14,
-              marginBottom: 24,
-            }}
-          >
+          <div className="telemetry-kpi-grid">
             {/* KPI 1: Net Group PnL */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isNetProf ? '#10b981' : isNetLoss ? '#ef4444' : '#64748b'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Net Group PnL (Total)
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.netPnlMinor, true)}
+            <div className={`telemetry-kpi-card ${isNetProf ? 'profit' : isNetLoss ? 'loss' : 'neutral'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Net Group PnL (Total)</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                    <polyline points="17 6 23 6 23 12" />
+                  </svg>
                 </span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Realized: {renderMultiCurrency(kpis.realizedPnlMinor, true)}
+              <div>{renderKpiValue(kpis.netPnlMinor, true, currencyFilter)}</div>
+              <div className="kpi-subtext">
+                Realized: {renderKpiValue(kpis.realizedPnlMinor, true, currencyFilter, 13)}
               </div>
             </div>
 
             {/* KPI 2: Realized Closed PnL */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isRealProf ? '#10b981' : isRealLoss ? '#ef4444' : '#8b5cf6'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Realized Closed PnL
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.realizedPnlMinor, true)}
+            <div className={`telemetry-kpi-card ${isRealProf ? 'profit' : isRealLoss ? 'loss' : 'realized'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Realized Closed PnL</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
                 </span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Across {kpis.closedTradesCount} closed trade{kpis.closedTradesCount === 1 ? '' : 's'} ({kpis.winningClosedTrades}W / {kpis.losingClosedTrades}L)
+              <div>{renderKpiValue(kpis.realizedPnlMinor, true, currencyFilter)}</div>
+              <div className="kpi-subtext">
+                {kpis.closedTradesCount > 0 ? (
+                  <>
+                    <div className="kpi-mini-bar-track">
+                      <div
+                        className="kpi-mini-bar-win"
+                        style={{ width: `${(kpis.winningClosedTrades / kpis.closedTradesCount) * 100}%` }}
+                      />
+                      <div
+                        className="kpi-mini-bar-loss"
+                        style={{ width: `${(kpis.losingClosedTrades / kpis.closedTradesCount) * 100}%` }}
+                      />
+                    </div>
+                    <span>
+                      {kpis.closedTradesCount} trade{kpis.closedTradesCount === 1 ? '' : 's'} ({kpis.winningClosedTrades}W / {kpis.losingClosedTrades}L)
+                    </span>
+                  </>
+                ) : (
+                  <span>No closed trades in timeframe</span>
+                )}
               </div>
             </div>
 
             {/* KPI 3: Unrealised PnL */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isUnrealProf ? '#10b981' : isUnrealLoss ? '#ef4444' : '#64748b'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Unrealised PnL (Live)
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.unrealisedPnlMinor, true)}
+            <div className={`telemetry-kpi-card ${isUnrealProf ? 'profit' : isUnrealLoss ? 'loss' : 'neutral'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Unrealised PnL (Live)</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
                 </span>
+              </div>
+              <div>{renderKpiValue(kpis.unrealisedPnlMinor, true, currencyFilter)}</div>
+              <div className="kpi-subtext" style={{ flexWrap: 'wrap', gap: 4 }}>
                 {kpis.pnlPercentage && Object.entries(kpis.pnlPercentage).map(([cur, pct]) => {
+                  if (currencyFilter !== 'all' && cur.toUpperCase() !== currencyFilter.toUpperCase()) return null;
                   const isP = pct > 0;
                   const isL = pct < 0;
                   return (
@@ -283,10 +371,10 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                       key={cur}
                       className="pnl-pct-badge"
                       style={{
-                        fontSize: 11.5,
+                        fontSize: 11,
                         fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 6,
+                        padding: '1px 5px',
+                        borderRadius: 4,
                         background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
                         color: isP ? 'var(--ok)' : 'var(--danger)',
                         border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
@@ -296,111 +384,153 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     </span>
                   );
                 })}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
+                <span>Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}</span>
               </div>
             </div>
 
-            {/* KPI 4: Locked Margin Deployed */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #3b82f6',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Locked Margin Deployed
+            {/* KPI 4: Locked Margin */}
+            <div className="telemetry-kpi-card margin">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Locked Margin Deployed</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </span>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {renderMultiCurrency(kpis.lockedMarginMinor, false)}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Active collateral backing positions
+              <div>{renderKpiValue(kpis.lockedMarginMinor, false, currencyFilter)}</div>
+              <div className="kpi-subtext">
+                Active collateral backing group positions
               </div>
             </div>
 
-            {/* KPI 5: Volume */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #f59e0b',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Group Traded Volume
+            {/* KPI 5: Traded Volume */}
+            <div className="telemetry-kpi-card volume">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Group Traded Volume</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10" />
+                    <line x1="12" y1="20" x2="12" y2="4" />
+                    <line x1="6" y1="20" x2="6" y2="14" />
+                  </svg>
+                </span>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {renderMultiCurrency(kpis.totalTradedVolumeMinor, false)}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+              <div>{renderKpiValue(kpis.totalTradedVolumeMinor, false, currencyFilter)}</div>
+              <div className="kpi-subtext">
                 From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
               </div>
             </div>
 
-            {/* KPI 6: Win Rate & Fill Rate */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #10b981',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Win Rate & Fill Rate
+            {/* KPI 6: Performance & Fill Rate */}
+            <div className="telemetry-kpi-card winrate">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Performance & Fill Rate</span>
+                <span className="kpi-card-icon-box">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="6" />
+                    <circle cx="12" cy="12" r="2" />
+                  </svg>
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ok)' }}>
+                <span style={{ fontSize: 21, fontWeight: 800, color: 'var(--ok)' }}>
                   {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  win rate
-                </span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>win rate</span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Fill Rate: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+              <div className="kpi-subtext">
+                <div className="kpi-mini-bar-track">
+                  <div
+                    className="kpi-mini-bar-win"
+                    style={{ width: `${Math.min(100, Math.max(0, kpis.fillRatePct))}%` }}
+                  />
+                </div>
+                <span>
+                  Fill: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+                </span>
               </div>
             </div>
           </div>
 
-          {/* ── Section Navigation Tabs ── */}
-          <div className="account-nav-tabs" style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'exposure' ? 'active' : ''}`}
-              onClick={() => setActiveTab('exposure')}
-            >
-              <span>Group Asset Exposure ({data.symbols.length})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'closed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('closed')}
-            >
-              <span>Closed Trades & Performance ({data.closedTrades?.length ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
-              onClick={() => setActiveTab('orders')}
-            >
-              <span>Group Orders Blotter ({groupOrdersQuery.data?.groups.length ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'members' ? 'active' : ''}`}
-              onClick={() => setActiveTab('members')}
-            >
-              <span>Member Contribution Matrix ({data.accounts.length})</span>
-            </button>
+          {/* ── Section Navigation Tabs & Search ── */}
+          <div className="telemetry-tabs-wrapper">
+            <div className="telemetry-tabs-list">
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'exposure' ? 'active' : ''}`}
+                onClick={() => setActiveTab('exposure')}
+              >
+                <span>Group Asset Exposure</span>
+                <span className="telemetry-tab-count">{data.symbols.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'closed' ? 'active' : ''}`}
+                onClick={() => setActiveTab('closed')}
+              >
+                <span>Closed Trades & Performance</span>
+                <span className="telemetry-tab-count">{data.closedTrades?.length ?? 0}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'orders' ? 'active' : ''}`}
+                onClick={() => setActiveTab('orders')}
+              >
+                <span>Group Orders Blotter</span>
+                <span className="telemetry-tab-count">{groupOrdersQuery.data?.groups.length ?? 0}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'members' ? 'active' : ''}`}
+                onClick={() => setActiveTab('members')}
+              >
+                <span>Member Matrix</span>
+                <span className="telemetry-tab-count">{data.accounts.length}</span>
+              </button>
+            </div>
+
+            <div className="telemetry-tab-tools">
+              <div className="telemetry-search-box">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Filter table..."
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                />
+                {tableSearch.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {activeTab !== 'orders' && (
+                <button
+                  type="button"
+                  className="telemetry-csv-btn"
+                  onClick={handleExportCsv}
+                  title="Export current table to CSV file"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Export CSV
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── TAB 1: GROUP ASSET EXPOSURE (LIVE POSITIONS) ── */}
@@ -422,14 +552,16 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                   </tr>
                 </thead>
                 <tbody>
-                  {data.symbols.length === 0 && (
+                  {filteredSymbols.length === 0 && (
                     <tr>
                       <td colSpan={10} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
-                        No open positions for this group in this timeframe.
+                        {tableSearch.trim() !== ''
+                          ? `No open positions match "${tableSearch}".`
+                          : 'No open positions for this group in this timeframe.'}
                       </td>
                     </tr>
                   )}
-                  {data.symbols.map((s) => {
+                  {filteredSymbols.map((s) => {
                     const pnlNum = Number(s.unrealisedPnlMinor);
                     const isP = pnlNum > 0;
                     const isL = pnlNum < 0;
@@ -447,8 +579,8 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                             className="badge"
                             style={{
                               color: s.side === 'long' ? 'var(--ok)' : s.side === 'short' ? 'var(--danger)' : 'var(--text-dim)',
-                              borderColor: s.side === 'long' ? 'var(--ok)' : s.side === 'short' ? 'var(--danger)' : 'var(--text-dim)',
-                              background: s.side === 'long' ? 'rgba(75,181,99,0.12)' : s.side === 'short' ? 'rgba(240,85,90,0.12)' : 'transparent',
+                              borderColor: s.side === 'long' ? 'rgba(16,185,129,0.4)' : s.side === 'short' ? 'rgba(239,68,68,0.4)' : 'var(--text-dim)',
+                              background: s.side === 'long' ? 'rgba(16,185,129,0.12)' : s.side === 'short' ? 'rgba(239,68,68,0.12)' : 'transparent',
                               fontSize: 10.5,
                               fontWeight: 700,
                               textTransform: 'uppercase',
@@ -509,22 +641,24 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                   </tr>
                 </thead>
                 <tbody>
-                  {(!data.closedTrades || data.closedTrades.length === 0) && (
+                  {filteredClosedTrades.length === 0 && (
                     <tr>
                       <td colSpan={10} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
-                        No closed trades recorded for this group in this timeframe.
+                        {tableSearch.trim() !== ''
+                          ? `No closed trades match "${tableSearch}".`
+                          : 'No closed trades recorded for this group in this timeframe.'}
                       </td>
                     </tr>
                   )}
-                  {(data.closedTrades ?? []).map((t) => {
+                  {filteredClosedTrades.map((t) => {
                     const pnlNum = Number(t.realizedPnlMinor);
                     const isP = pnlNum > 0;
                     const isL = pnlNum < 0;
 
                     return (
                       <tr key={t.id}>
-                        <td className="muted" style={{ fontSize: 11.5 }}>
-                          {new Date(t.closedAtMs).toLocaleString('en-IN')}
+                        <td className="muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                          {new Date(t.closedAtMs).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td style={{ fontWeight: 600 }}>
                           <Link to={`/app/accounts/${t.accountId}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>
@@ -539,8 +673,8 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                             className="badge"
                             style={{
                               color: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
-                              borderColor: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
-                              background: t.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
+                              borderColor: t.side === 'long' ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
+                              background: t.side === 'long' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
                               fontSize: 10.5,
                               fontWeight: 700,
                               textTransform: 'uppercase',
@@ -567,9 +701,14 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                               border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : isL ? 'rgba(239,68,68,0.35)' : 'transparent'}`,
                               fontSize: 10.5,
                               fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 6,
                             }}
                           >
-                            {isP ? 'WIN' : isL ? 'LOSS' : 'FLAT'}
+                            {isP ? '▲ WIN' : isL ? '▼ LOSS' : '• FLAT'}
                           </span>
                         </td>
                       </tr>
@@ -651,14 +790,16 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                   </tr>
                 </thead>
                 <tbody>
-                  {data.accounts.length === 0 && (
+                  {filteredMembers.length === 0 && (
                     <tr>
                       <td colSpan={10} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
-                        No members in this group.
+                        {tableSearch.trim() !== ''
+                          ? `No members match "${tableSearch}".`
+                          : 'No members in this group.'}
                       </td>
                     </tr>
                   )}
-                  {data.accounts.map((acc) => {
+                  {filteredMembers.map((acc) => {
                     const accPnlVal = Number(acc.unrealisedPnlMinor['INR'] ?? '0') + (Number(acc.unrealisedPnlMinor['USDT'] ?? '0') / 1000000);
                     const accIsProf = acc.roePct !== null ? acc.roePct > 0 : accPnlVal > 0;
                     const accIsLoss = acc.roePct !== null ? acc.roePct < 0 : accPnlVal < 0;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { fetchBlotterGroups, fetchGroups, fetchTradingAnalytics } from '../api.ts';
@@ -60,7 +60,7 @@ export function renderMultiCurrency(
   }
 
   return (
-    <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+    <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
       {entries.map(([cur, val]) => {
         const text = signed ? fmtSignedCurrency(val, cur) : fmtCurrency(val, cur);
         const num = Number(val);
@@ -83,8 +83,103 @@ export function renderMultiCurrency(
   );
 }
 
+export function renderKpiValue(
+  minorByCur: Record<string, string> | null | undefined,
+  signed: boolean = false,
+  currencyFilter: 'all' | 'INR' | 'USDT' = 'all',
+  fontSize?: number,
+): React.ReactNode {
+  if (!minorByCur || Object.keys(minorByCur).length === 0) {
+    const cur = currencyFilter === 'USDT' ? 'USDT' : 'INR';
+    const text = signed ? (cur === 'INR' ? '+₹0.00' : '+0.00 USDT') : (cur === 'INR' ? '₹0.00' : '0.00 USDT');
+    return (
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span className="kpi-single-val" style={{ fontSize: fontSize ?? 21, color: 'var(--muted)' }}>
+          {text}
+        </span>
+        <span className={`kpi-currency-pill ${cur.toLowerCase()}`}>{cur}</span>
+      </div>
+    );
+  }
+
+  const allEntries = Object.entries(minorByCur).filter(([_, val]) => val !== '0' && val !== '');
+  const activeEntries = currencyFilter === 'all'
+    ? allEntries
+    : allEntries.filter(([cur]) => cur.toUpperCase() === currencyFilter.toUpperCase());
+
+  if (activeEntries.length === 0) {
+    const cur = currencyFilter === 'USDT' ? 'USDT' : 'INR';
+    const text = signed ? (cur === 'INR' ? '+₹0.00' : '+0.00 USDT') : (cur === 'INR' ? '₹0.00' : '0.00 USDT');
+    return (
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span className="kpi-single-val" style={{ fontSize: fontSize ?? 21, color: 'var(--muted)' }}>
+          {text}
+        </span>
+        <span className={`kpi-currency-pill ${cur.toLowerCase()}`}>{cur}</span>
+      </div>
+    );
+  }
+
+  if (activeEntries.length === 1) {
+    const [cur, val] = activeEntries[0];
+    const text = signed ? fmtSignedCurrency(val, cur) : fmtCurrency(val, cur);
+    const num = Number(val);
+    const isPos = num > 0;
+    const isNeg = num < 0;
+    const color = signed ? (isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--text)') : 'var(--text)';
+    return (
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span className="kpi-single-val" style={{ fontSize: fontSize ?? 21, color }}>
+          {text}
+        </span>
+        <span className={`kpi-currency-pill ${cur.toLowerCase()}`}>{cur}</span>
+      </div>
+    );
+  }
+
+  // Dual Currency active (both INR and USDT)
+  return (
+    <div className="kpi-dual-currency">
+      {activeEntries.map(([cur, val]) => {
+        const text = signed ? fmtSignedCurrency(val, cur) : fmtCurrency(val, cur);
+        const num = Number(val);
+        const isPos = num > 0;
+        const isNeg = num < 0;
+        const color = signed ? (isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--text)') : 'var(--text)';
+        return (
+          <div key={cur} className="kpi-currency-row">
+            <span className={`kpi-currency-pill ${cur.toLowerCase()}`}>{cur}</span>
+            <span className="kpi-row-val" style={{ color, fontSize: fontSize ? Math.max(12, fontSize - 4) : 15 }}>
+              {text}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function downloadCsv(filename: string, headers: string[], rows: (string | number | null | undefined)[][]): void {
+  const escapeCell = (c: unknown) => {
+    if (c === null || c === undefined) return '""';
+    const s = String(c).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+  const csvContent = 'data:text/csv;charset=utf-8,' +
+    [headers.map(escapeCell).join(','), ...rows.map((r) => r.map(escapeCell).join(','))].join('\n');
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 export function Analytics() {
   const [timeframe, setTimeframe] = useState<'today' | '7d' | '30d' | 'all' | 'custom'>('all');
+  const [currencyFilter, setCurrencyFilter] = useState<'all' | 'INR' | 'USDT'>('all');
+  const [tableSearch, setTableSearch] = useState('');
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     return d.toISOString().slice(0, 10);
@@ -93,7 +188,7 @@ export function Analytics() {
     return new Date().toISOString().slice(0, 10);
   });
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'symbols' | 'closed' | 'groups' | 'accounts' | 'orders'>('symbols');
+  const [activeTab, setActiveTab] = useState<'symbols' | 'closed' | 'groups' | 'accounts' | 'orders'>('closed');
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
   const toggleGroupExpand = (groupTradeId: string) => {
@@ -146,6 +241,110 @@ export function Analytics() {
   const isUnrealProf = unrealSentiment === 'prof';
   const isUnrealLoss = unrealSentiment === 'loss';
 
+  // Filtered lists for table search
+  const filteredClosedTrades = useMemo(() => {
+    const list = data?.closedTrades ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((t) =>
+      t.pair.toLowerCase().includes(q) ||
+      t.market.toLowerCase().includes(q) ||
+      t.accountName.toLowerCase().includes(q) ||
+      (t.groupName ?? '').toLowerCase().includes(q) ||
+      t.side.toLowerCase().includes(q)
+    );
+  }, [data?.closedTrades, tableSearch]);
+
+  const filteredSymbols = useMemo(() => {
+    const list = data?.symbols ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((s) =>
+      s.symbol.toLowerCase().includes(q) ||
+      s.pair.toLowerCase().includes(q) ||
+      s.marginCurrency.toLowerCase().includes(q) ||
+      s.side.toLowerCase().includes(q)
+    );
+  }, [data?.symbols, tableSearch]);
+
+  const filteredGroups = useMemo(() => {
+    const list = data?.groups ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((g) => g.groupName.toLowerCase().includes(q));
+  }, [data?.groups, tableSearch]);
+
+  const filteredAccounts = useMemo(() => {
+    const list = data?.accounts ?? [];
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((a) =>
+      a.accountName.toLowerCase().includes(q) ||
+      (a.groupName ?? '').toLowerCase().includes(q)
+    );
+  }, [data?.accounts, tableSearch]);
+
+  const handleExportCsv = () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    if (activeTab === 'closed') {
+      const headers = ['Closed Time', 'Account', 'Group', 'Pair', 'Side', 'Quantity', 'Entry Price', 'Exit Price', 'Realized PnL', 'Currency', 'ROE %', 'Outcome'];
+      const rows = filteredClosedTrades.map((t) => [
+        new Date(t.closedAtMs).toLocaleString('en-IN'),
+        t.accountName,
+        t.groupName ?? '—',
+        t.pair,
+        t.side.toUpperCase(),
+        t.quantity,
+        t.avgEntryPrice,
+        t.avgExitPrice,
+        (Number(t.realizedPnlMinor) / (t.marginCurrency === 'USDT' ? 100_000_000 : 100)).toFixed(2),
+        t.marginCurrency,
+        t.roePct !== null ? `${t.roePct.toFixed(2)}%` : '—',
+        Number(t.realizedPnlMinor) > 0 ? 'WIN' : Number(t.realizedPnlMinor) < 0 ? 'LOSS' : 'FLAT',
+      ]);
+      downloadCsv(`tradex_closed_trades_${dateStr}.csv`, headers, rows);
+    } else if (activeTab === 'symbols') {
+      const headers = ['Asset', 'Pair', 'Margin Mode', 'Side', 'Positions Count', 'Total Size', 'Avg Entry Price', 'Mark Price', 'Locked Margin', 'Unrealised PnL', 'ROE %'];
+      const rows = filteredSymbols.map((s) => [
+        s.symbol,
+        s.pair,
+        s.marginCurrency,
+        s.side.toUpperCase(),
+        s.positionsCount,
+        s.totalQuantity,
+        s.avgEntryPrice,
+        s.markPrice,
+        s.lockedMarginMinor,
+        s.unrealisedPnlMinor,
+        s.roePct !== null ? `${s.roePct.toFixed(2)}%` : '—',
+      ]);
+      downloadCsv(`tradex_active_positions_${dateStr}.csv`, headers, rows);
+    } else if (activeTab === 'groups') {
+      const headers = ['Strategy Group', 'Members', 'Active Trades', 'ROE %', 'Profitable Members', 'Unprofitable Members'];
+      const rows = filteredGroups.map((g) => [
+        g.groupName,
+        g.memberCount,
+        g.activePositionsCount,
+        g.roePct !== null ? `${g.roePct.toFixed(2)}%` : '—',
+        g.profitableMembersCount,
+        g.unprofitableMembersCount,
+      ]);
+      downloadCsv(`tradex_groups_telemetry_${dateStr}.csv`, headers, rows);
+    } else if (activeTab === 'accounts') {
+      const headers = ['Account', 'Strategy Group', 'Status', 'Open Trades', 'Return %', 'Total Orders', 'Fill Rate %'];
+      const rows = filteredAccounts.map((a) => [
+        a.accountName,
+        a.groupName ?? '—',
+        a.status,
+        a.openPositionsCount,
+        a.roePct !== null ? `${a.roePct.toFixed(2)}%` : '—',
+        a.totalOrders,
+        `${a.fillRatePct.toFixed(1)}%`,
+      ]);
+      downloadCsv(`tradex_accounts_leaderboard_${dateStr}.csv`, headers, rows);
+    }
+  };
+
   return (
     <div className="panel full-width-page">
       {/* ── Top Header ── */}
@@ -156,28 +355,44 @@ export function Analytics() {
             <span
               className="badge"
               style={{
-                background: 'rgba(75,181,99,0.12)',
+                background: 'rgba(16,185,129,0.12)',
                 color: 'var(--ok)',
-                border: '1px solid var(--ok)',
+                border: '1px solid rgba(16,185,129,0.3)',
                 fontSize: 11,
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 5,
-                padding: '2px 8px',
+                gap: 6,
+                padding: '3px 9px',
+                borderRadius: 20,
               }}
             >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block', boxShadow: '0 0 8px var(--ok)' }} />
               Live Telemetry (5s)
             </span>
           </div>
           <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-            Comprehensive performance, realized PnL, margin exposure, and order execution analytics.
+            Comprehensive desk performance, realized PnL, margin exposure, and order execution analytics.
           </p>
         </div>
 
-        {/* Filters: Timeframe & Strategy Group */}
+        {/* Filters: Currency, Timeframe & Strategy Group */}
         <div className="telemetry-toolbar">
+          {/* Currency Mode Filter */}
+          <div className="telemetry-pills" title="Filter display currency">
+            {(['all', 'INR', 'USDT'] as const).map((cf) => (
+              <button
+                key={cf}
+                type="button"
+                className={`telemetry-pill ${currencyFilter === cf ? 'active' : ''}`}
+                onClick={() => setCurrencyFilter(cf)}
+              >
+                {cf === 'all' ? 'All Currencies' : cf}
+              </button>
+            ))}
+          </div>
+
+          {/* Timeframe Selector */}
           <div className="telemetry-pills">
             {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
               <button
@@ -247,232 +462,282 @@ export function Analytics() {
 
       {data && kpis && (
         <>
-          {/* ── KPI Summary Cards ── */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: 14,
-              marginBottom: 24,
-            }}
-          >
+          {/* ── Redesigned KPI Summary Grid (Equal Height & Structured Micro-Typography) ── */}
+          <div className="telemetry-kpi-grid">
             {/* KPI 1: Net Desk PnL (Realized + Unrealized) */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isNetProf ? '#10b981' : isNetLoss ? '#ef4444' : '#64748b'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Net Desk PnL (Total)
+            <div className={`telemetry-kpi-card ${isNetProf ? 'profit' : isNetLoss ? 'loss' : 'neutral'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Net Desk PnL</span>
+                <div className="kpi-card-icon-box" style={{ color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : '#94a3b8' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    {isNetProf ? (
+                      <>
+                        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                        <polyline points="17 6 23 6 23 12" />
+                      </>
+                    ) : (
+                      <>
+                        <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
+                        <polyline points="17 18 23 18 23 12" />
+                      </>
+                    )}
+                  </svg>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.netPnlMinor, true)}
+              <div className="kpi-card-body">
+                {renderKpiValue(kpis.netPnlMinor, true, currencyFilter)}
+              </div>
+              <div className="kpi-card-footer">
+                <span className="muted">Realized:</span>
+                <span style={{ fontWeight: 600, color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>
+                  {renderKpiValue(kpis.realizedPnlMinor, true, currencyFilter, 11.5)}
                 </span>
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Realized: {renderMultiCurrency(kpis.realizedPnlMinor, true)}
               </div>
             </div>
 
-            {/* KPI 2: Realized PnL (Closed Trades) */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isRealProf ? '#10b981' : isRealLoss ? '#ef4444' : '#8b5cf6'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Realized Closed PnL
+            {/* KPI 2: Realized Closed PnL */}
+            <div className={`telemetry-kpi-card ${isRealProf ? 'profit' : isRealLoss ? 'loss' : 'realized'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Realized Closed PnL</span>
+                <div className="kpi-card-icon-box" style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : '#a78bfa' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.realizedPnlMinor, true)}
-                </span>
+              <div className="kpi-card-body">
+                {renderKpiValue(kpis.realizedPnlMinor, true, currencyFilter)}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Across {kpis.closedTradesCount} closed trade{kpis.closedTradesCount === 1 ? '' : 's'} ({kpis.winningClosedTrades}W / {kpis.losingClosedTrades}L)
+              <div className="kpi-card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  <span>{kpis.closedTradesCount} closed trade{kpis.closedTradesCount === 1 ? '' : 's'}</span>
+                  <span style={{ fontWeight: 700 }}>
+                    <span style={{ color: 'var(--ok)' }}>{kpis.winningClosedTrades}W</span> / <span style={{ color: 'var(--danger)' }}>{kpis.losingClosedTrades}L</span>
+                  </span>
+                </div>
+                {kpis.closedTradesCount > 0 && (
+                  <div className="kpi-mini-bar-track" title={`${kpis.winningClosedTrades} Wins / ${kpis.losingClosedTrades} Losses`}>
+                    <div
+                      className="kpi-mini-bar-win"
+                      style={{ width: `${(kpis.winningClosedTrades / kpis.closedTradesCount) * 100}%` }}
+                    />
+                    <div
+                      className="kpi-mini-bar-loss"
+                      style={{ width: `${(kpis.losingClosedTrades / kpis.closedTradesCount) * 100}%` }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
             {/* KPI 3: Unrealised PnL (Open Positions) */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: `4px solid ${isUnrealProf ? '#10b981' : isUnrealLoss ? '#ef4444' : '#64748b'}`,
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Unrealised PnL (Live)
+            <div className={`telemetry-kpi-card ${isUnrealProf ? 'profit' : isUnrealLoss ? 'loss' : 'neutral'}`}>
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Unrealised PnL (Live)</span>
+                <div className="kpi-card-icon-box" style={{ color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : '#38bdf8' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : 'var(--text)',
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  {renderMultiCurrency(kpis.unrealisedPnlMinor, true)}
-                </span>
-                {kpis.pnlPercentage && Object.entries(kpis.pnlPercentage).map(([cur, pct]) => {
-                  const isP = pct > 0;
-                  const isL = pct < 0;
-                  return (
-                    <span
-                      key={cur}
-                      className="pnl-pct-badge"
-                      style={{
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 6,
-                        background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                        color: isP ? 'var(--ok)' : 'var(--danger)',
-                        border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                      }}
-                    >
-                      {isP ? '+' : isL ? '−' : ''}{Math.abs(pct).toFixed(2)}% ({cur})
-                    </span>
-                  );
-                })}
+              <div className="kpi-card-body">
+                {renderKpiValue(kpis.unrealisedPnlMinor, true, currencyFilter)}
+                {kpis.pnlPercentage && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                    {Object.entries(kpis.pnlPercentage)
+                      .filter(([cur]) => currencyFilter === 'all' || cur.toUpperCase() === currencyFilter.toUpperCase())
+                      .map(([cur, pct]) => {
+                        const isP = pct > 0;
+                        const isL = pct < 0;
+                        return (
+                          <span
+                            key={cur}
+                            className="pnl-pct-badge"
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: isP ? 'var(--ok)' : 'var(--danger)',
+                              border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                            }}
+                          >
+                            {isP ? '+' : isL ? '−' : ''}{Math.abs(pct).toFixed(2)}% ({cur})
+                          </span>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
+              <div className="kpi-card-footer">
+                <span>{kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}</span>
+                <span className="muted" style={{ fontSize: 11 }}>Live Mark</span>
               </div>
             </div>
 
             {/* KPI 4: Margin Deployed */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #3b82f6',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Locked Margin Deployed
+            <div className="telemetry-kpi-card margin">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Locked Margin</span>
+                <div className="kpi-card-icon-box" style={{ color: '#60a5fa' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {renderMultiCurrency(kpis.lockedMarginMinor, false)}
+              <div className="kpi-card-body">
+                {renderKpiValue(kpis.lockedMarginMinor, false, currencyFilter)}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Active collateral backing positions
+              <div className="kpi-card-footer">
+                <span>Active Collateral</span>
+                <span className="badge" style={{ fontSize: 10, padding: '1px 5px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                  Hedged
+                </span>
               </div>
             </div>
 
             {/* KPI 5: Volume */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #f59e0b',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Executed Trading Volume
+            <div className="telemetry-kpi-card volume">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Traded Volume</span>
+                <div className="kpi-card-icon-box" style={{ color: '#fbbf24' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10" />
+                    <line x1="12" y1="20" x2="12" y2="4" />
+                    <line x1="6" y1="20" x2="6" y2="14" />
+                  </svg>
+                </div>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {renderMultiCurrency(kpis.totalTradedVolumeMinor, false)}
+              <div className="kpi-card-body">
+                {renderKpiValue(kpis.totalTradedVolumeMinor, false, currencyFilter)}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
+              <div className="kpi-card-footer">
+                <span>From {kpis.filledOrders} filled order{kpis.filledOrders === 1 ? '' : 's'}</span>
+                <span className="muted" style={{ fontSize: 11 }}>Cumulative</span>
               </div>
             </div>
 
             {/* KPI 6: Win Rate & Fill Rate */}
-            <div
-              style={{
-                background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                border: '1px solid #1e2433',
-                borderRadius: 12,
-                padding: '16px 18px',
-                borderLeft: '4px solid #10b981',
-              }}
-            >
-              <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Win Rate & Fill Rate
+            <div className="telemetry-kpi-card winrate">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">Performance</span>
+                <div className="kpi-card-icon-box" style={{ color: '#34d399' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="6" />
+                    <circle cx="12" cy="12" r="2" />
+                  </svg>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ok)' }}>
-                  {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  win rate
-                </span>
+              <div className="kpi-card-body">
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span className="kpi-single-val" style={{ color: kpis.winRatePct && kpis.winRatePct >= 50 ? 'var(--ok)' : kpis.winRatePct !== null ? '#f59e0b' : 'var(--muted)' }}>
+                    {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>win rate</span>
+                </div>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Fill Rate: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+              <div className="kpi-card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  <span className="muted">Fill Rate:</span>
+                  <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}% ({kpis.filledOrders}/{kpis.totalOrders})</strong>
+                </div>
+                {kpis.totalOrders > 0 && (
+                  <div className="kpi-mini-bar-track" title={`Fill Rate: ${kpis.fillRatePct.toFixed(1)}%`}>
+                    <div className="kpi-mini-bar-win" style={{ width: `${Math.min(100, Math.max(0, kpis.fillRatePct))}%` }} />
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* ── Section Navigation Tabs ── */}
-          <div className="account-nav-tabs" style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'symbols' ? 'active' : ''}`}
-              onClick={() => setActiveTab('symbols')}
-            >
-              <span>Active Positions ({data.symbols.length})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'closed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('closed')}
-            >
-              <span>Closed Trades & PnL ({data.closedTrades?.length ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'groups' ? 'active' : ''}`}
-              onClick={() => setActiveTab('groups')}
-            >
-              <span>Strategy Groups ({data.groups.length})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'accounts' ? 'active' : ''}`}
-              onClick={() => setActiveTab('accounts')}
-            >
-              <span>Account Leaderboard ({data.accounts.length})</span>
-            </button>
-            <button
-              type="button"
-              className={`account-nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
-              onClick={() => setActiveTab('orders')}
-            >
-              <span>Group Orders Blotter ({groupOrdersQuery.data?.groups.length ?? 0})</span>
-            </button>
+          {/* ── Section Navigation Tabs & Table Controls ── */}
+          <div className="telemetry-tabs-wrapper">
+            <div className="telemetry-tabs-list">
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'closed' ? 'active' : ''}`}
+                onClick={() => setActiveTab('closed')}
+              >
+                <span>Closed Trades & PnL</span>
+                <span className="telemetry-tab-count">{data.closedTrades?.length ?? 0}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'symbols' ? 'active' : ''}`}
+                onClick={() => setActiveTab('symbols')}
+              >
+                <span>Active Positions</span>
+                <span className="telemetry-tab-count">{data.symbols.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'groups' ? 'active' : ''}`}
+                onClick={() => setActiveTab('groups')}
+              >
+                <span>Strategy Groups</span>
+                <span className="telemetry-tab-count">{data.groups.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'accounts' ? 'active' : ''}`}
+                onClick={() => setActiveTab('accounts')}
+              >
+                <span>Account Leaderboard</span>
+                <span className="telemetry-tab-count">{data.accounts.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`telemetry-tab-item ${activeTab === 'orders' ? 'active' : ''}`}
+                onClick={() => setActiveTab('orders')}
+              >
+                <span>Group Orders Blotter</span>
+                <span className="telemetry-tab-count">{groupOrdersQuery.data?.groups.length ?? 0}</span>
+              </button>
+            </div>
+
+            <div className="telemetry-tab-tools">
+              <div className="telemetry-search-box">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Filter table..."
+                  value={tableSearch}
+                  onChange={(e) => setTableSearch(e.target.value)}
+                />
+                {tableSearch.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setTableSearch('')}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {activeTab !== 'orders' && (
+                <button
+                  type="button"
+                  className="telemetry-csv-btn"
+                  onClick={handleExportCsv}
+                  title="Export current table to CSV file"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Export CSV
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── TAB 1: ASSET / SYMBOL BREAKDOWN (LIVE POSITIONS) ── */}
@@ -494,14 +759,16 @@ export function Analytics() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.symbols.length === 0 && (
+                  {filteredSymbols.length === 0 && (
                     <tr>
                       <td colSpan={10} style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>
-                        No open positions for the selected filter.
+                        {tableSearch.trim() !== ''
+                          ? `No open positions match "${tableSearch}".`
+                          : 'No open positions for the selected filter.'}
                       </td>
                     </tr>
                   )}
-                  {data.symbols.map((s) => {
+                  {filteredSymbols.map((s) => {
                     const pnlVal = Number(s.unrealisedPnlMinor);
                     const isP = pnlVal > 0;
                     const isL = pnlVal < 0;
@@ -521,8 +788,8 @@ export function Analytics() {
                             className="badge"
                             style={{
                               color: s.side === 'long' ? 'var(--ok)' : s.side === 'short' ? 'var(--danger)' : 'var(--text-dim)',
-                              borderColor: s.side === 'long' ? 'var(--ok)' : s.side === 'short' ? 'var(--danger)' : 'var(--text-dim)',
-                              background: s.side === 'long' ? 'rgba(75,181,99,0.12)' : s.side === 'short' ? 'rgba(240,85,90,0.12)' : 'transparent',
+                              borderColor: s.side === 'long' ? 'rgba(16,185,129,0.4)' : s.side === 'short' ? 'rgba(239,68,68,0.4)' : 'var(--text-dim)',
+                              background: s.side === 'long' ? 'rgba(16,185,129,0.12)' : s.side === 'short' ? 'rgba(239,68,68,0.12)' : 'transparent',
                               fontSize: 11,
                               fontWeight: 700,
                               textTransform: 'uppercase',
@@ -570,21 +837,23 @@ export function Analytics() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(!data.closedTrades || data.closedTrades.length === 0) && (
+                  {filteredClosedTrades.length === 0 && (
                     <tr>
                       <td colSpan={11} style={{ textAlign: 'center', padding: '36px', color: 'var(--muted)' }}>
-                        No closed trades recorded in this timeframe.
+                        {tableSearch.trim() !== ''
+                          ? `No closed trades match "${tableSearch}".`
+                          : 'No closed trades recorded in this timeframe.'}
                       </td>
                     </tr>
                   )}
-                  {(data.closedTrades ?? []).map((t) => {
+                  {filteredClosedTrades.map((t) => {
                     const pnlNum = Number(t.realizedPnlMinor);
                     const isP = pnlNum > 0;
                     const isL = pnlNum < 0;
                     return (
                       <tr key={t.id}>
-                        <td className="muted" style={{ fontSize: 11.5 }}>
-                          {new Date(t.closedAtMs).toLocaleString('en-IN')}
+                        <td className="muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                          {new Date(t.closedAtMs).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </td>
                         <td style={{ fontWeight: 600 }}>
                           <Link to={`/app/accounts/${t.accountId}`} style={{ color: 'var(--text)', textDecoration: 'none' }}>
@@ -602,8 +871,8 @@ export function Analytics() {
                             className="badge"
                             style={{
                               color: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
-                              borderColor: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
-                              background: t.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
+                              borderColor: t.side === 'long' ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
+                              background: t.side === 'long' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
                               fontSize: 10.5,
                               fontWeight: 700,
                               textTransform: 'uppercase',
@@ -630,9 +899,14 @@ export function Analytics() {
                               border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : isL ? 'rgba(239,68,68,0.35)' : 'transparent'}`,
                               fontSize: 10.5,
                               fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 6,
                             }}
                           >
-                            {isP ? 'WIN' : isL ? 'LOSS' : 'FLAT'}
+                            {isP ? '▲ WIN' : isL ? '▼ LOSS' : '• FLAT'}
                           </span>
                         </td>
                       </tr>
@@ -662,7 +936,16 @@ export function Analytics() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.groups.map((g) => {
+                  {filteredGroups.length === 0 && (
+                    <tr>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>
+                        {tableSearch.trim() !== ''
+                          ? `No strategy groups match "${tableSearch}".`
+                          : 'No strategy groups found.'}
+                      </td>
+                    </tr>
+                  )}
+                  {filteredGroups.map((g) => {
                     return (
                       <tr key={g.groupId}>
                         <td style={{ fontWeight: 600 }}>
@@ -721,7 +1004,16 @@ export function Analytics() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.accounts.map((a) => {
+                  {filteredAccounts.length === 0 && (
+                    <tr>
+                      <td colSpan={11} style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>
+                        {tableSearch.trim() !== ''
+                          ? `No accounts match "${tableSearch}".`
+                          : 'No accounts found.'}
+                      </td>
+                    </tr>
+                  )}
+                  {filteredAccounts.map((a) => {
                     return (
                       <tr key={a.accountId}>
                         <td style={{ fontWeight: 600 }}>
