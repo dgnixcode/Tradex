@@ -1311,6 +1311,11 @@ export function createHttpServer(deps: HttpDeps): Server {
           ? reqTradeId.trim()
           : randomUUID();
 
+        const rtPrices = await getFuturesRtPrices().catch(() => null);
+        const livePrice = rtPrices?.get(posSnapshot.pair)?.markPrice
+          ?? posSnapshot.markPrice
+          ?? posSnapshot.avgEntryPrice;
+
         await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
           groupTradeId,
           accountId: posSnapshot.accountId,
@@ -1319,7 +1324,7 @@ export function createHttpServer(deps: HttpDeps): Server {
           side,
           orderType: 'market',
           quantity: adjusted.quantity,
-          price: posSnapshot.markPrice ?? posSnapshot.avgEntryPrice,
+          price: livePrice,
           isFutures: true,
           marginCurrency: posSnapshot.marginCurrency as 'INR' | 'USDT',
           leverage: posSnapshot.leverage ?? '1',
@@ -1483,6 +1488,11 @@ export function createHttpServer(deps: HttpDeps): Server {
             ? reqTradeId.trim()
             : randomUUID();
 
+          const rtPrices = await getFuturesRtPrices().catch(() => null);
+          const livePrice = rtPrices?.get(posSnapshot.pair)?.markPrice
+            ?? posSnapshot.markPrice
+            ?? posSnapshot.avgEntryPrice;
+
           await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
             groupTradeId,
             accountId: posSnapshot.accountId,
@@ -1491,7 +1501,7 @@ export function createHttpServer(deps: HttpDeps): Server {
             side,
             orderType: 'market',
             quantity: qty,
-            price: posSnapshot.markPrice ?? posSnapshot.avgEntryPrice,
+            price: livePrice,
             isFutures: true,
             marginCurrency: posSnapshot.marginCurrency as 'INR' | 'USDT',
             leverage: posSnapshot.leverage ?? '1',

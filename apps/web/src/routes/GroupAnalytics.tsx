@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchBlotterGroups, fetchGroup, fetchTradingAnalytics } from '../api.ts';
 import type { TradingAnalyticsReport } from '../api.ts';
-import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
+import { fmtCurrency, fmtSignedCurrency, getPnlSentiment, renderMultiCurrency } from './Analytics.tsx';
 import { fmtPrice } from './Futures.tsx';
 import { GroupOrderItem } from './Blotter.tsx';
 
@@ -67,24 +67,15 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
   const kpis = data?.kpis;
   const group = groupQuery.data;
 
-  // Primary INR metrics
-  const unrealisedPnlInr = kpis?.unrealisedPnlMinor['INR'] ?? '0';
-  const realizedPnlInr = kpis?.realizedPnlMinor['INR'] ?? '0';
-  const netPnlInr = kpis?.netPnlMinor['INR'] ?? '0';
-  const marginInr = kpis?.lockedMarginMinor['INR'] ?? '0';
-  const pnlPctInr = kpis?.pnlPercentage['INR'];
-
-  const netPnlNum = Number(netPnlInr);
-  const isNetProf = netPnlNum > 0;
-  const isNetLoss = netPnlNum < 0;
-
-  const realPnlNum = Number(realizedPnlInr);
-  const isRealProf = realPnlNum > 0;
-  const isRealLoss = realPnlNum < 0;
-
-  const unrealPnlNum = Number(unrealisedPnlInr);
-  const isUnrealProf = unrealPnlNum > 0;
-  const isUnrealLoss = unrealPnlNum < 0;
+  const netSentiment = getPnlSentiment(kpis?.netPnlMinor);
+  const realSentiment = getPnlSentiment(kpis?.realizedPnlMinor);
+  const unrealSentiment = getPnlSentiment(kpis?.unrealisedPnlMinor);
+  const isNetProf = netSentiment === 'prof';
+  const isNetLoss = netSentiment === 'loss';
+  const isRealProf = realSentiment === 'prof';
+  const isRealLoss = realSentiment === 'loss';
+  const isUnrealProf = unrealSentiment === 'prof';
+  const isUnrealLoss = unrealSentiment === 'loss';
 
   return (
     <div className={isEmbedded ? 'group-analytics-embedded' : 'panel full-width-page'}>
@@ -213,7 +204,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Net Group PnL (Total)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -222,11 +213,11 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(netPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.netPnlMinor, true)}
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Realized: <strong style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>{fmtSignedCurrency(realizedPnlInr, 'INR')}</strong>
+                Realized: {renderMultiCurrency(kpis.realizedPnlMinor, true)}
               </div>
             </div>
 
@@ -243,7 +234,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Realized Closed PnL
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -252,7 +243,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(realizedPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.realizedPnlMinor, true)}
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
@@ -273,7 +264,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Unrealised PnL (Live)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -282,24 +273,29 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(unrealisedPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.unrealisedPnlMinor, true)}
                 </span>
-                {pnlPctInr !== undefined && (
-                  <span
-                    className="pnl-pct-badge"
-                    style={{
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      background: isUnrealProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: isUnrealProf ? 'var(--ok)' : 'var(--danger)',
-                      border: `1px solid ${isUnrealProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                    }}
-                  >
-                    {isUnrealProf ? '+' : isUnrealLoss ? '−' : ''}{Math.abs(pnlPctInr).toFixed(2)}%
-                  </span>
-                )}
+                {kpis.pnlPercentage && Object.entries(kpis.pnlPercentage).map(([cur, pct]) => {
+                  const isP = pct > 0;
+                  const isL = pct < 0;
+                  return (
+                    <span
+                      key={cur}
+                      className="pnl-pct-badge"
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 6,
+                        background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                        color: isP ? 'var(--ok)' : 'var(--danger)',
+                        border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                      }}
+                    >
+                      {isP ? '+' : isL ? '−' : ''}{Math.abs(pct).toFixed(2)}% ({cur})
+                    </span>
+                  );
+                })}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
@@ -320,7 +316,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                 Locked Margin Deployed
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {fmtCurrency(marginInr, 'INR')}
+                {renderMultiCurrency(kpis.lockedMarginMinor, false)}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 Active collateral backing positions
@@ -341,7 +337,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                 Group Traded Volume
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {fmtCurrency(kpis.totalTradedVolumeMinor['INR'] ?? '0', 'INR')}
+                {renderMultiCurrency(kpis.totalTradedVolumeMinor, false)}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
@@ -663,15 +659,9 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     </tr>
                   )}
                   {data.accounts.map((acc) => {
-                    const accPnlInr = acc.unrealisedPnlMinor['INR'] ?? '0';
-                    const accRealizedInr = acc.realizedPnlMinor?.['INR'] ?? '0';
-                    const accMarginInr = acc.lockedMarginMinor['INR'] ?? '0';
-                    const accPnlNum = Number(accPnlInr);
-                    const accRealNum = Number(accRealizedInr);
-                    const accIsProf = accPnlNum > 0;
-                    const accIsLoss = accPnlNum < 0;
-                    const accIsRealProf = accRealNum > 0;
-                    const accIsRealLoss = accRealNum < 0;
+                    const accPnlVal = Number(acc.unrealisedPnlMinor['INR'] ?? '0') + (Number(acc.unrealisedPnlMinor['USDT'] ?? '0') / 1000000);
+                    const accIsProf = acc.roePct !== null ? acc.roePct > 0 : accPnlVal > 0;
+                    const accIsLoss = acc.roePct !== null ? acc.roePct < 0 : accPnlVal < 0;
 
                     return (
                       <tr key={acc.accountId}>
@@ -687,12 +677,14 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                             : '—'}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{acc.openPositionsCount}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(accMarginInr, 'INR')}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: accIsRealProf ? 'var(--ok)' : accIsRealLoss ? 'var(--danger)' : 'var(--muted)' }}>
-                          {fmtSignedCurrency(accRealizedInr, 'INR')}
+                        <td className="mono" style={{ textAlign: 'right' }}>
+                          {renderMultiCurrency(acc.lockedMarginMinor, false)}
                         </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: accIsProf ? 'var(--ok)' : accIsLoss ? 'var(--danger)' : 'var(--text)' }}>
-                          {fmtSignedCurrency(accPnlInr, 'INR')}
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(acc.realizedPnlMinor, true)}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(acc.unrealisedPnlMinor, true)}
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           {acc.roePct !== null ? (
@@ -703,8 +695,8 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                                 fontWeight: 700,
                                 padding: '2px 6px',
                                 borderRadius: 4,
-                                background: accIsProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                                color: accIsProf ? 'var(--ok)' : 'var(--danger)',
+                                background: accIsProf ? 'rgba(16,185,129,0.15)' : accIsLoss ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+                                color: accIsProf ? 'var(--ok)' : accIsLoss ? 'var(--danger)' : 'var(--muted)',
                               }}
                             >
                               {accIsProf ? '+' : accIsLoss ? '−' : ''}{Math.abs(acc.roePct).toFixed(2)}%

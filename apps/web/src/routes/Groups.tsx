@@ -399,12 +399,21 @@ export function Groups() {
                     </div>
 
                     <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Link
-                        to={`/app/groups/${g.id}`}
-                        style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                      >
-                        View Members &amp; Analytics →
-                      </Link>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <Link
+                          to={`/app/groups/${g.id}`}
+                          style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          Members →
+                        </Link>
+                        <span className="muted">·</span>
+                        <Link
+                          to={`/app/groups/${g.id}/analytics`}
+                          style={{ fontSize: 12.5, fontWeight: 600, color: '#3b82f6', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          Analytics ↗
+                        </Link>
+                      </div>
                       {!isDefault && (
                         <button
                           type="button"

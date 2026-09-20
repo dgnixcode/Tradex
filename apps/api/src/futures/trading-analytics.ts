@@ -152,6 +152,54 @@ function addMinorValues(a: string, b: string): string {
   }
 }
 
+export function normalizeFuturesPair(pairOrMarket: string | null | undefined): string {
+  if (!pairOrMarket) return '';
+  const s = String(pairOrMarket).trim().toUpperCase();
+  if (s.startsWith('B-') && s.includes('_')) return s;
+  const clean = s.replace(/^B-/, '').trim();
+  if (clean.endsWith('USDT')) {
+    const base = clean.slice(0, -4).replace(/[-_]$/, '');
+    return `B-${base}_USDT`;
+  }
+  if (clean.endsWith('INR')) {
+    const base = clean.slice(0, -3).replace(/[-_]$/, '');
+    return `B-${base}_INR`;
+  }
+  if (clean.includes('-') || clean.includes('_')) {
+    const parts = clean.split(/[-_]/);
+    return `B-${parts[0]}_${parts[1] || 'USDT'}`;
+  }
+  return `B-${clean}_USDT`;
+}
+
+export function findRtPrice(
+  rtPricesMap: Map<string, FuturesRtPrice>,
+  pairOrMarket: string | null | undefined,
+): FuturesRtPrice | undefined {
+  if (!pairOrMarket) return undefined;
+  const raw = String(pairOrMarket).trim();
+  if (rtPricesMap.has(raw)) return rtPricesMap.get(raw);
+
+  const norm = normalizeFuturesPair(raw);
+  if (rtPricesMap.has(norm)) return rtPricesMap.get(norm);
+
+  // Try raw without B- prefix (e.g. TAOUSDT, SOLUSDT)
+  const clean = raw.replace(/^B-/, '').replace(/[-_]/g, '').toUpperCase();
+  for (const [key, val] of rtPricesMap.entries()) {
+    const keyClean = key.replace(/^B-/, '').replace(/[-_]/g, '').toUpperCase();
+    if (keyClean === clean) return val;
+  }
+
+  // Base asset fallback
+  const base = norm.replace(/^B-/, '').split('_')[0];
+  if (base) {
+    for (const [key, val] of rtPricesMap.entries()) {
+      if (key.startsWith(`B-${base}_`)) return val;
+    }
+  }
+  return undefined;
+}
+
 function resolveTimeframeWindow(
   timeframe?: string | null,
   customFromMs?: number | null,
@@ -476,8 +524,11 @@ export async function buildTradingAnalytics(
   for (const r of allChronologicalOrders) {
     const accId = String(r['accountId']);
     const accName = String(r['accountName'] ?? 'Account');
-    const pair = String(r['pair'] ?? r['market'] ?? '');
-    const market = String(r['market'] ?? r['pair'] ?? '');
+    const rawPair = (r['pair'] && String(r['pair']).trim() !== '')
+      ? String(r['pair']).trim()
+      : (r['market'] ? String(r['market']).trim() : '');
+    const pair = normalizeFuturesPair(rawPair) || rawPair;
+    const market = String(r['market'] || r['pair'] || pair);
     const side = (String(r['tradeSide'] ?? 'buy').toLowerCase() === 'sell') ? 'sell' : 'buy';
     const isExit = Boolean(
       r['reduceOnly'] === true ||
@@ -605,7 +656,7 @@ export async function buildTradingAnalytics(
 
   // Handle entries whose positions have closed at the exchange but had no direct exit order
   // (e.g. SOLUSDT exited prior to order blotter logging)
-  const activePositionKeys = new Set(targetPositions.map((p) => `${p.accountId}|${p.pair}`));
+  const activePositionKeys = new Set(targetPositions.map((p) => `${p.accountId}|${normalizeFuturesPair(p.pair) || p.pair}`));
   for (const [key, queue] of openQueueByAccountPair.entries()) {
     if (!activePositionKeys.has(key)) {
       while (queue.length > 0) {
@@ -615,12 +666,12 @@ export async function buildTradingAnalytics(
         const dir = isLong ? 1 : -1;
         const entryPrice = entry.price;
         // Use live mark price or entry price as fallback exit price
-        const liveMark = rtPricesMap.get(entry.pair)?.markPrice;
-        const exitPrice = liveMark ? Number(liveMark) : entryPrice;
+        const livePriceObj = findRtPrice(rtPricesMap, entry.pair) ?? findRtPrice(rtPricesMap, entry.market);
+        const exitPrice = livePriceObj ? Number(livePriceObj.markPrice) : entryPrice;
         const priceDiff = (exitPrice - entryPrice) * dir;
         const pnl = entry.qty * priceDiff;
 
-        const isUsdtContract = entry.pair.includes('USDT') || entry.pair.endsWith('USDT');
+        const isUsdtContract = entry.pair.includes('USDT') || entry.pair.endsWith('USDT') || entry.market.includes('USDT');
         let pnlMinorVal: string;
         if (entry.marginCurrency === 'INR' && isUsdtContract) {
           pnlMinorVal = Math.round(pnl * 100 * 100).toString();
@@ -861,7 +912,7 @@ export async function buildTradingAnalytics(
       accountId: accId,
       accountName: String(r['accountName'] ?? 'Account'),
       groupName: accountGroupMap.get(accId) ?? null,
-      pair: String(r['pair'] ?? r['market'] ?? '—'),
+      pair: (r['pair'] && String(r['pair']).trim() !== '') ? String(r['pair']).trim() : String(r['market'] ?? '—'),
       side,
       isExit,
       state: String(r['state']),

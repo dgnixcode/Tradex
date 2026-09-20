@@ -646,6 +646,8 @@ export async function recordDirectOrder(
       sizing_mode: sizingMode,
       sizing_value: sizingValue,
       status: 'completed',
+      preview_token: `direct-${input.groupTradeId}`,
+      preview_expires_at: new Date(at.getTime() + 86400000),
       is_futures: isFutures,
       leverage: isFutures ? (input.leverage ?? '1') : null,
       margin_currency: isFutures ? (input.marginCurrency ?? 'INR') : null,
@@ -662,6 +664,13 @@ export async function recordDirectOrder(
       .execute();
 
     // 3. Insert child_order
+    const notional = (input.quantity && input.price) ? Number(input.quantity) * Number(input.price) : 0;
+    const notionalMinor = notional > 0
+      ? (input.marginCurrency === 'USDT'
+          ? Math.round(notional * 100_000_000).toString()
+          : Math.round(notional * 100).toString())
+      : null;
+
     const childRow = await tx.insertInto('child_order', {
       group_trade_id: input.groupTradeId,
       account_id: input.accountId,
@@ -673,6 +682,8 @@ export async function recordDirectOrder(
       final_quantity: input.quantity,
       filled_quantity: input.quantity,
       price_used: input.price ?? null,
+      avg_fill_price: input.price ?? null,
+      notional_minor: notionalMinor,
       exchange_order_id: input.venueOrderId ?? null,
       venue_position_id: input.venuePositionId ?? null,
       refusal_code: input.refusalCode ?? null,

@@ -34,6 +34,55 @@ export function fmtSignedCurrency(minorStr: string | null | undefined, cur: stri
   return isNeg ? `−${formatted} ${cur}` : `+${formatted} ${cur}`;
 }
 
+export function getPnlSentiment(minorByCur: Record<string, string> | null | undefined): 'prof' | 'loss' | 'flat' {
+  if (!minorByCur) return 'flat';
+  let totalINR = 0;
+  for (const [cur, val] of Object.entries(minorByCur)) {
+    const divisor = cur.toUpperCase() === 'USDT' ? 100_000_000 : 100;
+    const mult = cur.toUpperCase() === 'USDT' ? 100 : 1;
+    totalINR += (Number(val) / divisor) * mult;
+  }
+  if (totalINR > 0.01) return 'prof';
+  if (totalINR < -0.01) return 'loss';
+  return 'flat';
+}
+
+export function renderMultiCurrency(
+  minorByCur: Record<string, string> | null | undefined,
+  signed: boolean = false,
+): React.ReactNode {
+  if (!minorByCur || Object.keys(minorByCur).length === 0) {
+    return signed ? '+₹0.00' : '₹0.00';
+  }
+  const entries = Object.entries(minorByCur).filter(([_, val]) => val !== '0' && val !== '');
+  if (entries.length === 0) {
+    return signed ? '+₹0.00' : '₹0.00';
+  }
+
+  return (
+    <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      {entries.map(([cur, val]) => {
+        const text = signed ? fmtSignedCurrency(val, cur) : fmtCurrency(val, cur);
+        const num = Number(val);
+        const isPos = num > 0;
+        const isNeg = num < 0;
+        return (
+          <span
+            key={cur}
+            style={{
+              display: 'inline-block',
+              fontWeight: 700,
+              color: signed ? (isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--text)') : 'var(--text)',
+            }}
+          >
+            {text}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Analytics() {
   const [timeframe, setTimeframe] = useState<'today' | '7d' | '30d' | 'all' | 'custom'>('all');
   const [customFrom, setCustomFrom] = useState(() => {
@@ -87,24 +136,15 @@ export function Analytics() {
   const data = analyticsQuery.data;
   const kpis = data?.kpis;
 
-  // Primary currency defaults to INR
-  const unrealisedPnlInr = kpis?.unrealisedPnlMinor['INR'] ?? '0';
-  const realizedPnlInr = kpis?.realizedPnlMinor['INR'] ?? '0';
-  const netPnlInr = kpis?.netPnlMinor['INR'] ?? '0';
-  const marginInr = kpis?.lockedMarginMinor['INR'] ?? '0';
-  const pnlPctInr = kpis?.pnlPercentage['INR'];
-
-  const netPnlNum = Number(netPnlInr);
-  const isNetProf = netPnlNum > 0;
-  const isNetLoss = netPnlNum < 0;
-
-  const realPnlNum = Number(realizedPnlInr);
-  const isRealProf = realPnlNum > 0;
-  const isRealLoss = realPnlNum < 0;
-
-  const unrealPnlNum = Number(unrealisedPnlInr);
-  const isUnrealProf = unrealPnlNum > 0;
-  const isUnrealLoss = unrealPnlNum < 0;
+  const netSentiment = getPnlSentiment(kpis?.netPnlMinor);
+  const realSentiment = getPnlSentiment(kpis?.realizedPnlMinor);
+  const unrealSentiment = getPnlSentiment(kpis?.unrealisedPnlMinor);
+  const isNetProf = netSentiment === 'prof';
+  const isNetLoss = netSentiment === 'loss';
+  const isRealProf = realSentiment === 'prof';
+  const isRealLoss = realSentiment === 'loss';
+  const isUnrealProf = unrealSentiment === 'prof';
+  const isUnrealLoss = unrealSentiment === 'loss';
 
   return (
     <div className="panel full-width-page">
@@ -229,7 +269,7 @@ export function Analytics() {
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Net Desk PnL (Total)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -238,11 +278,11 @@ export function Analytics() {
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(netPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.netPnlMinor, true)}
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Realized: <strong style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>{fmtSignedCurrency(realizedPnlInr, 'INR')}</strong>
+                Realized: {renderMultiCurrency(kpis.realizedPnlMinor, true)}
               </div>
             </div>
 
@@ -259,7 +299,7 @@ export function Analytics() {
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Realized Closed PnL
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -268,7 +308,7 @@ export function Analytics() {
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(realizedPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.realizedPnlMinor, true)}
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
@@ -289,7 +329,7 @@ export function Analytics() {
               <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Unrealised PnL (Live)
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
                   style={{
                     fontSize: 22,
@@ -298,24 +338,29 @@ export function Analytics() {
                     letterSpacing: '-0.5px',
                   }}
                 >
-                  {fmtSignedCurrency(unrealisedPnlInr, 'INR')}
+                  {renderMultiCurrency(kpis.unrealisedPnlMinor, true)}
                 </span>
-                {pnlPctInr !== undefined && (
-                  <span
-                    className="pnl-pct-badge"
-                    style={{
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      background: isUnrealProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: isUnrealProf ? 'var(--ok)' : 'var(--danger)',
-                      border: `1px solid ${isUnrealProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                    }}
-                  >
-                    {isUnrealProf ? '+' : isUnrealLoss ? '−' : ''}{Math.abs(pnlPctInr).toFixed(2)}%
-                  </span>
-                )}
+                {kpis.pnlPercentage && Object.entries(kpis.pnlPercentage).map(([cur, pct]) => {
+                  const isP = pct > 0;
+                  const isL = pct < 0;
+                  return (
+                    <span
+                      key={cur}
+                      className="pnl-pct-badge"
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 6,
+                        background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                        color: isP ? 'var(--ok)' : 'var(--danger)',
+                        border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                      }}
+                    >
+                      {isP ? '+' : isL ? '−' : ''}{Math.abs(pct).toFixed(2)}% ({cur})
+                    </span>
+                  );
+                })}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
@@ -336,7 +381,7 @@ export function Analytics() {
                 Locked Margin Deployed
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {fmtCurrency(marginInr, 'INR')}
+                {renderMultiCurrency(kpis.lockedMarginMinor, false)}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 Active collateral backing positions
@@ -357,7 +402,7 @@ export function Analytics() {
                 Executed Trading Volume
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                {fmtCurrency(kpis.totalTradedVolumeMinor['INR'] ?? '0', 'INR')}
+                {renderMultiCurrency(kpis.totalTradedVolumeMinor, false)}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
                 From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
@@ -618,13 +663,6 @@ export function Analytics() {
                 </thead>
                 <tbody>
                   {data.groups.map((g) => {
-                    const pnlInrVal = Number(g.totalUnrealisedPnlMinor['INR'] ?? '0');
-                    const isP = pnlInrVal > 0;
-                    const isL = pnlInrVal < 0;
-                    const realInrVal = Number(g.totalRealizedPnlMinor?.['INR'] ?? '0');
-                    const isRealP = realInrVal > 0;
-                    const isRealL = realInrVal < 0;
-
                     return (
                       <tr key={g.groupId}>
                         <td style={{ fontWeight: 600 }}>
@@ -634,13 +672,13 @@ export function Analytics() {
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{g.memberCount}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{g.activePositionsCount}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(g.totalAllocatedMinor['INR'] ?? '0', 'INR')}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(g.totalLockedMarginMinor['INR'] ?? '0', 'INR')}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isRealP ? 'var(--ok)' : isRealL ? 'var(--danger)' : 'var(--muted)' }}>
-                          {fmtSignedCurrency(g.totalRealizedPnlMinor?.['INR'] ?? '0', 'INR')}
+                        <td className="mono" style={{ textAlign: 'right' }}>{renderMultiCurrency(g.totalAllocatedMinor, false)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{renderMultiCurrency(g.totalLockedMarginMinor, false)}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(g.totalRealizedPnlMinor, true)}
                         </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--text)' }}>
-                          {fmtSignedCurrency(g.totalUnrealisedPnlMinor['INR'] ?? '0', 'INR')}
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(g.totalUnrealisedPnlMinor, true)}
                         </td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 600, color: g.roePct && g.roePct > 0 ? 'var(--ok)' : g.roePct && g.roePct < 0 ? 'var(--danger)' : 'var(--muted)' }}>
                           {g.roePct !== null ? `${g.roePct > 0 ? '+' : ''}${g.roePct.toFixed(2)}%` : '—'}
@@ -684,13 +722,6 @@ export function Analytics() {
                 </thead>
                 <tbody>
                   {data.accounts.map((a) => {
-                    const accPnl = Number(a.unrealisedPnlMinor['INR'] ?? '0');
-                    const isP = accPnl > 0;
-                    const isL = accPnl < 0;
-                    const realAccPnl = Number(a.realizedPnlMinor?.['INR'] ?? '0');
-                    const isRealP = realAccPnl > 0;
-                    const isRealL = realAccPnl < 0;
-
                     return (
                       <tr key={a.accountId}>
                         <td style={{ fontWeight: 600 }}>
@@ -715,13 +746,13 @@ export function Analytics() {
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{a.openPositionsCount}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>
-                          {fmtCurrency(a.lockedMarginMinor['INR'] ?? '0', 'INR')}
+                          {renderMultiCurrency(a.lockedMarginMinor, false)}
                         </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isRealP ? 'var(--ok)' : isRealL ? 'var(--danger)' : 'var(--muted)' }}>
-                          {fmtSignedCurrency(a.realizedPnlMinor?.['INR'] ?? '0', 'INR')}
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(a.realizedPnlMinor, true)}
                         </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--text)' }}>
-                          {fmtSignedCurrency(a.unrealisedPnlMinor['INR'] ?? '0', 'INR')}
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {renderMultiCurrency(a.unrealisedPnlMinor, true)}
                         </td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 600, color: a.roePct && a.roePct > 0 ? 'var(--ok)' : a.roePct && a.roePct < 0 ? 'var(--danger)' : 'var(--muted)' }}>
                           {a.roePct !== null ? `${a.roePct > 0 ? '+' : ''}${a.roePct.toFixed(2)}%` : '—'}
