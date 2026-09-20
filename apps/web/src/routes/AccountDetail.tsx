@@ -1006,17 +1006,29 @@ export function AccountDetail() {
             {tradingAnalytics.data && (() => {
               const rep = tradingAnalytics.data;
               const kpis = rep.kpis;
-              const pnlInr = kpis.unrealisedPnlMinor['INR'] ?? '0';
-              const marginInr = kpis.lockedMarginMinor['INR'] ?? '0';
-              const pnlPctInr = kpis.pnlPercentage['INR'];
-              const pnlNum = Number(pnlInr);
-              const isPnlProf = pnlNum > 0;
-              const isPnlLoss = pnlNum < 0;
+              const primaryCurrency = a.allocatedCurrency ?? 'INR';
+              const pnlMinor = kpis.unrealisedPnlMinor[primaryCurrency] ?? kpis.unrealisedPnlMinor['INR'] ?? '0';
+              const realPnlMinor = kpis.realizedPnlMinor?.[primaryCurrency] ?? kpis.realizedPnlMinor?.['INR'] ?? '0';
+              const netPnlMinor = kpis.netPnlMinor?.[primaryCurrency] ?? kpis.netPnlMinor?.['INR'] ?? '0';
+              const marginMinor = kpis.lockedMarginMinor[primaryCurrency] ?? kpis.lockedMarginMinor['INR'] ?? '0';
+              const pnlPct = kpis.pnlPercentage[primaryCurrency] ?? kpis.pnlPercentage['INR'];
+
+              const netNum = Number(netPnlMinor);
+              const isNetProf = netNum > 0;
+              const isNetLoss = netNum < 0;
+
+              const realNum = Number(realPnlMinor);
+              const isRealProf = realNum > 0;
+              const isRealLoss = realNum < 0;
+
+              const unrealNum = Number(pnlMinor);
+              const isUnrealProf = unrealNum > 0;
+              const isUnrealLoss = unrealNum < 0;
 
               // Sizing capital & utilization
               const allocatedCapMinor = a.allocatedCapitalMinor;
               const capNum = allocatedCapMinor ? Number(allocatedCapMinor) : 0;
-              const marginNum = Number(marginInr);
+              const marginNum = Number(marginMinor);
               const utilizationPct = capNum > 0 ? (marginNum / capNum) * 100 : null;
 
               return (
@@ -1030,14 +1042,74 @@ export function AccountDetail() {
                       marginBottom: 24,
                     }}
                   >
-                    {/* KPI 1: Unrealised PnL */}
+                    {/* KPI 1: Net Account PnL */}
                     <div
                       style={{
                         background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
                         border: '1px solid #1e2433',
                         borderRadius: 12,
                         padding: '16px 18px',
-                        borderLeft: `4px solid ${isPnlProf ? '#10b981' : isPnlLoss ? '#ef4444' : '#64748b'}`,
+                        borderLeft: `4px solid ${isNetProf ? '#10b981' : isNetLoss ? '#ef4444' : '#64748b'}`,
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Net Account PnL (Total)
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 800,
+                            color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : 'var(--text)',
+                            letterSpacing: '-0.5px',
+                          }}
+                        >
+                          {fmtSignedCurrency(netPnlMinor, primaryCurrency)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+                        Realized: <strong style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>{fmtSignedCurrency(realPnlMinor, primaryCurrency)}</strong>
+                      </div>
+                    </div>
+
+                    {/* KPI 2: Realized Closed PnL */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: `4px solid ${isRealProf ? '#10b981' : isRealLoss ? '#ef4444' : '#8b5cf6'}`,
+                      }}
+                    >
+                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Realized Closed PnL
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 800,
+                            color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)',
+                            letterSpacing: '-0.5px',
+                          }}
+                        >
+                          {fmtSignedCurrency(realPnlMinor, primaryCurrency)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+                        Across {kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)} closed trade{(kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)) === 1 ? '' : 's'} ({kpis.winningClosedTrades ?? 0}W / {kpis.losingClosedTrades ?? 0}L)
+                      </div>
+                    </div>
+
+                    {/* KPI 3: Unrealised PnL */}
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
+                        border: '1px solid #1e2433',
+                        borderRadius: 12,
+                        padding: '16px 18px',
+                        borderLeft: `4px solid ${isUnrealProf ? '#10b981' : isUnrealLoss ? '#ef4444' : '#64748b'}`,
                       }}
                     >
                       <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
@@ -1048,13 +1120,13 @@ export function AccountDetail() {
                           style={{
                             fontSize: 22,
                             fontWeight: 800,
-                            color: isPnlProf ? 'var(--ok)' : isPnlLoss ? 'var(--danger)' : 'var(--text)',
+                            color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : 'var(--text)',
                             letterSpacing: '-0.5px',
                           }}
                         >
-                          {fmtSignedCurrency(pnlInr, 'INR')}
+                          {fmtSignedCurrency(pnlMinor, primaryCurrency)}
                         </span>
-                        {pnlPctInr !== undefined && (
+                        {pnlPct !== undefined && (
                           <span
                             className="pnl-pct-badge"
                             style={{
@@ -1062,12 +1134,12 @@ export function AccountDetail() {
                               fontWeight: 700,
                               padding: '2px 8px',
                               borderRadius: 6,
-                              background: isPnlProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                              color: isPnlProf ? 'var(--ok)' : 'var(--danger)',
-                              border: `1px solid ${isPnlProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                              background: isUnrealProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: isUnrealProf ? 'var(--ok)' : 'var(--danger)',
+                              border: `1px solid ${isUnrealProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
                             }}
                           >
-                            {isPnlProf ? '+' : isPnlLoss ? '−' : ''}{Math.abs(pnlPctInr).toFixed(2)}%
+                            {isUnrealProf ? '+' : isUnrealLoss ? '−' : ''}{Math.abs(pnlPct).toFixed(2)}%
                           </span>
                         )}
                       </div>
@@ -1076,7 +1148,7 @@ export function AccountDetail() {
                       </div>
                     </div>
 
-                    {/* KPI 2: Margin Deployed & Utilization */}
+                    {/* KPI 4: Margin Deployed & Utilization */}
                     <div
                       style={{
                         background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
@@ -1090,7 +1162,7 @@ export function AccountDetail() {
                         Locked Margin Deployed
                       </div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                        {fmtCurrency(marginInr, 'INR')}
+                        {fmtCurrency(marginMinor, primaryCurrency)}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
                         {utilizationPct !== null
@@ -1099,7 +1171,7 @@ export function AccountDetail() {
                       </div>
                     </div>
 
-                    {/* KPI 3: Executed Volume */}
+                    {/* KPI 5: Executed Volume */}
                     <div
                       style={{
                         background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
@@ -1113,14 +1185,14 @@ export function AccountDetail() {
                         Executed Volume
                       </div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                        {fmtCurrency(kpis.totalTradedVolumeMinor['INR'] ?? '0', 'INR')}
+                        {fmtCurrency(kpis.totalTradedVolumeMinor[primaryCurrency] ?? kpis.totalTradedVolumeMinor['INR'] ?? '0', primaryCurrency)}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
                         From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
                       </div>
                     </div>
 
-                    {/* KPI 4: Win Rate & Execution Success */}
+                    {/* KPI 6: Win Rate & Execution Success */}
                     <div
                       style={{
                         background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
@@ -1161,7 +1233,7 @@ export function AccountDetail() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>Capital Utilization & Buffer</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          {fmtCurrency(marginInr, 'INR')} used of {formatMinor(allocatedCapMinor, quoteScaleOf(a.allocatedCurrency ?? 'INR'), a.allocatedCurrency ?? 'INR')}
+                          {fmtCurrency(marginMinor, primaryCurrency)} used of {formatMinor(allocatedCapMinor, quoteScaleOf(a.allocatedCurrency ?? 'INR'), a.allocatedCurrency ?? 'INR')}
                         </span>
                       </div>
                       <div style={{ width: '100%', height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
@@ -1176,7 +1248,7 @@ export function AccountDetail() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
                         <span>Utilization: <strong>{(utilizationPct ?? 0).toFixed(1)}%</strong></span>
-                        <span>Free Buffer: <strong>{fmtCurrency((BigInt(allocatedCapMinor) - BigInt(marginInr)).toString(), 'INR')}</strong></span>
+                        <span>Free Buffer: <strong>{fmtCurrency((BigInt(allocatedCapMinor) - BigInt(marginMinor)).toString(), primaryCurrency)}</strong></span>
                       </div>
                     </div>
                   )}
@@ -1243,6 +1315,92 @@ export function AccountDetail() {
                                         {sIsProf ? '+' : sIsLoss ? '−' : ''}{Math.abs(s.roePct).toFixed(2)}%
                                       </span>
                                     ) : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Closed Trades & Realized PnL */}
+                  <div style={{ marginBottom: 28 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h4 style={{ margin: 0, fontSize: 15 }}>Closed Trades & Realized PnL</h4>
+                      <span className="muted" style={{ fontSize: 12 }}>{rep.closedTrades?.length ?? 0} closed trade{(rep.closedTrades?.length ?? 0) === 1 ? '' : 's'}</span>
+                    </div>
+
+                    {(!rep.closedTrades || rep.closedTrades.length === 0) ? (
+                      <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No closed trades recorded for this account in this timeframe.</p>
+                      </div>
+                    ) : (
+                      <div className="table-scroll-container">
+                        <table style={{ width: '100%', fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>Closed Time</th>
+                              <th>Asset / Pair</th>
+                              <th>Side</th>
+                              <th style={{ textAlign: 'right' }}>Quantity</th>
+                              <th style={{ textAlign: 'right' }}>Entry Price</th>
+                              <th style={{ textAlign: 'right' }}>Exit Price</th>
+                              <th style={{ textAlign: 'right' }}>Realized PnL</th>
+                              <th style={{ textAlign: 'right' }}>ROE %</th>
+                              <th style={{ textAlign: 'center' }}>Outcome</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rep.closedTrades.map((t) => {
+                              const pnlNum = Number(t.realizedPnlMinor);
+                              const isP = pnlNum > 0;
+                              const isL = pnlNum < 0;
+
+                              return (
+                                <tr key={t.id}>
+                                  <td className="muted" style={{ fontSize: 11.5 }}>
+                                    {new Date(t.closedAtMs).toLocaleString('en-IN')}
+                                  </td>
+                                  <td><strong>{t.pair}</strong></td>
+                                  <td>
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        color: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
+                                        borderColor: t.side === 'long' ? 'var(--ok)' : 'var(--danger)',
+                                        background: t.side === 'long' ? 'rgba(75,181,99,0.12)' : 'rgba(240,85,90,0.12)',
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                      }}
+                                    >
+                                      {t.side} {t.leverage ? `${t.leverage}` : ''}
+                                    </span>
+                                  </td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{t.quantity}</td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>{fmtPrice(t.avgEntryPrice)}</td>
+                                  <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{fmtPrice(t.avgExitPrice)}</td>
+                                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--text)' }}>
+                                    {fmtSignedCurrency(t.realizedPnlMinor, t.marginCurrency)}
+                                  </td>
+                                  <td className="mono" style={{ textAlign: 'right', fontWeight: 600, color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--muted)' }}>
+                                    {t.roePct !== null ? `${t.roePct > 0 ? '+' : ''}${t.roePct.toFixed(2)}%` : '—'}
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        background: isP ? 'rgba(16,185,129,0.15)' : isL ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+                                        color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--muted)',
+                                        border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : isL ? 'rgba(239,68,68,0.35)' : 'transparent'}`,
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      {isP ? 'WIN' : isL ? 'LOSS' : 'FLAT'}
+                                    </span>
                                   </td>
                                 </tr>
                               );

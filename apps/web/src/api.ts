@@ -658,6 +658,8 @@ export interface TradingAnalyticsQuery {
 export interface TradingKpis {
   readonly openPositionsCount: number;
   readonly unrealisedPnlMinor: Record<string, string>;
+  readonly realizedPnlMinor: Record<string, string>;
+  readonly netPnlMinor: Record<string, string>;
   readonly lockedMarginMinor: Record<string, string>;
   readonly pnlPercentage: Record<string, number>;
   readonly totalOrders: number;
@@ -668,6 +670,9 @@ export interface TradingKpis {
   readonly totalTradedVolumeMinor: Record<string, string>;
   readonly winningPositions: number;
   readonly losingPositions: number;
+  readonly closedTradesCount: number;
+  readonly winningClosedTrades: number;
+  readonly losingClosedTrades: number;
   readonly winRatePct: number | null;
 }
 
@@ -685,6 +690,26 @@ export interface SymbolAnalytics {
   readonly markPrice: string | null;
 }
 
+export interface ClosedTradeAnalytics {
+  readonly id: string;
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly groupName: string | null;
+  readonly pair: string;
+  readonly market: string;
+  readonly side: 'long' | 'short';
+  readonly quantity: string;
+  readonly avgEntryPrice: string;
+  readonly avgExitPrice: string;
+  readonly leverage: string | null;
+  readonly realizedPnlMinor: string;
+  readonly marginCurrency: string;
+  readonly roePct: number | null;
+  readonly durationMs: number | null;
+  readonly openedAtMs: number | null;
+  readonly closedAtMs: number;
+}
+
 export interface GroupAnalyticsRow {
   readonly groupId: string;
   readonly groupName: string;
@@ -693,6 +718,7 @@ export interface GroupAnalyticsRow {
   readonly totalAllocatedMinor: Record<string, string>;
   readonly totalLockedMarginMinor: Record<string, string>;
   readonly totalUnrealisedPnlMinor: Record<string, string>;
+  readonly totalRealizedPnlMinor?: Record<string, string>;
   readonly roePct: number | null;
   readonly profitableMembersCount: number;
   readonly unprofitableMembersCount: number;
@@ -707,6 +733,8 @@ export interface AccountAnalyticsRow {
   readonly allocatedCurrency: string | null;
   readonly openPositionsCount: number;
   readonly unrealisedPnlMinor: Record<string, string>;
+  readonly realizedPnlMinor?: Record<string, string>;
+  readonly netPnlMinor?: Record<string, string>;
   readonly lockedMarginMinor: Record<string, string>;
   readonly roePct: number | null;
   readonly totalOrders: number;
@@ -722,6 +750,7 @@ export interface RecentTradingOrder {
   readonly groupName: string | null;
   readonly pair: string;
   readonly side: 'buy' | 'sell';
+  readonly isExit?: boolean;
   readonly state: string;
   readonly filledQuantity: string | null;
   readonly avgFillPrice: string | null;
@@ -740,6 +769,7 @@ export interface TradingAnalyticsReport {
   readonly toMs: number;
   readonly kpis: TradingKpis;
   readonly symbols: readonly SymbolAnalytics[];
+  readonly closedTrades: readonly ClosedTradeAnalytics[];
   readonly groups: readonly GroupAnalyticsRow[];
   readonly accounts: readonly AccountAnalyticsRow[];
   readonly recentOrders: readonly RecentTradingOrder[];

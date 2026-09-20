@@ -142,7 +142,7 @@ function MobileBlotterCard({ r }: { readonly r: BlotterChildRow }) {
 }
 
 /* ── Group Order Item (with In-Place Expandable Account Table) ── */
-function GroupOrderItem({
+export function GroupOrderItem({
   g,
   isExpanded,
   onToggle,

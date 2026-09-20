@@ -28,6 +28,7 @@ import { Report } from './routes/Report.tsx';
 import { Settings } from './routes/Settings.tsx';
 import { Futures } from './routes/Futures.tsx';
 import { Analytics } from './routes/Analytics.tsx';
+import { GroupAnalytics } from './routes/GroupAnalytics.tsx';
 import { ConnectAccount } from './routes/ConnectAccount.tsx';
 import { AccountDetail } from './routes/AccountDetail.tsx';
 import { Security } from './routes/Security.tsx';
@@ -221,6 +222,8 @@ function PageTitleSync() {
       pageTitle = 'Exchange Accounts';
     } else if (path.startsWith('/app/accounts/')) {
       pageTitle = 'Account Details';
+    } else if (path.startsWith('/app/groups/') && path.endsWith('/analytics')) {
+      pageTitle = 'Group Trading Analytics';
     } else if (path === '/app/groups' || path.startsWith('/app/groups/')) {
       pageTitle = 'Account Groups';
     } else if (path === '/app/activity') {
@@ -295,6 +298,7 @@ const router = createBrowserRouter([
           { path: 'trades/:groupTradeId', element: <Confirmation /> },
           { path: 'groups', element: <Groups /> },
           { path: 'groups/:groupId', element: <GroupDetail /> },
+          { path: 'groups/:groupId/analytics', element: <GroupAnalytics /> },
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Futures /> },
           { path: 'analytics', element: <Analytics /> },
