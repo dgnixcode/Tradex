@@ -152,13 +152,19 @@ export function AccountDetail() {
   const fromMs = analyticsTimeframe === 'custom' && customFrom ? new Date(`${customFrom}T00:00:00Z`).getTime() : undefined;
   const toMs = analyticsTimeframe === 'custom' && customTo ? new Date(`${customTo}T23:59:59.999Z`).getTime() : undefined;
 
-  // Real-time market price streaming via WebSocket/SSE
-  useLivePrices();
+  const [isManualRefreshingAnalytics, setIsManualRefreshingAnalytics] = useState(false);
 
+  // Real-time market price streaming via WebSocket/SSE
+  const { isStreaming } = useLivePrices();
+
+  // Bulk futures prices query:
+  // - When socket stream is active: refetchInterval is false (0 HTTP polls, 100% pure WebSocket/SSE stream)
+  // - When socket drops or fails: refetchInterval activates at 1500ms as automatic fallback
   const pricesQuery = useQuery({
     queryKey: ['futures-prices'],
     queryFn: fetchFuturesPrices,
-    staleTime: 2000,
+    refetchInterval: isStreaming ? false : 1500,
+    staleTime: isStreaming ? Infinity : 500,
   });
   const pricesData = pricesQuery.data;
 
@@ -166,7 +172,7 @@ export function AccountDetail() {
     queryKey: ['trading-analytics', 'account', accountId, analyticsTimeframe, fromMs, toMs],
     queryFn: () => fetchTradingAnalytics({ accountId, timeframe: analyticsTimeframe, fromMs, toMs }),
     enabled: activeTab === 'analytics',
-    refetchInterval: 1000,
+    refetchInterval: isStreaming ? 15_000 : 5_000,
   });
 
   const futuresPositions = useQuery({
@@ -737,23 +743,43 @@ export function AccountDetail() {
                     <div className="stat-value">{accountPositions.length}</div>
                   </div>
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-                    <span
-                      className="badge"
-                      style={{
-                        background: 'rgba(75,181,99,0.12)',
-                        color: 'var(--ok)',
-                        border: '1px solid var(--ok)',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        padding: '2px 8px',
-                      }}
-                    >
-                      <span className="live-pulse-dot" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
-                      Live Stream (1s)
-                    </span>
+                    {isStreaming ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: '#0ecb81',
+                          background: 'rgba(14, 203, 129, 0.12)',
+                          border: '1px solid rgba(14, 203, 129, 0.25)',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                        title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+                      >
+                        <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: '#f59e0b',
+                          background: 'rgba(245, 158, 11, 0.12)',
+                          border: '1px solid rgba(245, 158, 11, 0.25)',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                        title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
+                      >
+                        <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1165,17 +1191,63 @@ export function AccountDetail() {
                   </div>
                 )}
 
+                {/* Socket stream indicator matching Trade Watchlist */}
+                {isStreaming ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#0ecb81',
+                      background: 'rgba(14, 203, 129, 0.12)',
+                      border: '1px solid rgba(14, 203, 129, 0.25)',
+                      borderRadius: 4,
+                      padding: '4px 8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                    title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+                  >
+                    <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#f59e0b',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid rgba(245, 158, 11, 0.25)',
+                      borderRadius: 4,
+                      padding: '4px 8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                    title="Connecting to real-time WebSocket stream — falling back to HTTP polling"
+                  >
+                    <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+                  </span>
+                )}
+
                 <button
                   type="button"
                   className="telemetry-action-btn"
-                  disabled={tradingAnalytics.isFetching}
-                  onClick={() => tradingAnalytics.refetch()}
+                  disabled={isManualRefreshingAnalytics}
+                  onClick={async () => {
+                    setIsManualRefreshingAnalytics(true);
+                    try {
+                      await tradingAnalytics.refetch();
+                    } finally {
+                      setIsManualRefreshingAnalytics(false);
+                    }
+                  }}
                   title="Refresh analytics telemetry"
                 >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: tradingAnalytics.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isManualRefreshingAnalytics ? 'spin 1s linear infinite' : 'none' }}>
                     <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                   </svg>
-                  {tradingAnalytics.isFetching ? 'Refreshing…' : 'Refresh'}
+                  {isManualRefreshingAnalytics ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
             </div>

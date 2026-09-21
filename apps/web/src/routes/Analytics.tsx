@@ -201,18 +201,24 @@ export function Analytics() {
     });
   };
 
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
   const groupsQuery = useQuery({
     queryKey: ['groups'],
     queryFn: fetchGroups,
   });
 
   // Real-time market data streaming via WebSocket/SSE
-  useLivePrices();
+  const { isStreaming } = useLivePrices();
 
+  // Bulk futures prices query:
+  // - When socket stream is active: refetchInterval is false (0 HTTP polls, 100% pure WebSocket/SSE stream)
+  // - When socket drops or fails: refetchInterval activates at 1500ms as automatic fallback
   const pricesQuery = useQuery({
     queryKey: ['futures-prices'],
     queryFn: fetchFuturesPrices,
-    staleTime: 2000,
+    refetchInterval: isStreaming ? false : 1500,
+    staleTime: isStreaming ? Infinity : 500,
   });
   const pricesData = pricesQuery.data;
 
@@ -227,7 +233,7 @@ export function Analytics() {
       fromMs,
       toMs,
     }),
-    refetchInterval: 1_000,
+    refetchInterval: isStreaming ? 15_000 : 5_000,
   });
 
   const groupOrdersQuery = useQuery({
@@ -236,7 +242,7 @@ export function Analytics() {
       groupId: selectedGroupId === '' ? undefined : selectedGroupId,
       limit: 50,
     }),
-    refetchInterval: 2_000,
+    refetchInterval: isStreaming ? 15_000 : 5_000,
   });
 
   const data = analyticsQuery.data;
@@ -450,20 +456,63 @@ export function Analytics() {
             ))}
           </select>
 
+          {/* Socket stream indicator matching Trade Watchlist */}
+          {isStreaming ? (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#0ecb81',
+                background: 'rgba(14, 203, 129, 0.12)',
+                border: '1px solid rgba(14, 203, 129, 0.25)',
+                borderRadius: 4,
+                padding: '4px 8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+            >
+              <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                borderRadius: 4,
+                padding: '4px 8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Connecting to real-time WebSocket stream — falling back to HTTP polling"
+            >
+              <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+            </span>
+          )}
+
           <button
             type="button"
             className="telemetry-action-btn"
-            disabled={analyticsQuery.isFetching}
-            onClick={() => {
-              void analyticsQuery.refetch();
-              void groupOrdersQuery.refetch();
+            disabled={isManualRefreshing}
+            onClick={async () => {
+              setIsManualRefreshing(true);
+              try {
+                await Promise.all([analyticsQuery.refetch(), groupOrdersQuery.refetch()]);
+              } finally {
+                setIsManualRefreshing(false);
+              }
             }}
             title="Refresh analytics data"
           >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: analyticsQuery.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isManualRefreshing ? 'spin 1s linear infinite' : 'none' }}>
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
             </svg>
-            {analyticsQuery.isFetching ? 'Refreshing…' : 'Refresh'}
+            {isManualRefreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>

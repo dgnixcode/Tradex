@@ -3448,7 +3448,7 @@ export function Futures() {
   });
 
   // Keep live market price feed streaming in real-time while on positions page
-  useLivePrices();
+  const { isStreaming } = useLivePrices();
 
   // Unified refresh handler: invalidates query cache immediately so local changes reflect instantly,
   // then runs exchange sync in the background to ensure venue mirror consistency.
@@ -3703,6 +3703,45 @@ export function Futures() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Socket stream indicator matching Trade Watchlist */}
+          {isStreaming ? (
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: '#0ecb81',
+                background: 'rgba(14, 203, 129, 0.12)',
+                border: '1px solid rgba(14, 203, 129, 0.25)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+            >
+              <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
+            >
+              <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+            </span>
+          )}
+
           <button
             type="button"
             className="btn secondary btn-sm"

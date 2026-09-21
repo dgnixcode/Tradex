@@ -150,10 +150,14 @@ export function Groups() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  useLivePrices();
+  const { isStreaming } = useLivePrices();
 
   const groups = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
-  const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions, refetchInterval: 1000 });
+  const positions = useQuery({
+    queryKey: ['futures-positions'],
+    queryFn: fetchFuturesPositions,
+    refetchInterval: isStreaming ? 5000 : 1500,
+  });
 
   // Map each group name to active coins / pairs traded by its accounts
   const groupCoinsMap = useMemo(() => {
