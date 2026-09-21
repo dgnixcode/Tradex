@@ -1408,7 +1408,7 @@ export function PositionManageModal({
                       </div>
                       {hasRef && sideOk && slPct !== '' && (
                         <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
-                          Trigger: {pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl').toFixed(2)}
+                          Target Price: {fmtPrice(String(pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl')))}
                         </div>
                       )}
                     </>
@@ -1480,7 +1480,7 @@ export function PositionManageModal({
                       </div>
                       {hasRef && sideOk && tpPct !== '' && (
                         <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
-                          Trigger: {pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp').toFixed(2)}
+                          Target Price: {fmtPrice(String(pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp')))}
                         </div>
                       )}
                     </>
@@ -1966,10 +1966,59 @@ function GroupPositionManageModal({
   const [customReduceInput, setCustomReduceInput] = useState<string>('');
   const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
 
+  // Group-level weighted average entry price
+  const groupAvgEntry = useMemo(() => {
+    let totalQ = 0;
+    let sumNotional = 0;
+    for (const p of group.positions) {
+      const q = Number(p.quantity);
+      const e = p.avgEntryPrice !== null ? Number(p.avgEntryPrice) : 0;
+      if (q > 0 && e > 0) {
+        totalQ += q;
+        sumNotional += q * e;
+      }
+    }
+    if (totalQ > 0 && sumNotional > 0) {
+      return sumNotional / totalQ;
+    }
+    const first = group.positions.find((p) => p.avgEntryPrice !== null && Number(p.avgEntryPrice) > 0);
+    return first ? Number(first.avgEntryPrice) : NaN;
+  }, [group.positions]);
+
+  const hasGroupRef = Number.isFinite(groupAvgEntry) && groupAvgEntry > 0;
+  const sideOk = group.side === 'long' || group.side === 'short';
+
   // Protection state
-  const [slPct, setSlPct] = useState('5');
-  const [tpPct, setTpPct] = useState('10');
-  const [trailing, setTrailing] = useState(false);
+  const existingSlPos = group.positions.find((p) => p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0);
+  const existingTpPos = group.positions.find((p) => p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0);
+  const initSl = existingSlPos?.stopLossTrigger ?? '';
+  const initTp = existingTpPos?.takeProfitTrigger ?? '';
+  const initSlPct = (initSl && hasGroupRef && sideOk)
+    ? triggerToPct(groupAvgEntry, Number(initSl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, '')
+    : '5';
+  const initTpPct = (initTp && hasGroupRef && sideOk)
+    ? triggerToPct(groupAvgEntry, Number(initTp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, '')
+    : '10';
+
+  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
+  const [sl, setSl] = useState<string>(initSl);
+  const [tp, setTp] = useState<string>(initTp);
+  const [slPct, setSlPct] = useState<string>(initSlPct);
+  const [tpPct, setTpPct] = useState<string>(initTpPct);
+  const [trailing, setTrailing] = useState<boolean>(false);
+
+  const validNumber = /^\d+(\.\d+)?$/;
+  const slValid = slTpMode === 'price'
+    ? (sl === '' || validNumber.test(sl))
+    : (slPct === '' || (validNumber.test(slPct) && Number(slPct) <= 100));
+  const tpValid = slTpMode === 'price'
+    ? (tp === '' || validNumber.test(tp))
+    : (tpPct === '' || (validNumber.test(tpPct) && Number(tpPct) <= 100));
+  const canSaveProtection = slValid && tpValid && (
+    slTpMode === 'price'
+      ? (sl.trim() !== '' || tp.trim() !== '')
+      : (slPct.trim() !== '' || tpPct.trim() !== '')
+  );
 
   // Search inside modal
   const [modalSearch, setModalSearch] = useState('');
@@ -2229,15 +2278,24 @@ function GroupPositionManageModal({
     await mapConcurrent(group.positions, 12, async (pos) => {
       try {
         const refPrice = pos.avgEntryPrice !== null ? Number(pos.avgEntryPrice) : NaN;
-        const sideOk = pos.side === 'long' || pos.side === 'short';
+        const posSideOk = pos.side === 'long' || pos.side === 'short';
         const hasRef = Number.isFinite(refPrice) && refPrice > 0;
 
-        const effectiveSl = slPct !== '' && hasRef && sideOk
-          ? pctToTrigger(refPrice, Number(slPct), pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
-          : undefined;
-        const effectiveTp = tpPct !== '' && hasRef && sideOk
-          ? pctToTrigger(refPrice, Number(tpPct), pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
-          : undefined;
+        let effectiveSl: string | undefined = undefined;
+        let effectiveTp: string | undefined = undefined;
+
+        if (slTpMode === 'percent') {
+          const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
+          if (slPct.trim() !== '' && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+            effectiveSl = pctToTrigger(basePrice, Number(slPct), pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '');
+          }
+          if (tpPct.trim() !== '' && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+            effectiveTp = pctToTrigger(basePrice, Number(tpPct), pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '');
+          }
+        } else {
+          effectiveSl = sl.trim() !== '' ? sl.trim() : undefined;
+          effectiveTp = tp.trim() !== '' ? tp.trim() : undefined;
+        }
 
         const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
         if (effectiveSl) body.stopLossPrice = effectiveSl;
@@ -2812,37 +2870,119 @@ function GroupPositionManageModal({
                 Set bracket Stop Loss and Take Profit rules for all {group.positions.length} accounts in this group trade.
               </p>
 
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+                  Configure Stop Loss & Take Profit:
+                </span>
+                <div style={{ display: 'flex', background: 'var(--surface-3)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      padding: '2px 10px', fontSize: 11,
+                      background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
+                      color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
+                      fontWeight: slTpMode === 'percent' ? 700 : 400,
+                      border: 'none',
+                    }}
+                    onClick={() => {
+                      if (slTpMode !== 'percent') {
+                        if ((!slPct || slPct === '') && sl !== '' && hasGroupRef && sideOk) {
+                          setSlPct(triggerToPct(groupAvgEntry, Number(sl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
+                        }
+                        if ((!tpPct || tpPct === '') && tp !== '' && hasGroupRef && sideOk) {
+                          setTpPct(triggerToPct(groupAvgEntry, Number(tp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
+                        }
+                        setSlTpMode('percent');
+                      }
+                    }}
+                  >
+                    % Percent
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      padding: '2px 10px', fontSize: 11,
+                      background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
+                      color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
+                      fontWeight: slTpMode === 'price' ? 700 : 400,
+                      border: 'none',
+                    }}
+                    onClick={() => {
+                      if (slTpMode !== 'price') {
+                        if ((!sl || sl === '') && slPct !== '' && hasGroupRef && sideOk) {
+                          setSl(pctToTrigger(groupAvgEntry, Number(slPct), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
+                        }
+                        if ((!tp || tp === '') && tpPct !== '' && hasGroupRef && sideOk) {
+                          setTp(pctToTrigger(groupAvgEntry, Number(tpPct), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
+                        }
+                        setSlTpMode('price');
+                      }
+                    }}
+                  >
+                    Exact Price
+                  </button>
+                </div>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                {/* Stop Loss */}
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="grp-sl" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Stop Loss Percentage (%)
+                    Stop Loss Trigger {slTpMode === 'percent' ? '(%)' : 'Price'}
                   </label>
-                  <input
-                    id="grp-sl"
-                    inputMode="decimal"
-                    value={slPct}
-                    placeholder="e.g. 5"
-                    onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
-                    style={{ marginTop: 6 }}
-                  />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {SL_PCT_CHIPS.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        className="btn btn-sm secondary"
-                        style={{
-                          flex: 1, padding: '3px 0', fontSize: 11,
-                          background: slPct === String(v) ? 'var(--danger)' : 'var(--surface-3)',
-                          color: slPct === String(v) ? '#fff' : 'var(--text-dim)',
-                          borderColor: slPct === String(v) ? 'var(--danger)' : 'var(--line)',
-                        }}
-                        onClick={() => setSlPct(String(v))}
-                      >
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
+                  {slTpMode === 'price' ? (
+                    <>
+                      <input
+                        id="grp-sl"
+                        inputMode="decimal"
+                        value={sl}
+                        onChange={(e) => setSl(e.target.value)}
+                        placeholder="leave empty to clear"
+                        style={{ marginTop: 6 }}
+                      />
+                      {sl !== '' && hasGroupRef && sideOk && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          ≈ {triggerToPct(groupAvgEntry, Number(sl), group.side as 'long' | 'short', 'sl').toFixed(2)}% loss from avg entry
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        id="grp-sl"
+                        inputMode="decimal"
+                        value={slPct}
+                        placeholder="e.g. 5"
+                        onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
+                        style={{ marginTop: 6 }}
+                      />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {SL_PCT_CHIPS.map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className="btn btn-sm secondary"
+                            style={{
+                              flex: 1, padding: '3px 0', fontSize: 11,
+                              background: slPct === String(v) ? 'var(--danger)' : 'var(--surface-3)',
+                              color: slPct === String(v) ? '#fff' : 'var(--text-dim)',
+                              borderColor: slPct === String(v) ? 'var(--danger)' : 'var(--line)',
+                            }}
+                            onClick={() => setSlPct(String(v))}
+                          >
+                            {v}%
+                          </button>
+                        ))}
+                      </div>
+                      {hasGroupRef && sideOk && slPct !== '' && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Target Price: {fmtPrice(String(pctToTrigger(groupAvgEntry, Number(slPct), group.side as 'long' | 'short', 'sl')))}
+                        </div>
+                      )}
+                    </>
+                  )}
 
                   <div style={{ display: 'flex', alignItems: 'center', marginTop: 12, gap: 6 }}>
                     <input
@@ -2858,37 +2998,63 @@ function GroupPositionManageModal({
                   </div>
                 </div>
 
+                {/* Take Profit */}
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="grp-tp" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Take Profit Percentage (%)
+                    Take Profit Trigger {slTpMode === 'percent' ? '(%)' : 'Price'}
                   </label>
-                  <input
-                    id="grp-tp"
-                    inputMode="decimal"
-                    value={tpPct}
-                    placeholder="e.g. 10"
-                    onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
-                    style={{ marginTop: 6 }}
-                  />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {TP_PCT_CHIPS.map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        className="btn btn-sm secondary"
-                        style={{
-                          flex: 1, padding: '3px 0', fontSize: 11,
-                          background: tpPct === String(v) ? 'var(--ok)' : 'var(--surface-3)',
-                          color: tpPct === String(v) ? '#000000' : 'var(--text-dim)',
-                          borderColor: tpPct === String(v) ? 'var(--ok)' : 'var(--line)',
-                          fontWeight: tpPct === String(v) ? 700 : 500,
-                        }}
-                        onClick={() => setTpPct(String(v))}
-                      >
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
+                  {slTpMode === 'price' ? (
+                    <>
+                      <input
+                        id="grp-tp"
+                        inputMode="decimal"
+                        value={tp}
+                        onChange={(e) => setTp(e.target.value)}
+                        placeholder="leave empty to clear"
+                        style={{ marginTop: 6 }}
+                      />
+                      {tp !== '' && hasGroupRef && sideOk && (
+                        <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
+                          ≈ {triggerToPct(groupAvgEntry, Number(tp), group.side as 'long' | 'short', 'tp').toFixed(2)}% gain from avg entry
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        id="grp-tp"
+                        inputMode="decimal"
+                        value={tpPct}
+                        placeholder="e.g. 10"
+                        onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
+                        style={{ marginTop: 6 }}
+                      />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {TP_PCT_CHIPS.map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className="btn btn-sm secondary"
+                            style={{
+                              flex: 1, padding: '3px 0', fontSize: 11,
+                              background: tpPct === String(v) ? 'var(--ok)' : 'var(--surface-3)',
+                              color: tpPct === String(v) ? '#000000' : 'var(--text-dim)',
+                              borderColor: tpPct === String(v) ? 'var(--ok)' : 'var(--line)',
+                              fontWeight: tpPct === String(v) ? 700 : 500,
+                            }}
+                            onClick={() => setTpPct(String(v))}
+                          >
+                            {v}%
+                          </button>
+                        ))}
+                      </div>
+                      {hasGroupRef && sideOk && tpPct !== '' && (
+                        <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
+                          Target Price: {fmtPrice(String(pctToTrigger(groupAvgEntry, Number(tpPct), group.side as 'long' | 'short', 'tp')))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -2899,7 +3065,7 @@ function GroupPositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm"
-                  disabled={isExecuting || isHalted || (!slPct && !tpPct)}
+                  disabled={isExecuting || isHalted || !canSaveProtection}
                   onClick={handleExecuteProtection}
                 >
                   {isExecuting ? 'Updating Protection…' : `Apply Rules to All ${group.positions.length} Accounts`}
