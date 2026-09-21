@@ -66,6 +66,21 @@ export function Confirmation() {
 
   const canConfirm = !expired && !isHalted && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
 
+  const draft = (() => {
+    try {
+      const raw = localStorage.getItem('tradex_ticket_draft');
+      return raw ? (JSON.parse(raw) as { leverage?: string; side?: string; asset?: string; orderType?: string; marginMode?: string }) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const leverage = result.leverage ?? draft?.leverage ?? null;
+  const side = result.side ?? draft?.side ?? null;
+  const asset = result.asset ?? draft?.asset ?? null;
+  const orderType = result.orderType ?? draft?.orderType ?? null;
+  const marginMode = result.positionMarginType ?? draft?.marginMode ?? null;
+
   return (
     <div className="panel full-width-page">
       {isHalted && (
@@ -97,6 +112,20 @@ export function Confirmation() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
+          {leverage && (
+            <span
+              className="pos-lev-pill"
+              style={{
+                fontSize: 12,
+                padding: '3px 9px',
+                borderRadius: 4,
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {leverage}× Leverage
+            </span>
+          )}
           <span style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -120,6 +149,103 @@ export function Confirmation() {
         </div>
       </div>
 
+      {(asset || side || leverage || orderType) && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            padding: '8px 12px',
+            background: 'rgba(255, 255, 255, 0.025)',
+            borderRadius: 6,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            marginBottom: 14,
+            fontSize: 12,
+          }}
+        >
+          <span style={{ color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+            Order details:
+          </span>
+          {asset && (
+            <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>
+              {asset}
+            </span>
+          )}
+          {side && (
+            <span
+              style={{
+                padding: '2px 7px',
+                borderRadius: 4,
+                fontWeight: 700,
+                fontSize: 11,
+                textTransform: 'uppercase',
+                background: side.toLowerCase() === 'buy' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                border: `1px solid ${side.toLowerCase() === 'buy' ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'}`,
+                color: side.toLowerCase() === 'buy' ? '#34d399' : '#f87171',
+              }}
+            >
+              {side.toUpperCase()}
+            </span>
+          )}
+          {orderType && (
+            <span
+              style={{
+                padding: '2px 7px',
+                borderRadius: 4,
+                fontWeight: 600,
+                fontSize: 11,
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: 'var(--text-dim)',
+                textTransform: 'uppercase',
+              }}
+            >
+              {orderType}
+            </span>
+          )}
+          {leverage && (
+            <span
+              className="pos-lev-pill"
+              style={{
+                fontSize: 11.5,
+                padding: '2px 8px',
+                borderRadius: 4,
+                fontWeight: 700,
+              }}
+            >
+              {leverage}× Leverage
+            </span>
+          )}
+          {marginMode && (
+            <span
+              style={{
+                padding: '2px 7px',
+                borderRadius: 4,
+                fontWeight: 600,
+                fontSize: 11,
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: 'var(--text-dim)',
+                textTransform: 'capitalize',
+              }}
+            >
+              {marginMode} Margin
+            </span>
+          )}
+          {result.stopLossPrice && (
+            <span style={{ fontSize: 11, color: '#f87171' }}>
+              SL: <strong className="mono">{result.stopLossPrice}</strong>
+            </span>
+          )}
+          {result.takeProfitPrice && (
+            <span style={{ fontSize: 11, color: '#34d399' }}>
+              TP: <strong className="mono">{result.takeProfitPrice}</strong>
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Desktop Table View (> 768px) */}
       <div className="table-scroll-container desktop-pos-table">
         <table>
@@ -128,6 +254,7 @@ export function Confirmation() {
               <th>Account</th>
               <th>Status</th>
               <th>Market</th>
+              {leverage && <th>Leverage</th>}
               <th className="mono">Quantity</th>
               <th className="mono">Price</th>
               <th className="mono">Est. cost</th>
@@ -140,6 +267,7 @@ export function Confirmation() {
                 <td>{row.accountName}</td>
                 <td><span className={`badge ${row.state}`}>{row.state}</span></td>
                 <td>{row.market ?? '—'}</td>
+                {leverage && <td><span className="pos-lev-pill">{leverage}×</span></td>}
                 <td className="mono">{row.finalQuantity ?? '—'}</td>
                 <td className="mono">{row.priceUsed ?? '—'}</td>
                 <td className="mono">{formatCost(row.notionalMinor, row.quoteCurrency)}</td>
@@ -172,7 +300,13 @@ export function Confirmation() {
               </div>
             </div>
 
-            <div className="pos-mobile-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+            <div className="pos-mobile-grid" style={{ gridTemplateColumns: leverage ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr' }}>
+              {leverage && (
+                <div className="pos-mobile-cell">
+                  <span className="pos-mobile-label">Leverage</span>
+                  <span className="pos-mobile-val mono"><span className="pos-lev-pill">{leverage}×</span></span>
+                </div>
+              )}
               <div className="pos-mobile-cell">
                 <span className="pos-mobile-label">Qty</span>
                 <span className="pos-mobile-val mono">{row.finalQuantity ?? '—'}</span>

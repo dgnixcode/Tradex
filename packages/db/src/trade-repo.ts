@@ -232,6 +232,17 @@ export interface GroupTradeRow {
   readonly dryRun: boolean;
   readonly sendSuppressed: boolean;
   readonly completedAt: Date | null;
+  readonly isFutures?: boolean | undefined;
+  readonly leverage?: string | null | undefined;
+  readonly marginCurrency?: string | null | undefined;
+  readonly quoteCurrency?: string | null | undefined;
+  readonly positionMarginType?: string | null | undefined;
+  readonly stopLossPrice?: string | null | undefined;
+  readonly takeProfitPrice?: string | null | undefined;
+  readonly trailingStopLoss?: boolean | undefined;
+  readonly trailingDistanceBp?: string | null | undefined;
+  readonly trailingStepBp?: string | null | undefined;
+  readonly reduceOnly?: boolean | undefined;
 }
 
 /** Read a group trade header by id, scoped to the tenant. */
@@ -260,6 +271,17 @@ export async function getGroupTrade(tdb: TenantDb, groupTradeId: string): Promis
     dryRun: r['dry_run'] as boolean,
     sendSuppressed: r['send_suppressed'] as boolean,
     completedAt: r['completed_at'] === null ? null : new Date(r['completed_at'] as string),
+    isFutures: Boolean(r['is_futures']),
+    leverage: (r['leverage'] as string | null) ?? null,
+    marginCurrency: (r['margin_currency'] as string | null) ?? null,
+    quoteCurrency: (r['quote_currency'] as string | null) ?? null,
+    positionMarginType: (r['position_margin_type'] as string | null) ?? null,
+    stopLossPrice: (r['stop_loss_price'] as string | null) ?? null,
+    takeProfitPrice: (r['take_profit_price'] as string | null) ?? null,
+    trailingStopLoss: Boolean(r['trailing_stop_loss']),
+    trailingDistanceBp: (r['trailing_distance_bp'] as string | null) ?? null,
+    trailingStepBp: (r['trailing_step_bp'] as string | null) ?? null,
+    reduceOnly: Boolean(r['reduce_only']),
   };
 }
 

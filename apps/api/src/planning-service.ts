@@ -133,6 +133,15 @@ export interface PreviewResult {
   readonly plannedCount: number;
   readonly skippedCount: number;
   readonly rows: readonly PreviewRow[];
+  readonly isFutures?: boolean | undefined;
+  readonly leverage?: string | null | undefined;
+  readonly side?: string | undefined;
+  readonly asset?: string | undefined;
+  readonly orderType?: string | undefined;
+  readonly marginCurrency?: string | null | undefined;
+  readonly positionMarginType?: string | null | undefined;
+  readonly stopLossPrice?: string | null | undefined;
+  readonly takeProfitPrice?: string | null | undefined;
 }
 
 export interface PlanningDeps {
@@ -417,6 +426,15 @@ export class PlanningService {
       plannedCount: rows.filter((r) => r.state === 'planned').length,
       skippedCount: rows.filter((r) => r.state === 'skipped').length,
       rows,
+      isFutures: req.isFutures ?? false,
+      leverage: req.leverage ?? null,
+      side: req.side,
+      asset: req.asset,
+      orderType: req.orderType,
+      marginCurrency: req.marginCurrency ?? null,
+      positionMarginType: req.positionMarginType ?? null,
+      stopLossPrice: req.stopLossPrice ?? null,
+      takeProfitPrice: req.takeProfitPrice ?? null,
     };
   }
 
@@ -676,6 +694,15 @@ export class PlanningService {
       plannedCount: rows.filter((r) => r.state === 'planned').length,
       skippedCount: rows.filter((r) => r.state === 'skipped').length,
       rows,
+      isFutures: trade.isFutures ?? false,
+      leverage: trade.leverage ?? null,
+      side: trade.side,
+      asset: trade.asset,
+      orderType: trade.orderType,
+      marginCurrency: trade.marginCurrency ?? null,
+      positionMarginType: trade.positionMarginType ?? null,
+      stopLossPrice: trade.stopLossPrice ?? null,
+      takeProfitPrice: trade.takeProfitPrice ?? null,
     };
   }
 
