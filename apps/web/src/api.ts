@@ -44,13 +44,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       notifySessionExpired();
     }
     let detail = res.statusText;
+    let code: string | undefined;
     try {
-      const body = (await res.json()) as { message?: string };
+      const body = (await res.json()) as { message?: string; error?: string };
       if (typeof body.message === 'string') detail = body.message;
+      if (typeof body.error === 'string') code = body.error;
     } catch {
       // non-JSON error body; keep the status text
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, code);
   }
   return (await res.json()) as T;
 }

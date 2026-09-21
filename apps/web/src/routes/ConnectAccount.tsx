@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { confirmAccount, validateAccount } from '../api.ts';
+import { confirmAccount, validateAccount, stepUp, ApiError } from '../api.ts';
 import type { Reconciliation, ValidateAccountInput } from '../api.ts';
 
 // Connect an exchange account (onboarding). Owner + a fresh second factor only,
@@ -51,6 +51,12 @@ function formatMinor(minor: string, scale: number, currency: string, maxDecimals
 /** The tradable step of a quote. Sizing bases are always stated at this scale. */
 const quoteScaleOf = (currency: string): number => (currency === 'INR' ? 2 : 8);
 
+function isReauthError(e: unknown): boolean {
+  if (e instanceof ApiError && e.code === 'reauth_required') return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /second factor|reauth|two-factor/i.test(msg);
+}
+
 type Step = 'form' | 'reconcile' | 'done';
 
 export function ConnectAccount() {
@@ -65,19 +71,140 @@ export function ConnectAccount() {
   // reconcile state — every figure below came from the exchange
   const [reconcile, setReconcile] = useState<Reconciliation | null>(null);
 
+  // 2FA step-up state
+  const [needsCode, setNeedsCode] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [steppingUp, setSteppingUp] = useState(false);
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<'validate' | 'confirm' | null>(null);
+
   const validate = useMutation({
     mutationFn: (input: ValidateAccountInput) => validateAccount(input),
-    onSuccess: (r) => { setReconcile(r.reconciliation); setStep('reconcile'); setFormError(null); },
-    onError: (e) => setFormError(e instanceof Error ? e.message : 'the venue rejected the key'),
+    onSuccess: (r) => {
+      setReconcile(r.reconciliation);
+      setStep('reconcile');
+      setFormError(null);
+      setNeedsCode(false);
+      setStepUpError(null);
+    },
+    onError: (e) => {
+      if (isReauthError(e)) {
+        setNeedsCode(true);
+        setPendingAction('validate');
+        setStepUpError(null);
+        setFormError(null);
+      } else {
+        setFormError(e instanceof Error ? e.message : 'the venue rejected the key');
+      }
+    },
   });
 
   const confirm = useMutation({
     // Only the account id: the basis, funding currency and balances were all read
     // from the venue and stored during validate, so there is nothing to send back.
     mutationFn: () => confirmAccount(reconcile?.accountId ?? ''),
-    onSuccess: () => { setStep('done'); },
-    onError: (e) => setFormError(e instanceof Error ? e.message : 'could not activate the account'),
+    onSuccess: () => {
+      setStep('done');
+      setNeedsCode(false);
+      setStepUpError(null);
+    },
+    onError: (e) => {
+      if (isReauthError(e)) {
+        setNeedsCode(true);
+        setPendingAction('confirm');
+        setStepUpError(null);
+        setFormError(null);
+      } else {
+        setFormError(e instanceof Error ? e.message : 'could not activate the account');
+      }
+    },
   });
+
+  const handleStepUp = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    const cleanCode = totpCode.trim();
+    if (!cleanCode) return;
+    setSteppingUp(true);
+    setStepUpError(null);
+    try {
+      await stepUp(cleanCode);
+      setNeedsCode(false);
+      setTotpCode('');
+      setStepUpError(null);
+      setFormError(null);
+      if (pendingAction === 'confirm') {
+        confirm.mutate();
+      } else {
+        validate.mutate({ accountName, apiKey, apiSecret });
+      }
+    } catch (err) {
+      setStepUpError(err instanceof Error ? err.message : 'Invalid 2FA code. Please check your authenticator app.');
+    } finally {
+      setSteppingUp(false);
+    }
+  };
+
+  const renderStepUpPrompt = () => {
+    if (!needsCode) return null;
+    return (
+      <div style={{
+        margin: '16px 0',
+        padding: '16px 20px',
+        background: 'rgba(59, 130, 246, 0.08)',
+        border: '1px solid rgba(59, 130, 246, 0.3)',
+        borderRadius: 8,
+      }}>
+        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text, #e2e8f0)', marginBottom: 6 }}>
+          Security Verification Required
+        </div>
+        <p className="muted" style={{ fontSize: 13, margin: '0 0 12px 0', lineHeight: 1.4 }}>
+          Connecting exchange credentials requires a fresh second factor. Enter your 6-digit Authenticator code to continue without losing your entered keys.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={8}
+            placeholder="6-digit code"
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value.replace(/\s+/g, ''))}
+            aria-label="2FA code"
+            style={{
+              width: 160,
+              padding: '8px 12px',
+              fontSize: 15,
+              letterSpacing: '2px',
+              fontFamily: 'monospace',
+              borderRadius: 6,
+              background: '#171f33',
+              color: '#ffffff',
+              border: '1px solid #28354d',
+            }}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={steppingUp || totpCode.trim().length < 6}
+            onClick={(e) => void handleStepUp(e)}
+          >
+            {steppingUp ? 'Verifying…' : 'Verify & Continue'}
+          </button>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => { setNeedsCode(false); setTotpCode(''); }}
+          >
+            Dismiss
+          </button>
+        </div>
+        {stepUpError !== null && (
+          <div className="error" style={{ marginTop: 10, fontSize: 13 }}>{stepUpError}</div>
+        )}
+      </div>
+    );
+  };
 
   if (step === 'done') {
     return (
@@ -148,11 +275,12 @@ export function ConnectAccount() {
           </div>
         </details>
 
+        {renderStepUpPrompt()}
         {formError !== null && <div className="error">{formError}</div>}
 
         <div className="row" style={{ maxWidth: 420 }}>
           <button className="btn secondary" onClick={() => setStep('form')}>Back</button>
-          <button className="btn" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
+          <button className="btn" disabled={confirm.isPending || steppingUp} onClick={() => confirm.mutate()}>
             {confirm.isPending ? 'Connecting…' : 'Connect account'}
           </button>
         </div>
@@ -190,11 +318,12 @@ export function ConnectAccount() {
           </div>
         </div>
 
+        {renderStepUpPrompt()}
         {formError !== null && <div className="error">{formError}</div>}
 
         <div className="row" style={{ maxWidth: 460 }}>
           <Link to="/app/accounts" className="btn secondary">Cancel</Link>
-          <button className="btn" type="submit" disabled={!canValidate || validate.isPending}>
+          <button className="btn" type="submit" disabled={!canValidate || validate.isPending || steppingUp}>
             {validate.isPending ? 'Reading the account…' : 'Validate key'}
           </button>
         </div>
