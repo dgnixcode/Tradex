@@ -266,10 +266,10 @@ export function AccountDetail() {
 
 
   const adjustMut = useMutation({
-    mutationFn: ({ id, direction, percentBp }: { id: string; direction: 'reduce' | 'increase'; percentBp: number }) =>
-      adjustFuturesPosition(id, direction, percentBp),
-    onSuccess: (out, { direction, percentBp }) => {
-      setSyncNote(`${direction === 'reduce' ? 'Closed' : 'Added'} ${percentBp / 100}% — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit)' : ''}.`);
+    mutationFn: ({ id, direction, percentBp, quantity }: { id: string; direction: 'reduce' | 'increase'; percentBp?: number | undefined; quantity?: string | undefined }) =>
+      adjustFuturesPosition(id, direction, percentBp, undefined, quantity),
+    onSuccess: (out, { direction, percentBp, quantity }) => {
+      setSyncNote(`${direction === 'reduce' ? 'Closed' : 'Added'} ${quantity ? `${quantity} qty` : `${(percentBp ?? 0) / 100}%`} — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit)' : ''}.`);
       setManagingPosition(null);
       invalidate();
     },
@@ -1993,7 +1993,7 @@ export function AccountDetail() {
           position={liveManagingPosition}
           onClose={() => setManagingPosition(null)}
           onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
-          onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
+          onAdjust={(id, direction, percentBp, quantity) => adjustMut.mutate({ id, direction, percentBp, quantity })}
           onProtection={(args) => protMut.mutate(args)}
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}

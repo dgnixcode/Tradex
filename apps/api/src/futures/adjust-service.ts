@@ -53,7 +53,9 @@ export interface AdjustInput {
   /** The position as the venue reports it: signed, positive long. */
   readonly activePos: string;
   /** Basis points of the CURRENT position, 1..10000. 2500 = 25%. */
-  readonly percentBp: number;
+  readonly percentBp?: number | undefined;
+  /** Optional explicit quantity to adjust. When provided, takes precedence over percentBp. */
+  readonly quantity?: string | undefined;
   readonly quantityIncrement: string;
   readonly minQuantity: string;
   readonly minNotional: string;
@@ -79,13 +81,29 @@ export type AdjustPlan =
  * leverage and margin decisions, not something to reach by sending 25% of zero.
  */
 export function planAdjustment(input: AdjustInput): AdjustPlan {
-  if (!Number.isInteger(input.percentBp) || input.percentBp <= 0 || input.percentBp > 10_000) {
-    return { ok: false, code: 'bad_percent', detail: `percentBp must be a whole 1..10000, got ${String(input.percentBp)}` };
-  }
-
   const pos = scaled(input.activePos.replace(/^-/, ''), 'active_pos');
   if (pos === 0n) {
     return { ok: false, code: 'no_position', detail: 'this pair has no open position to adjust' };
+  }
+
+  let raw: bigint;
+  if (input.quantity !== undefined && input.quantity.trim() !== '') {
+    try {
+      raw = scaled(input.quantity, 'quantity');
+    } catch {
+      return { ok: false, code: 'bad_quantity', detail: `quantity "${input.quantity}" is not a valid positive decimal` };
+    }
+    if (raw === 0n) {
+      return { ok: false, code: 'too_small', detail: 'quantity must be greater than zero' };
+    }
+  } else {
+    if (input.percentBp === undefined || !Number.isInteger(input.percentBp) || input.percentBp <= 0 || input.percentBp > 10_000) {
+      return { ok: false, code: 'bad_percent', detail: `percentBp must be a whole 1..10000, got ${String(input.percentBp)}` };
+    }
+    raw = (pos * BigInt(input.percentBp)) / 10_000n;
+    if (raw === 0n) {
+      return { ok: false, code: 'too_small', detail: `${input.percentBp / 100}% of this position rounds to nothing` };
+    }
   }
 
   // The side is the OPPOSITE of the position when reducing: selling a long closes
@@ -97,11 +115,6 @@ export function planAdjustment(input: AdjustInput): AdjustPlan {
     ? (isLong ? 'sell' : 'buy')
     : (isLong ? 'buy' : 'sell');
 
-  const raw = (pos * BigInt(input.percentBp)) / 10_000n;
-  if (raw === 0n) {
-    return { ok: false, code: 'too_small', detail: `${input.percentBp / 100}% of this position rounds to nothing` };
-  }
-
   const step = scaled(input.quantityIncrement, 'quantity_increment');
   if (step === 0n) {
     // A zero step means the venue gave us no quantization rule. Rounding against
@@ -112,12 +125,16 @@ export function planAdjustment(input: AdjustInput): AdjustPlan {
   // DOWN. Not a stylistic choice: up is the direction that can exceed the
   // position and flip it.
   let quantity = (raw / step) * step;
-  if (quantity > pos) quantity = pos;              // belt-and-braces against a race
+  if (input.direction === 'reduce' && quantity > pos) {
+    quantity = pos; // belt-and-braces against a race or oversized reduce
+  }
   if (quantity === 0n) {
     return {
       ok: false,
       code: 'below_step',
-      detail: `${input.percentBp / 100}% is smaller than one quantity step (${input.quantityIncrement})`,
+      detail: input.quantity !== undefined
+        ? `quantity "${input.quantity}" is smaller than one quantity step (${input.quantityIncrement})`
+        : `${(input.percentBp ?? 0) / 100}% is smaller than one quantity step (${input.quantityIncrement})`,
     };
   }
 

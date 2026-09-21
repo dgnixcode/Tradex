@@ -898,6 +898,7 @@ if (sending) {
       direction: args.direction,
       activePos: pos.activePos,
       percentBp: args.percentBp,
+      quantity: args.quantity,
       quantityIncrement: inst.instrument.quantityIncrement,
       minQuantity: inst.instrument.minQuantity,
       minNotional: inst.instrument.minNotional,

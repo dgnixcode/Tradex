@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
   fetchFuturesPrices, fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
+  syncAccount,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
@@ -1049,7 +1050,7 @@ export interface PositionManageModalProps {
   readonly position: FuturesPositionRow;
   readonly onClose: () => void;
   readonly onExit: (id: string, marginCurrency: 'INR' | 'USDT') => void;
-  readonly onAdjust: (id: string, direction: 'reduce' | 'increase', percentBp: number) => void;
+  readonly onAdjust: (id: string, direction: 'reduce' | 'increase', percentBp?: number, quantity?: string) => void;
   readonly onProtection: (args: { id: string; slp?: string | undefined; tpp?: string | undefined; trailing?: boolean | undefined }) => void;
   readonly isExiting: boolean;
   readonly isAdjusting: boolean;
@@ -1088,21 +1089,34 @@ export function PositionManageModal({
     ) ?? null;
   }, [accountsQuery.data, position.accountId, position.accountName]);
 
-  const accountFreeCashMinor = matchedAccount?.allocatedCapitalMinor ?? null;
+  const accountFreeCashMinor = matchedAccount
+    ? (matchedAccount.balancesByCurrency?.[position.marginCurrency] ??
+       (matchedAccount.allocatedCurrency === position.marginCurrency ? matchedAccount.allocatedCapitalMinor : '0'))
+    : null;
 
-  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const handleManualRefresh = async () => {
-    setIsManualRefreshing(true);
+  const [isSyncingBalance, setIsSyncingBalance] = useState(false);
+  const handleSyncBalance = async () => {
+    if (!position.accountId) return;
+    setIsSyncingBalance(true);
     try {
+      await syncAccount(position.accountId);
       await Promise.all([
         accountsQuery.refetch(),
         qc.invalidateQueries({ queryKey: ['futures-positions'] }),
       ]);
+    } catch (err) {
+      console.error('Failed to sync account balance', err);
     } finally {
-      setTimeout(() => setIsManualRefreshing(false), 500);
+      setIsSyncingBalance(false);
     }
   };
-  const isRefreshing = isManualRefreshing || accountsQuery.isFetching;
+
+  // Auto-sync live exchange balance on modal mount
+  useEffect(() => {
+    void handleSyncBalance();
+  }, [position.accountId]);
+
+  const isRefreshing = isSyncingBalance || accountsQuery.isFetching;
 
   // Partial close / reduce state
   const [reducePct, setReducePct] = useState<number>(25);
@@ -1110,9 +1124,11 @@ export function PositionManageModal({
   const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
 
   // Increase / add state
+  const [increaseSizingMode, setIncreaseSizingMode] = useState<'percent' | 'quantity'>('percent');
   const [increasePct, setIncreasePct] = useState<number>(25);
   const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
   const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
+  const [increaseQtyInput, setIncreaseQtyInput] = useState<string>('');
 
   // Protection state
   const initSl = position.stopLossTrigger && position.stopLossTrigger !== '0' && Number(position.stopLossTrigger) > 0 ? position.stopLossTrigger : '';
@@ -1225,10 +1241,97 @@ export function PositionManageModal({
   const totalQty = Number(position.quantity);
   const reduceQty = (totalQty * reducePct / 100).toFixed(4);
   const remainQty = Math.max(0, totalQty - Number(reduceQty)).toFixed(4);
-  const increaseQty = (totalQty * increasePct / 100).toFixed(4);
-  const newTotalQty = (totalQty + Number(increaseQty)).toFixed(4);
-  const addMarginMinor = calcProportionalMinor(position.lockedMarginMinor, increasePct);
   const reduceMarginMinor = calcProportionalMinor(position.lockedMarginMinor, reducePct);
+
+  // Sizing math for Increase based on Available Free Balance or explicit Quantity
+  const quoteScale = quoteScaleOf(position.marginCurrency);
+  const freeBalanceMajor = accountFreeCashMinor !== null ? Number(accountFreeCashMinor) / (10 ** quoteScale) : 0;
+  const lockedMarginMajor = position.lockedMarginMinor !== null && position.lockedMarginMinor !== ''
+    ? Number(position.lockedMarginMinor) / (10 ** quoteScale)
+    : 0;
+
+  const marginPerUnit = useMemo(() => {
+    if (totalQty > 0 && lockedMarginMajor > 0) {
+      return lockedMarginMajor / totalQty;
+    }
+    const mark = position.markPrice ? Number(position.markPrice) : (position.avgEntryPrice ? Number(position.avgEntryPrice) : 0);
+    const lev = position.leverage ? Number(position.leverage) : 1;
+    if (mark > 0 && lev > 0) {
+      return mark / lev;
+    }
+    return 0;
+  }, [totalQty, lockedMarginMajor, position.markPrice, position.avgEntryPrice, position.leverage]);
+
+  const { calculatedAddQty, calculatedAddMarginMajor, calculatedAddMarginMinor, effectiveSliderPct, isOverBudget } = useMemo(() => {
+    if (increaseSizingMode === 'percent') {
+      const targetMarginMajor = freeBalanceMajor * (increasePct / 100);
+      const qty = marginPerUnit > 0 ? targetMarginMajor / marginPerUnit : 0;
+      const qtyStr = qty > 0 ? (qty >= 1 ? qty.toFixed(2) : qty.toFixed(4)).replace(/\.?0+$/, '') : '0';
+      const marginMinor = BigInt(Math.max(0, Math.round(targetMarginMajor * (10 ** quoteScale)))).toString();
+      const overBudget = targetMarginMajor > freeBalanceMajor + 0.0001;
+      return {
+        calculatedAddQty: qtyStr,
+        calculatedAddMarginMajor: targetMarginMajor,
+        calculatedAddMarginMinor: marginMinor,
+        effectiveSliderPct: increasePct,
+        isOverBudget: overBudget,
+      };
+    } else {
+      const parsedQty = parseFloat(increaseQtyInput);
+      const qtyNum = (!isNaN(parsedQty) && parsedQty > 0) ? parsedQty : 0;
+      const targetMarginMajor = qtyNum * marginPerUnit;
+      const marginMinor = BigInt(Math.max(0, Math.round(targetMarginMajor * (10 ** quoteScale)))).toString();
+      const pctOfBalance = freeBalanceMajor > 0 ? (targetMarginMajor / freeBalanceMajor) * 100 : 0;
+      const overBudget = freeBalanceMajor > 0 ? targetMarginMajor > freeBalanceMajor + 0.0001 : qtyNum > 0;
+      return {
+        calculatedAddQty: qtyNum > 0 ? (qtyNum >= 1 ? qtyNum.toFixed(2) : qtyNum.toFixed(4)).replace(/\.?0+$/, '') : '0',
+        calculatedAddMarginMajor: targetMarginMajor,
+        calculatedAddMarginMinor: marginMinor,
+        effectiveSliderPct: Math.min(100, Math.max(0, Math.round(pctOfBalance))),
+        isOverBudget: overBudget,
+      };
+    }
+  }, [increaseSizingMode, increasePct, increaseQtyInput, freeBalanceMajor, marginPerUnit, quoteScale]);
+
+  const newTotalQty = useMemo(() => {
+    const addNum = parseFloat(calculatedAddQty) || 0;
+    return (totalQty + addNum).toFixed(4).replace(/\.?0+$/, '');
+  }, [totalQty, calculatedAddQty]);
+
+  const handleSliderChange = (newPct: number) => {
+    setIncreasePct(newPct);
+    if (increaseSizingMode === 'quantity') {
+      const targetMarginMajor = freeBalanceMajor * (newPct / 100);
+      const qty = marginPerUnit > 0 ? targetMarginMajor / marginPerUnit : 0;
+      const qtyStr = qty > 0 ? (qty >= 1 ? qty.toFixed(2) : qty.toFixed(4)).replace(/\.?0+$/, '') : '';
+      setIncreaseQtyInput(qtyStr);
+    }
+  };
+
+  const handleQuantityInputChange = (val: string) => {
+    const sanitized = val.replace(/[^\d.]/g, '');
+    setIncreaseQtyInput(sanitized);
+    const num = parseFloat(sanitized);
+    if (!isNaN(num) && num > 0 && freeBalanceMajor > 0 && marginPerUnit > 0) {
+      const reqMargin = num * marginPerUnit;
+      const pct = Math.min(100, Math.max(0, Math.round((reqMargin / freeBalanceMajor) * 100)));
+      setIncreasePct(pct);
+    }
+  };
+
+  const toggleSizingMode = (mode: 'percent' | 'quantity') => {
+    if (mode === increaseSizingMode) return;
+    setIncreaseSizingMode(mode);
+    if (mode === 'quantity') {
+      if (calculatedAddQty && Number(calculatedAddQty) > 0) {
+        setIncreaseQtyInput(calculatedAddQty);
+      }
+    } else {
+      if (effectiveSliderPct > 0) {
+        setIncreasePct(effectiveSliderPct);
+      }
+    }
+  };
 
   return (
     <div className="position-modal-overlay" onClick={onClose}>
@@ -1891,10 +1994,10 @@ export function PositionManageModal({
           {activeTab === 'increase' && (
             <div>
               <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                Add more size to this existing position at current market price using group capital.
+                Add more size to this existing position at current market price using account available free balance.
               </p>
 
-              {/* Account Free Cash Card with Manual Refresh (single fetch on open) */}
+              {/* Account Free Cash Card with Live Sync Button */}
               <div
                 style={{
                   background: 'var(--surface-2)',
@@ -1911,7 +2014,7 @@ export function PositionManageModal({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Account Free Cash ({position.accountName})
+                      Available Free Balance ({position.accountName})
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
@@ -1927,7 +2030,7 @@ export function PositionManageModal({
                 <button
                   type="button"
                   className="btn btn-sm secondary"
-                  onClick={handleManualRefresh}
+                  onClick={() => void handleSyncBalance()}
                   disabled={isRefreshing}
                   style={{
                     display: 'flex',
@@ -1937,123 +2040,258 @@ export function PositionManageModal({
                     fontSize: 11.5,
                     whiteSpace: 'nowrap',
                   }}
-                  title="Refresh account balance"
+                  title="Sync live account balance from exchange"
                 >
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}>
                     <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                   </svg>
-                  {isRefreshing ? 'Refreshing…' : 'Refresh'}
+                  {isRefreshing ? 'Syncing…' : 'Sync Balance'}
                 </button>
               </div>
 
-              {/* Percentage Selection & Calculations */}
+              {/* Sizing Controls Card */}
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to add:</span>
-                  <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
-                </div>
-
-                {/* Chips + Custom Input */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {INCREASE_PCT_CHIPS.map((pct) => (
+                {/* Mode Selector Toggle */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Sizing Mode
+                  </span>
+                  <div style={{ display: 'flex', gap: 4, background: 'var(--surface-3)', padding: 3, borderRadius: 'var(--radius-pill)', border: '1px solid var(--line)' }}>
                     <button
-                      key={pct}
                       type="button"
-                      className="btn btn-sm secondary"
+                      className="btn btn-sm"
                       style={{
-                        flex: 1,
-                        minWidth: 54,
-                        padding: '6px 0',
-                        fontSize: 12,
-                        background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
-                        color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
-                        borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
-                        fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        background: increaseSizingMode === 'percent' ? 'var(--ok)' : 'transparent',
+                        color: increaseSizingMode === 'percent' ? '#000000' : 'var(--muted)',
+                        fontWeight: increaseSizingMode === 'percent' ? 700 : 500,
+                        border: 'none',
+                        borderRadius: 'var(--radius-pill)',
+                        cursor: 'pointer',
                       }}
-                      onClick={() => {
-                        setIncreasePct(pct);
-                        setCustomIncreaseInput('');
-                      }}
+                      onClick={() => toggleSizingMode('percent')}
                     >
-                      +{pct}%
+                      % of Free Balance
                     </button>
-                  ))}
-
-                  {/* Custom % Field */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="Custom %"
-                      value={customIncreaseInput}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d.]/g, '');
-                        setCustomIncreaseInput(val);
-                        const num = parseFloat(val);
-                        if (!isNaN(num) && num > 0) {
-                          setIncreasePct(num);
-                        }
-                      }}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
                       style={{
-                        width: '100%',
-                        padding: '6px 8px',
-                        fontSize: 12,
-                        background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
-                        borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
-                        color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
-                        fontWeight: isCustomIncrease ? 700 : 400,
-                        textAlign: 'center',
-                        borderRadius: 'var(--radius-sm)',
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        background: increaseSizingMode === 'quantity' ? 'var(--ok)' : 'transparent',
+                        color: increaseSizingMode === 'quantity' ? '#000000' : 'var(--muted)',
+                        fontWeight: increaseSizingMode === 'quantity' ? 700 : 500,
+                        border: 'none',
+                        borderRadius: 'var(--radius-pill)',
+                        cursor: 'pointer',
                       }}
-                    />
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                      onClick={() => toggleSizingMode('quantity')}
+                    >
+                      Exact Quantity
+                    </button>
                   </div>
                 </div>
 
-                {/* Financial Breakdown */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                {/* Sizing Input Area */}
+                {increaseSizingMode === 'percent' ? (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Allocate from available balance:</span>
+                      <strong style={{ fontSize: 14, color: 'var(--ok)' }}>{increasePct}%</strong>
+                    </div>
+
+                    {/* Quick % Chips */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {INCREASE_PCT_CHIPS.map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{
+                            flex: 1,
+                            minWidth: 54,
+                            padding: '6px 0',
+                            fontSize: 12,
+                            background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
+                            color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
+                            borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                            fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
+                          }}
+                          onClick={() => {
+                            setIncreasePct(pct);
+                            setCustomIncreaseInput('');
+                          }}
+                        >
+                          +{pct}%
+                        </button>
+                      ))}
+
+                      {/* Custom % Field */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Custom %"
+                          value={customIncreaseInput}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^\d.]/g, '');
+                            setCustomIncreaseInput(val);
+                            const num = parseFloat(val);
+                            if (!isNaN(num) && num >= 0 && num <= 100) {
+                              setIncreasePct(num);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            fontSize: 12,
+                            background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
+                            borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                            color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
+                            fontWeight: isCustomIncrease ? 700 : 400,
+                            textAlign: 'center',
+                            borderRadius: 'var(--radius-sm)',
+                          }}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <label htmlFor="increase-qty-input" style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                        Quantity to add:
+                      </label>
+                      <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                        ≈ {effectiveSliderPct}% of available balance
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        id="increase-qty-input"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 0.05"
+                        value={increaseQtyInput}
+                        onChange={(e) => handleQuantityInputChange(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: 13,
+                          background: 'var(--surface-3)',
+                          borderColor: isOverBudget ? 'var(--danger)' : 'var(--line)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: 'var(--text)',
+                          fontWeight: 600,
+                        }}
+                      />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {position.pair.split('_')[0].replace(/^[A-Z]-/, '')}
+                      </span>
+                    </div>
+
+                    {/* Quick % Chips in Quantity mode */}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      {INCREASE_PCT_CHIPS.map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{
+                            flex: 1,
+                            padding: '4px 0',
+                            fontSize: 11,
+                            background: effectiveSliderPct === pct ? 'var(--ok)' : 'var(--surface-3)',
+                            color: effectiveSliderPct === pct ? '#000000' : 'var(--text-dim)',
+                            borderColor: effectiveSliderPct === pct ? 'var(--ok)' : 'var(--line)',
+                            fontWeight: effectiveSliderPct === pct ? 700 : 500,
+                          }}
+                          onClick={() => {
+                            handleSliderChange(pct);
+                          }}
+                        >
+                          +{pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interactive 0% to 100% Range Slider */}
+                <div style={{ margin: '14px 0 10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 11.5, color: 'var(--muted)' }}>
+                    <span>0% (Min)</span>
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                      Slide: {effectiveSliderPct}% ({calculatedAddQty} {position.pair.split('_')[0].replace(/^[A-Z]-/, '')})
+                    </span>
+                    <span>100% (Max Free Balance)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={effectiveSliderPct}
+                    onChange={(e) => handleSliderChange(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      cursor: 'pointer',
+                      accentColor: isOverBudget ? 'var(--danger)' : 'var(--ok)',
+                    }}
+                  />
+                </div>
+
+                {/* Financial Breakdown Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 12, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <div>
-                    <span style={{ color: 'var(--muted)' }}>Estimated Funds Used: </span>
-                    <strong style={{ color: 'var(--ok)' }}>
-                      {addMarginMinor ? fmtMinor(addMarginMinor, position.marginCurrency) : '—'}
-                    </strong>
+                    <span style={{ color: 'var(--muted)' }}>Adding Size: </span>
+                    <strong style={{ color: 'var(--ok)' }}>+{calculatedAddQty}</strong>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: 'var(--muted)' }}>Adding Size: </span>
-                    <strong style={{ color: 'var(--ok)' }}>+{increaseQty}</strong>
+                    <span style={{ color: 'var(--muted)' }}>Estimated Margin Needed: </span>
+                    <strong style={{ color: isOverBudget ? 'var(--danger)' : 'var(--ok)' }}>
+                      {fmtMinor(calculatedAddMarginMinor, position.marginCurrency)}
+                    </strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--muted)' }}>Current Margin: </span>
-                    <span style={{ color: 'var(--text)' }}>
-                      {position.lockedMarginMinor ? fmtMinor(position.lockedMarginMinor, position.marginCurrency) : '—'}
-                    </span>
+                    <span style={{ color: 'var(--muted)' }}>Current Position Size: </span>
+                    <span style={{ color: 'var(--text)' }}>{totalQty}</span>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ color: 'var(--muted)' }}>New Total Size: </span>
                     <strong style={{ color: 'var(--text)' }}>{newTotalQty}</strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--muted)' }}>New Est. Total Margin: </span>
-                    <strong style={{ color: 'var(--text)' }}>
-                      {position.lockedMarginMinor && addMarginMinor
-                        ? fmtMinor(addMinors(position.lockedMarginMinor, addMarginMinor), position.marginCurrency)
-                        : '—'}
-                    </strong>
+                    <span style={{ color: 'var(--muted)' }}>Current Locked Margin: </span>
+                    <span style={{ color: 'var(--text)' }}>
+                      {position.lockedMarginMinor ? fmtMinor(position.lockedMarginMinor, position.marginCurrency) : '—'}
+                    </span>
                   </div>
                   <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>New Est. Total Margin: </span>
+                    <strong style={{ color: 'var(--text)' }}>
+                      {fmtMinor(addMinors(position.lockedMarginMinor || '0', calculatedAddMarginMinor), position.marginCurrency)}
+                    </strong>
+                  </div>
+                  <div>
                     <span style={{ color: 'var(--muted)' }}>Remaining Free Cash: </span>
-                    <span style={{ color: accountFreeCashMinor && addMarginMinor && BigInt(accountFreeCashMinor) < BigInt(addMarginMinor) ? 'var(--danger)' : 'var(--text)' }}>
-                      {accountFreeCashMinor && addMarginMinor
-                        ? (BigInt(accountFreeCashMinor) < BigInt(addMarginMinor)
-                            ? `${fmtMinor(String(BigInt(accountFreeCashMinor) - BigInt(addMarginMinor)), position.marginCurrency)} (Deficit)`
-                            : fmtMinor(String(BigInt(accountFreeCashMinor) - BigInt(addMarginMinor)), position.marginCurrency))
-                        : (accountFreeCashMinor ? fmtMinor(accountFreeCashMinor, position.marginCurrency) : '—')}
+                    <span style={{ color: isOverBudget ? 'var(--danger)' : 'var(--text)', fontWeight: isOverBudget ? 700 : 400 }}>
+                      {freeBalanceMajor >= calculatedAddMarginMajor
+                        ? fmtMinor(BigInt(Math.max(0, Math.round((freeBalanceMajor - calculatedAddMarginMajor) * (10 ** quoteScale)))).toString(), position.marginCurrency)
+                        : `${fmtMinor(BigInt(Math.round((calculatedAddMarginMajor - freeBalanceMajor) * (10 ** quoteScale))).toString(), position.marginCurrency)} (Deficit)`}
                     </span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Leverage: </span>
+                    <span style={{ color: 'var(--text)' }}>{position.leverage ? `${position.leverage}x` : '1x'}</span>
                   </div>
                 </div>
 
-                {/* Warning if requested funds exceed available account free cash */}
-                {accountFreeCashMinor && addMarginMinor && BigInt(accountFreeCashMinor) < BigInt(addMarginMinor) && (
+                {/* Warning if requested funds exceed available free cash */}
+                {isOverBudget && (
                   <div
                     style={{
                       marginTop: 12,
@@ -2069,7 +2307,7 @@ export function PositionManageModal({
                     }}
                   >
                     <span>
-                      Estimated margin needed ({fmtMinor(addMarginMinor, position.marginCurrency)}) exceeds free cash in {position.accountName} ({fmtMinor(accountFreeCashMinor, position.marginCurrency)})!
+                      Estimated margin needed ({fmtMinor(calculatedAddMarginMinor, position.marginCurrency)}) exceeds available free balance in {position.accountName} ({accountFreeCashMinor !== null ? fmtMinor(accountFreeCashMinor, position.marginCurrency) : '—'})!
                     </span>
                   </div>
                 )}
@@ -2084,10 +2322,10 @@ export function PositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isAdjusting || isHalted || increasePct <= 0}
-                  onClick={() => onAdjust(position.venuePositionId, 'increase', Math.round(increasePct * 100))}
+                  disabled={isAdjusting || isHalted || Number(calculatedAddQty) <= 0 || isOverBudget}
+                  onClick={() => onAdjust(position.venuePositionId, 'increase', undefined, calculatedAddQty)}
                 >
-                  {isAdjusting ? 'Increasing Position…' : `Add +${increasePct}% (+${increaseQty}) • Est. ${addMarginMinor ? fmtMinor(addMarginMinor, position.marginCurrency) : ''}`}
+                  {isAdjusting ? 'Increasing Position…' : `Add +${calculatedAddQty} Qty • Est. Margin ${fmtMinor(calculatedAddMarginMinor, position.marginCurrency)}`}
                 </button>
               </div>
             </div>
@@ -2204,24 +2442,37 @@ function GroupPositionManageModal({
     staleTime: 60_000,
   });
 
-  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const handleManualRefresh = async () => {
-    setIsManualRefreshing(true);
+  const [isSyncingAllBalances, setIsSyncingAllBalances] = useState(false);
+
+  const handleSyncAllBalances = async () => {
+    if (group.positions.length === 0 || isSyncingAllBalances) return;
+    setIsSyncingAllBalances(true);
     try {
+      const accountIds = Array.from(new Set(group.positions.map((p) => p.accountId)));
+      await mapConcurrent(accountIds, 8, async (accId) => {
+        try {
+          await syncAccount(accId);
+        } catch (err) {
+          console.error(`Failed to sync balance for account ${accId}:`, err);
+        }
+      });
       await Promise.all([
         accountsQuery.refetch(),
         onRefreshPositions(),
       ]);
     } finally {
-      setTimeout(() => setIsManualRefreshing(false), 500);
+      setIsSyncingAllBalances(false);
     }
   };
-  const isRefreshing = isManualRefreshing || accountsQuery.isFetching;
 
-  // Percentage states
+  const isRefreshing = isSyncingAllBalances || accountsQuery.isFetching;
+
+  // Sizing mode & states
+  const [groupIncreaseSizingMode, setGroupIncreaseSizingMode] = useState<'percent' | 'quantity'>('percent');
   const [increasePct, setIncreasePct] = useState<number>(25);
   const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
   const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
+  const [groupIncreaseQtyInput, setGroupIncreaseQtyInput] = useState<string>('0.01');
 
   const [reducePct, setReducePct] = useState<number>(25);
   const [customReduceInput, setCustomReduceInput] = useState<string>('');
@@ -2375,23 +2626,45 @@ function GroupPositionManageModal({
   const evaluatedAccounts = useMemo(() => {
     return group.positions.map((p) => {
       const acc = accountsMap.get(p.accountId) ?? accountsMap.get(p.accountName.toLowerCase().trim()) ?? null;
-      const freeCashMinor = acc?.allocatedCapitalMinor ?? null;
+      const quoteScale = quoteScaleOf(p.marginCurrency);
+      const freeCashMinor = acc
+        ? (acc.balancesByCurrency?.[p.marginCurrency] ?? (acc.allocatedCurrency === p.marginCurrency ? acc.allocatedCapitalMinor : '0'))
+        : null;
+      const freeBalanceMajor = freeCashMinor ? Number(freeCashMinor) / (10 ** quoteScale) : 0;
 
-      // Increase calculations
-      const addQty = (Number(p.quantity) * increasePct / 100).toFixed(4);
-      const newTotalQty = (Number(p.quantity) + Number(addQty)).toFixed(4);
-      const reqAddMarginMinor = calcProportionalMinor(p.lockedMarginMinor, increasePct);
-      const isFunded = freeCashMinor !== null && reqAddMarginMinor !== null && BigInt(freeCashMinor) >= BigInt(reqAddMarginMinor);
+      const posQty = Number(p.quantity);
+      const lockedMarginMajor = p.lockedMarginMinor ? Number(p.lockedMarginMinor) / (10 ** quoteScale) : 0;
+      const marginPerUnit = (posQty > 0 && lockedMarginMajor > 0)
+        ? (lockedMarginMajor / posQty)
+        : (p.markPrice && p.leverage ? Number(p.markPrice) / Number(p.leverage) : 0);
+
+      let addQtyNum = 0;
+      let targetAddMarginMajor = 0;
+
+      if (groupIncreaseSizingMode === 'percent') {
+        targetAddMarginMajor = freeBalanceMajor * (increasePct / 100);
+        addQtyNum = marginPerUnit > 0 ? targetAddMarginMajor / marginPerUnit : 0;
+      } else {
+        const parsed = parseFloat(groupIncreaseQtyInput);
+        addQtyNum = (!isNaN(parsed) && parsed > 0) ? parsed : 0;
+        targetAddMarginMajor = addQtyNum * marginPerUnit;
+      }
+
+      const addQty = addQtyNum > 0 ? (addQtyNum >= 1 ? addQtyNum.toFixed(2) : addQtyNum.toFixed(4)).replace(/\.?0+$/, '') : '0.0000';
+      const newTotalQty = (posQty + (parseFloat(addQty) || 0)).toFixed(4).replace(/\.?0+$/, '');
+      const reqAddMarginMinor = BigInt(Math.max(0, Math.round(targetAddMarginMajor * (10 ** quoteScale)))).toString();
+      const isFunded = freeCashMinor !== null && BigInt(freeCashMinor) >= BigInt(reqAddMarginMinor) && parseFloat(addQty) > 0;
 
       // Reduce calculations
-      const reduceQty = (Number(p.quantity) * reducePct / 100).toFixed(4);
-      const remainQty = Math.max(0, Number(p.quantity) - Number(reduceQty)).toFixed(4);
+      const reduceQty = (posQty * reducePct / 100).toFixed(4);
+      const remainQty = Math.max(0, posQty - Number(reduceQty)).toFixed(4);
       const reqReduceMarginMinor = calcProportionalMinor(p.lockedMarginMinor, reducePct);
 
       return {
         position: p,
         account: acc,
         freeCashMinor,
+        freeBalanceMajor,
         reqAddMarginMinor,
         isFunded,
         addQty,
@@ -2401,7 +2674,7 @@ function GroupPositionManageModal({
         reqReduceMarginMinor,
       };
     });
-  }, [group.positions, accountsMap, increasePct, reducePct]);
+  }, [group.positions, accountsMap, groupIncreaseSizingMode, increasePct, groupIncreaseQtyInput, reducePct]);
 
   const fundedAccounts = useMemo(() => evaluatedAccounts.filter((e) => e.isFunded), [evaluatedAccounts]);
   const skippedAccounts = useMemo(() => evaluatedAccounts.filter((e) => !e.isFunded), [evaluatedAccounts]);
@@ -2462,11 +2735,11 @@ function GroupPositionManageModal({
     let failed = 0;
     const errors: string[] = [];
 
-    const bp = Math.round(increasePct * 100);
     let completed = 0;
+    const batchGroupTradeId = crypto.randomUUID();
     await mapConcurrent(fundedAccounts, 12, async (item) => {
       try {
-        await adjustFuturesPosition(item.position.venuePositionId, 'increase', bp);
+        await adjustFuturesPosition(item.position.venuePositionId, 'increase', undefined, batchGroupTradeId, item.addQty);
         succeeded++;
       } catch (err) {
         failed++;
@@ -2485,7 +2758,7 @@ function GroupPositionManageModal({
     if (failed === 0) {
       setExecResult({
         kind: 'ok',
-        message: `Increased +${increasePct}% on ${succeeded} funded account${succeeded === 1 ? '' : 's'}. ${skippedAccounts.length} underfunded account(s) skipped cleanly.`,
+        message: `Increased positions on ${succeeded} funded account${succeeded === 1 ? '' : 's'}. ${skippedAccounts.length} underfunded account(s) skipped cleanly.`,
       });
     } else {
       setExecResult({
@@ -2808,7 +3081,9 @@ function GroupPositionManageModal({
                 gap: 8,
               }}
             >
-              <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+              </svg>
               <span>
                 Processing account <strong>{progress.current}</strong> of <strong>{progress.total}</strong> ({progress.accountName})…
               </span>
@@ -2833,10 +3108,10 @@ function GroupPositionManageModal({
             </div>
           )}
 
-          {/* ── Tab 1: Add / Increase (Group Fan-out with Eligibility) ── */}
+          {/* ── Tab 1: Add / Increase (Group Fan-out with Available Balance Sizing) ── */}
           {activeTab === 'increase' && (
             <div>
-              {/* Group Cash Overview & Manual Refresh */}
+              {/* Group Cash Overview & Live Sync All Balances */}
               <div
                 style={{
                   background: 'var(--surface-2)',
@@ -2852,7 +3127,7 @@ function GroupPositionManageModal({
               >
                 <div>
                   <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 2 }}>
-                    Combined Available Free Cash (All Accounts)
+                    Combined Available Free Balance (All Accounts)
                   </span>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <strong style={{ fontSize: 16, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
@@ -2864,87 +3139,192 @@ function GroupPositionManageModal({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="btn btn-sm secondary"
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '4px 10px',
-                    fontSize: 11.5,
-                  }}
-                  title="Refresh account balances"
-                >
-                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}>
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-                  </svg>
-                  {isRefreshing ? 'Refreshing…' : 'Refresh'}
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    onClick={() => void handleSyncAllBalances()}
+                    disabled={isRefreshing}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '4px 10px',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                    }}
+                    title="Fetch and sync live exchange balances from CoinDCX for all accounts"
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}>
+                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                    </svg>
+                    {isRefreshing ? 'Syncing Balances…' : 'Sync All Balances'}
+                  </button>
+                </div>
               </div>
 
-              {/* Percentage Selection */}
+              {/* Sizing Controls Card */}
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to add across group:</span>
-                  <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
-                </div>
-
-                {/* Chips + Custom Input */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {INCREASE_PCT_CHIPS.map((pct) => (
+                {/* Mode Selector */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Group Sizing Mode
+                  </span>
+                  <div style={{ display: 'flex', gap: 4, background: 'var(--surface-3)', padding: 3, borderRadius: 'var(--radius-pill)', border: '1px solid var(--line)' }}>
                     <button
-                      key={pct}
                       type="button"
-                      className="btn btn-sm secondary"
+                      className="btn btn-sm"
                       style={{
-                        flex: 1,
-                        minWidth: 54,
-                        padding: '6px 0',
-                        fontSize: 12,
-                        background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
-                        color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
-                        borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
-                        fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        background: groupIncreaseSizingMode === 'percent' ? 'var(--ok)' : 'transparent',
+                        color: groupIncreaseSizingMode === 'percent' ? '#000000' : 'var(--muted)',
+                        fontWeight: groupIncreaseSizingMode === 'percent' ? 700 : 500,
+                        border: 'none',
+                        borderRadius: 'var(--radius-pill)',
+                        cursor: 'pointer',
                       }}
-                      onClick={() => {
-                        setIncreasePct(pct);
-                        setCustomIncreaseInput('');
-                      }}
+                      onClick={() => setGroupIncreaseSizingMode('percent')}
                     >
-                      +{pct}%
+                      % of Available Balance
                     </button>
-                  ))}
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="Custom %"
-                      value={customIncreaseInput}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d.]/g, '');
-                        setCustomIncreaseInput(val);
-                        const num = parseFloat(val);
-                        if (!isNaN(num) && num > 0) setIncreasePct(num);
-                      }}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
                       style={{
-                        width: '100%',
-                        padding: '6px 8px',
-                        fontSize: 12,
-                        background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
-                        borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
-                        color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
-                        fontWeight: isCustomIncrease ? 700 : 400,
-                        textAlign: 'center',
-                        borderRadius: 'var(--radius-sm)',
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        background: groupIncreaseSizingMode === 'quantity' ? 'var(--ok)' : 'transparent',
+                        color: groupIncreaseSizingMode === 'quantity' ? '#000000' : 'var(--muted)',
+                        fontWeight: groupIncreaseSizingMode === 'quantity' ? 700 : 500,
+                        border: 'none',
+                        borderRadius: 'var(--radius-pill)',
+                        cursor: 'pointer',
                       }}
-                    />
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                      onClick={() => setGroupIncreaseSizingMode('quantity')}
+                    >
+                      Fixed Quantity per Account
+                    </button>
                   </div>
                 </div>
+
+                {groupIncreaseSizingMode === 'percent' ? (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Allocate from each account's available balance:</span>
+                      <strong style={{ fontSize: 14, color: 'var(--ok)' }}>+{increasePct}%</strong>
+                    </div>
+
+                    {/* Quick % Chips */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {INCREASE_PCT_CHIPS.map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{
+                            flex: 1,
+                            minWidth: 54,
+                            padding: '6px 0',
+                            fontSize: 12,
+                            background: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--surface-3)',
+                            color: increasePct === pct && !isCustomIncrease ? '#000000' : 'var(--text-dim)',
+                            borderColor: increasePct === pct && !isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                            fontWeight: increasePct === pct && !isCustomIncrease ? 700 : 500,
+                          }}
+                          onClick={() => {
+                            setIncreasePct(pct);
+                            setCustomIncreaseInput('');
+                          }}
+                        >
+                          +{pct}%
+                        </button>
+                      ))}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1.3, minWidth: 100 }}>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Custom %"
+                          value={customIncreaseInput}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^\d.]/g, '');
+                            setCustomIncreaseInput(val);
+                            const num = parseFloat(val);
+                            if (!isNaN(num) && num >= 0 && num <= 100) setIncreasePct(num);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            fontSize: 12,
+                            background: isCustomIncrease ? 'rgba(16, 185, 129, 0.15)' : 'var(--surface-3)',
+                            borderColor: isCustomIncrease ? 'var(--ok)' : 'var(--line)',
+                            color: isCustomIncrease ? 'var(--ok)' : 'var(--text)',
+                            fontWeight: isCustomIncrease ? 700 : 400,
+                            textAlign: 'center',
+                            borderRadius: 'var(--radius-sm)',
+                          }}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>%</span>
+                      </div>
+                    </div>
+
+                    {/* Interactive 0-100% Slider */}
+                    <div style={{ margin: '10px 0 12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 11.5, color: 'var(--muted)' }}>
+                        <span>0% (Min)</span>
+                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                          Slide: {increasePct}% of each account's free cash
+                        </span>
+                        <span>100% (Max Balance)</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={increasePct}
+                        onChange={(e) => setIncreasePct(Number(e.target.value))}
+                        style={{
+                          width: '100%',
+                          cursor: 'pointer',
+                          accentColor: 'var(--ok)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <label htmlFor="group-increase-qty" style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                        Fixed quantity to add per funded account:
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        id="group-increase-qty"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 0.01"
+                        value={groupIncreaseQtyInput}
+                        onChange={(e) => setGroupIncreaseQtyInput(e.target.value.replace(/[^\d.]/g, ''))}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: 13,
+                          background: 'var(--surface-3)',
+                          borderColor: 'var(--line)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: 'var(--text)',
+                          fontWeight: 600,
+                        }}
+                      />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {group.pair.split('_')[0].replace(/^[A-Z]-/, '')}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Eligibility Summary Banner */}
                 <div
@@ -2966,7 +3346,7 @@ function GroupPositionManageModal({
                       {fundedAccounts.length} of {group.positions.length} accounts funded
                     </strong>
                     <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>
-                      (Total Margin: {totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : '—'})
+                      (Total Margin Needed: {totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : '—'})
                     </span>
                   </div>
                   {skippedAccounts.length > 0 && (
@@ -3011,7 +3391,9 @@ function GroupPositionManageModal({
                             {item.position.accountName}
                           </td>
                           <td style={{ textAlign: 'right' }}>{item.position.quantity}</td>
-                          <td style={{ textAlign: 'right', color: 'var(--ok)' }}>+{item.addQty}</td>
+                          <td style={{ textAlign: 'right', color: item.isFunded ? 'var(--ok)' : 'var(--text-dim)' }}>
+                            +{item.addQty}
+                          </td>
                           <td style={{ textAlign: 'right', fontWeight: 600 }}>
                             {item.reqAddMarginMinor ? fmtMinor(item.reqAddMarginMinor, group.marginCurrency) : '—'}
                           </td>
@@ -3043,12 +3425,19 @@ function GroupPositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isExecuting || isHalted || fundedAccounts.length === 0 || increasePct <= 0}
+                  disabled={
+                    isExecuting ||
+                    isHalted ||
+                    fundedAccounts.length === 0 ||
+                    (groupIncreaseSizingMode === 'percent' ? increasePct <= 0 : (parseFloat(groupIncreaseQtyInput) || 0) <= 0)
+                  }
                   onClick={handleExecuteIncrease}
                 >
                   {isExecuting
                     ? 'Processing Fan-out…'
-                    : `Add +${increasePct}% to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`}
+                    : groupIncreaseSizingMode === 'percent'
+                      ? `Add +${increasePct}% to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`
+                      : `Add +${groupIncreaseQtyInput} Qty to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`}
                 </button>
               </div>
             </div>
@@ -4164,12 +4553,12 @@ export function Futures() {
   });
 
   const adjustMut = useMutation({
-    mutationFn: ({ id, direction, percentBp }: { id: string; direction: 'reduce' | 'increase'; percentBp: number }) =>
-      adjustFuturesPosition(id, direction, percentBp),
-    onSuccess: (out, { direction, percentBp }) => {
+    mutationFn: ({ id, direction, percentBp, quantity }: { id: string; direction: 'reduce' | 'increase'; percentBp?: number | undefined; quantity?: string | undefined }) =>
+      adjustFuturesPosition(id, direction, percentBp, undefined, quantity),
+    onSuccess: (out, { direction, percentBp, quantity }) => {
       setMessage({
         kind: 'ok',
-        text: `${direction === 'reduce' ? 'Closed' : 'Added'} ${percentBp / 100}% — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit via positions/exit)' : ''}.`,
+        text: `${direction === 'reduce' ? 'Closed' : 'Added'} ${quantity ? `${quantity} qty` : `${(percentBp ?? 0) / 100}%`} — ${out.quantity} ${direction === 'reduce' ? 'sold' : 'bought'}${out.full ? ' (full exit via positions/exit)' : ''}.`,
       });
       setManagingPosition(null);
       void handleRefreshAll();
@@ -4856,7 +5245,7 @@ export function Futures() {
           position={liveManagingPosition}
           onClose={() => setManagingPosition(null)}
           onExit={(id, mc) => exitMut.mutate({ id, marginCurrency: mc })}
-          onAdjust={(id, direction, percentBp) => adjustMut.mutate({ id, direction, percentBp })}
+          onAdjust={(id, direction, percentBp, quantity) => adjustMut.mutate({ id, direction, percentBp, quantity })}
           onProtection={(args) => protMut.mutate(args)}
           isExiting={exitMut.isPending}
           isAdjusting={adjustMut.isPending}

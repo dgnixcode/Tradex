@@ -95,7 +95,26 @@ export function Confirmation() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#34d399',
+            background: 'rgba(52, 211, 153, 0.1)',
+            padding: '3px 8px',
+            borderRadius: 4,
+            border: '1px solid rgba(52, 211, 153, 0.25)',
+          }}>
+            <svg viewBox="0 0 20 20" fill="currentColor" width="11" height="11">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+            Live exchange balances synced
+          </span>
+        </div>
         <div>
           {!confirmed && <Countdown expiresAtMs={result.previewExpiresAtMs} onExpire={onExpire} />}
         </div>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade, syncAccount } from '../api.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
@@ -745,6 +745,7 @@ export function TradeTicket() {
   const [highlightedAccountIndex, setHighlightedAccountIndex] = useState<number>(0);
   const accountPickerRef = useRef<HTMLDivElement>(null);
   const accountSearchInputRef = useRef<HTMLInputElement>(null);
+  const [isSyncingAccount, setIsSyncingAccount] = useState<boolean>(false);
   const [asset, setAsset] = useState<string>(() => {
     try {
       return draft.asset || localStorage.getItem('tradex_selected_asset') || 'BTC';
@@ -931,6 +932,19 @@ export function TradeTicket() {
     setAccountId(id);
     setIsAccountPickerOpen(false);
     setAccountSearch('');
+    // Immediately sync the selected account's fresh balance from CoinDCX
+    setIsSyncingAccount(true);
+    syncAccount(id)
+      .then(() => {
+        void accounts.refetch();
+        void groups.refetch();
+      })
+      .catch((err) => {
+        console.warn('account balance sync on selection encountered error:', err);
+      })
+      .finally(() => {
+        setIsSyncingAccount(false);
+      });
   };
 
   // Auto-select first active account if in account mode and no account selected
@@ -1040,7 +1054,11 @@ export function TradeTicket() {
 
   const preview = useMutation({
     mutationFn: (req: PlanRequest) => previewTrade(req),
-    onSuccess: (result) => navigate(`/app/trades/${result.groupTradeId}`),
+    onSuccess: (result) => {
+      void accounts.refetch();
+      void groups.refetch();
+      navigate(`/app/trades/${result.groupTradeId}`);
+    },
     onError: (err) => { console.error('preview failed:', err); },
   });
 
@@ -1882,11 +1900,21 @@ export function TradeTicket() {
                   {selectedAccount.groupName || 'Default (All Accounts)'}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ color: '#9ca3af' }}>Free:</span>
-                <span style={{ fontWeight: 700, color: '#ffffff' }}>
-                  {formattedAvailableCapital}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {isSyncingAccount && (
+                  <span style={{ fontSize: 10, color: '#38bdf8', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                    </svg>
+                    Syncing…
+                  </span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: '#9ca3af' }}>Free:</span>
+                  <span style={{ fontWeight: 700, color: '#ffffff' }}>
+                    {formattedAvailableCapital}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -2416,7 +2444,7 @@ export function TradeTicket() {
         {isHalted
           ? 'Trading Halted (Kill Switch Active)'
           : preview.isPending
-            ? 'Previewing…'
+            ? 'Syncing balances & planning…'
             : targetType === 'account'
               ? `Preview Trade · #${selectedAccount?.serialNo ?? ''} ${selectedAccount?.name ?? 'Account'}`
               : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}

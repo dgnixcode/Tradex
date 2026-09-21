@@ -79,7 +79,9 @@ export interface FuturesAdjustPort {
     readonly venuePositionId: string;
     readonly direction: 'reduce' | 'increase';
     /** Basis points of the CURRENT position; 2500 = 25%. */
-    readonly percentBp: number;
+    readonly percentBp?: number | undefined;
+    /** Optional explicit quantity to adjust. */
+    readonly quantity?: string | undefined;
   }) => Promise<
     | {
         readonly ok: true;
@@ -1288,14 +1290,15 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (deps.futuresAdjust === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
-      const body = (ctx.body ?? {}) as { direction?: unknown; percentBp?: unknown };
+      const body = (ctx.body ?? {}) as { direction?: unknown; percentBp?: unknown; quantity?: unknown };
       if (body.direction !== 'reduce' && body.direction !== 'increase') {
         throw new HttpError(400, 'direction must be "reduce" or "increase"');
       }
-      if (typeof body.percentBp !== 'number') {
-        throw new HttpError(400, 'percentBp must be a number (2500 = 25%)');
+      const hasPct = typeof body.percentBp === 'number';
+      const hasQty = typeof body.quantity === 'string' && /^\d+(\.\d+)?$/.test(body.quantity.trim()) && Number(body.quantity.trim()) > 0;
+      if (!hasPct && !hasQty) {
+        throw new HttpError(400, 'either percentBp (number) or quantity (positive decimal string) must be provided');
       }
-      const pct = body.percentBp;
       const adjustOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futAdjustMatch[1] as string);
       if (adjustOwner === null) throw new HttpError(404, 'no such futures position');
 
@@ -1316,7 +1319,8 @@ export function createHttpServer(deps: HttpDeps): Server {
         actor: { tenantId: principal.tenantId, accountId: adjustOwner.accountId },
         venuePositionId: futAdjustMatch[1] as string,
         direction: body.direction,
-        percentBp: pct,
+        ...(hasPct ? { percentBp: body.percentBp as number } : {}),
+        ...(hasQty ? { quantity: (body.quantity as string).trim() } : {}),
       });
       // A refusal here is a SIZING decision the customer can act on (below the
       // minimum notional, smaller than one step), not a server fault — so it is a
@@ -1350,8 +1354,8 @@ export function createHttpServer(deps: HttpDeps): Server {
           isFutures: true,
           marginCurrency: posSnapshot.marginCurrency as 'INR' | 'USDT',
           leverage: posSnapshot.leverage ?? '1',
-          sizingMode: 'pct_position',
-          sizingValue: String(pct / 100),
+          sizingMode: hasQty ? 'base_quantity' : 'pct_position',
+          sizingValue: hasQty ? (body.quantity as string).trim() : String((body.percentBp as number) / 100),
           venueOrderId: adjusted.venueOrderId ?? null,
           venuePositionId: posSnapshot.venuePositionId,
           state: 'filled',
@@ -2032,6 +2036,37 @@ export function createHttpServer(deps: HttpDeps): Server {
         || (body.side !== 'buy' && body.side !== 'sell')) {
         throw new HttpError(400, 'groupId, asset and side are required');
       }
+
+      // Synchronize live exchange balances for target accounts before preview sizing
+      if (deps.accountSync !== undefined) {
+        try {
+          const tdb = forTenant(deps.db, principal.tenantId);
+          let targetAccounts: readonly string[] = [];
+          if (body.accountIds && body.accountIds.length > 0) {
+            targetAccounts = body.accountIds;
+          } else if (body.accountId) {
+            targetAccounts = [body.accountId];
+          } else if (body.groupId) {
+            const members = await tdb.selectFrom('group_member')
+              .select('account_id as accountId')
+              .where('group_id' as never, '=', body.groupId as never)
+              .where('enabled' as never, '=', true as never)
+              .execute() as Array<{ accountId: string }>;
+            targetAccounts = members.map((m) => m.accountId);
+          }
+          // Sync concurrently in small chunks to protect exchange rate budget
+          const CHUNK = 8;
+          for (let i = 0; i < targetAccounts.length; i += CHUNK) {
+            const slice = targetAccounts.slice(i, i + CHUNK);
+            await Promise.allSettled(
+              slice.map((accId) => deps.accountSync!({ tenantId: principal.tenantId, accountId: accId }))
+            );
+          }
+        } catch (syncErr) {
+          console.warn('[preview] pre-plan balance sync encountered non-fatal error:', syncErr);
+        }
+      }
+
       // The actor is the session's user, never a client-supplied field.
       const req = { ...body, createdBy: principal.userId } as PlanRequest;
       const result = await planning.preview(req);

@@ -906,11 +906,23 @@ export interface FuturesPositionsResponse {
  * refuses below the venue's minimums rather than nudging the size up.
  */
 export const adjustFuturesPosition = (
-  venuePositionId: string, direction: 'reduce' | 'increase', percentBp: number, groupTradeId?: string,
+  venuePositionId: string,
+  direction: 'reduce' | 'increase',
+  percentBp?: number,
+  groupTradeId?: string,
+  quantity?: string,
 ): Promise<{ quantity: string; venueOrderId: string | null; full: boolean }> =>
   request<{ quantity: string; venueOrderId: string | null; full: boolean }>(
     `/futures/positions/${venuePositionId}/adjust`,
-    { method: 'POST', body: JSON.stringify({ direction, percentBp, ...(groupTradeId ? { groupTradeId } : {}) }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        direction,
+        ...(percentBp !== undefined ? { percentBp } : {}),
+        ...(quantity !== undefined && quantity.trim() !== '' ? { quantity: quantity.trim() } : {}),
+        ...(groupTradeId ? { groupTradeId } : {}),
+      }),
+    },
   );
 
 /**
