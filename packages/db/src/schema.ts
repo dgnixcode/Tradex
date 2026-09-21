@@ -46,6 +46,7 @@ export interface AppUserTable {
   created_at: Generated<Timestamp>;
   disabled_at: Timestamp | null;
   is_master: Generated<boolean>;
+  alert_config: ColumnType<string | null, string | null, string | null>;
 }
 
 export interface TenantLimitTable {

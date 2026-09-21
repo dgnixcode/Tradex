@@ -47,3 +47,42 @@ export async function setUserTotp(
     .executeTakeFirst();
   if (updated === undefined) throw new UserRepoError(`user ${userId} was not found`);
 }
+
+/** Read a user's saved alert configuration. Returns null if not configured. */
+export async function getUserAlertConfig(
+  tdb: TenantDb,
+  userId: string,
+): Promise<Record<string, unknown> | null> {
+  const row = await tdb.byId('app_user', userId)
+    .select(['alert_config'] as unknown as never)
+    .executeTakeFirst();
+  if (!row) return null;
+  const raw = (row as { alert_config: unknown }).alert_config;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === 'object') {
+    return raw as Record<string, unknown>;
+  }
+  return null;
+}
+
+/** Update a user's saved alert configuration in the database. */
+export async function setUserAlertConfig(
+  tdb: TenantDb,
+  userId: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const updated = await tdb.updateTable('app_user')
+    .set({ alert_config: JSON.stringify(config) } as never)
+    .where('id' as never, '=', userId as never)
+    .returning('id' as unknown as never)
+    .executeTakeFirst();
+  if (updated === undefined) throw new UserRepoError(`user ${userId} was not found`);
+}
+

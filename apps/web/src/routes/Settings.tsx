@@ -12,6 +12,8 @@ import {
   stepUp,
   toggleKillSwitch,
   updateServerBranding,
+  fetchAlertConfig,
+  updateAlertConfig,
 } from '../api.ts';
 import type { ApiError } from '../api.ts';
 import {
@@ -141,6 +143,22 @@ export function Settings() {
   const [alertConfig, setAlertConfig] = useState<PositionAlertConfig>(() => loadPositionAlertConfig());
   const [isTestingSound, setIsTestingSound] = useState(false);
   const [alertsSavedStatus, setAlertsSavedStatus] = useState<string | null>(null);
+  const [remoteSynced, setRemoteSynced] = useState(false);
+
+  // Fetch account-level alert settings persisted in the database
+  const alertRemoteQuery = useQuery({
+    queryKey: ['settings-alerts'],
+    queryFn: fetchAlertConfig,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (alertRemoteQuery.data?.config && !remoteSynced) {
+      setAlertConfig(alertRemoteQuery.data.config);
+      savePositionAlertConfig(alertRemoteQuery.data.config);
+      setRemoteSynced(true);
+    }
+  }, [alertRemoteQuery.data, remoteSynced]);
 
   // Live positions query for monitoring preview
   const livePositions = useQuery({
@@ -233,12 +251,27 @@ export function Settings() {
     alertSound.playChime(type, alertConfig.volume);
   };
 
+  const updateAlertMut = useMutation({
+    mutationFn: (cfg: PositionAlertConfig) => updateAlertConfig(cfg),
+    onSuccess: (data) => {
+      savePositionAlertConfig(data.config);
+      void qc.invalidateQueries({ queryKey: ['settings-alerts'] });
+      setAlertsSavedStatus('Alert settings saved to database and live across all devices.');
+      setTimeout(() => {
+        setAlertsSavedStatus(null);
+      }, 4000);
+    },
+    onError: (err) => {
+      savePositionAlertConfig(alertConfig);
+      setAlertsSavedStatus(`Saved locally (cloud sync note: ${err instanceof Error ? err.message : 'failed'})`);
+      setTimeout(() => {
+        setAlertsSavedStatus(null);
+      }, 5000);
+    },
+  });
+
   const handleSaveAlertConfig = () => {
-    savePositionAlertConfig(alertConfig);
-    setAlertsSavedStatus('Alert settings saved successfully and live across all screens.');
-    setTimeout(() => {
-      setAlertsSavedStatus(null);
-    }, 4000);
+    updateAlertMut.mutate(alertConfig);
   };
 
   // =========================================================================
@@ -1670,10 +1703,11 @@ export function Settings() {
               <button
                 type="button"
                 className="btn"
+                disabled={updateAlertMut.isPending}
                 onClick={handleSaveAlertConfig}
                 style={{ padding: '10px 22px', fontSize: 14, fontWeight: 700 }}
               >
-                Save Alert Settings
+                {updateAlertMut.isPending ? 'Saving to Database...' : 'Save Alert Settings'}
               </button>
 
               {alertsSavedStatus && (

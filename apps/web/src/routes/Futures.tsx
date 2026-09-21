@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
-  fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
+  fetchFuturesPrices, fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
@@ -778,6 +778,21 @@ function GroupCard({
     );
   }, [group.positions, accountSearch]);
 
+  // Query real-time prices streaming from CoinDCX WebSocket/SSE
+  const pricesQuery = useQuery({
+    queryKey: ['futures-prices'],
+    queryFn: fetchFuturesPrices,
+    staleTime: 2000,
+  });
+  const pricesData = pricesQuery.data;
+
+  const livePriceItem = pricesData?.prices?.[group.pair] ?? (group.asset ? pricesData?.prices?.[`B-${group.asset.toUpperCase()}_USDT`] : undefined);
+  const currentPrice = livePriceItem?.markPrice || livePriceItem?.lastPrice || group.positions[0]?.markPrice;
+  const changePct = livePriceItem?.priceChangePercent;
+  const hasChange = typeof changePct === 'number' && Number.isFinite(changePct);
+  const isPos = hasChange && changePct >= 0;
+  const isNeg = hasChange && changePct < 0;
+
   const groupTitle = group.groupNames.length === 1
     ? group.groupNames[0]
     : group.groupNames.length > 1
@@ -822,13 +837,21 @@ function GroupCard({
         <span className="card-meta">
           {group.positions.length} account{group.positions.length > 1 ? 's' : ''}
         </span>
-        {group.positions[0]?.markPrice && (
-          <span className="card-meta group-mark-chip" title="Live Coin Mark Price">
+        {currentPrice && (
+          <span
+            className={`card-meta group-mark-chip${isPos ? ' chip-pos' : isNeg ? ' chip-neg' : ''}`}
+            title={`Live ${group.asset} Market Price${hasChange ? ` · 24h Change: ${isPos ? '+' : ''}${changePct.toFixed(2)}%` : ''}`}
+          >
             <span className="live-pulse-dot" />
-            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>Mark</span>
-            <strong style={{ color: '#38bdf8', fontSize: 13, fontWeight: 700 }}>
-              {fmtPrice(group.positions[0].markPrice)}
+            <span style={{ fontSize: 11, color: isPos ? '#6ee7b7' : isNeg ? '#fca5a5' : '#94a3b8', fontWeight: 600 }}>Live</span>
+            <strong style={{ color: isPos ? '#10b981' : isNeg ? '#ef4444' : '#38bdf8', fontSize: 13, fontWeight: 700 }}>
+              {fmtPrice(currentPrice)}
             </strong>
+            {hasChange && (
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: isPos ? '#10b981' : '#ef4444', marginLeft: 2 }}>
+                {isPos ? `+${changePct.toFixed(2)}%` : `${changePct.toFixed(2)}%`}
+              </span>
+            )}
           </span>
         )}
 
@@ -1241,7 +1264,7 @@ export function PositionManageModal({
           </div>
 
           <div className="modal-metric-card">
-            <span className="modal-metric-label">Mark Price</span>
+            <span className="modal-metric-label">Live Price</span>
             <span className="modal-metric-value" style={{ color: 'var(--accent)' }}>
               {fmtPrice(position.markPrice)}
             </span>

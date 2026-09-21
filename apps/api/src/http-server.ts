@@ -45,6 +45,7 @@ import {
   getPlatformBranding, updatePlatformBranding, createSession,
   readPlatformFlags, readPlatformKillSwitchDetails, setPlatformKillSwitch,
   recordDirectOrder,
+  getUserAlertConfig, setUserAlertConfig,
 } from '@tradex/db';
 import type { DB, InquiryStatus } from '@tradex/db';
 import { sql } from 'kysely';
@@ -1087,6 +1088,27 @@ export function createHttpServer(deps: HttpDeps): Server {
       };
       const updated = await updatePlatformBranding(deps.db, body, principal.userId);
       sendJson(ctx.res, 200, { ok: true, branding: updated });
+      return;
+    }
+
+    // ---- GET /api/settings/alerts — get user's persisted alert configuration ----
+    if (method === 'GET' && path === '/api/settings/alerts') {
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const config = await getUserAlertConfig(tdb, principal.userId);
+      sendJson(ctx.res, 200, { ok: true, config });
+      return;
+    }
+
+    // ---- PUT/PATCH /api/settings/alerts — update user's persisted alert configuration ----
+    if ((method === 'PUT' || method === 'PATCH') && path === '/api/settings/alerts') {
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const body = (ctx.body ?? {}) as { config?: Record<string, unknown> } | Record<string, unknown>;
+      const configObj = (body && typeof body === 'object' && 'config' in body && body.config && typeof body.config === 'object')
+        ? body.config as Record<string, unknown>
+        : body as Record<string, unknown>;
+
+      await setUserAlertConfig(tdb, principal.userId, configObj);
+      sendJson(ctx.res, 200, { ok: true, config: configObj });
       return;
     }
 

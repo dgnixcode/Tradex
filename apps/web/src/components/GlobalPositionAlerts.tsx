@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { fetchFuturesPositions } from '../api.ts';
+import { fetchAlertConfig, fetchFuturesPositions } from '../api.ts';
 import {
   alertSound,
   loadPositionAlertConfig,
+  savePositionAlertConfig,
   type PositionAlertConfig,
 } from '../audio-alerts.ts';
 import { buildGroups, calcGroupRoePct } from '../routes/Futures.tsx';
@@ -29,6 +30,20 @@ export function GlobalPositionAlerts() {
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
   const [dismissedVisually, setDismissedVisually] = useState(false);
   const [, setSoundTick] = useState(0);
+
+  // Sync account-level alert settings persisted in the database across devices
+  const remoteAlertQuery = useQuery({
+    queryKey: ['settings-alerts'],
+    queryFn: fetchAlertConfig,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (remoteAlertQuery.data?.config) {
+      setConfig(remoteAlertQuery.data.config);
+      savePositionAlertConfig(remoteAlertQuery.data.config);
+    }
+  }, [remoteAlertQuery.data]);
 
   // Listen for audio engine sound state changes
   useEffect(() => {

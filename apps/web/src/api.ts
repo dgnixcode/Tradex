@@ -16,6 +16,7 @@
 
 import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PreviewResult } from '@tradex/api';
 import type { GroupHeader, GroupMember, GroupSummary } from '@tradex/db';
+import type { PositionAlertConfig } from './audio-alerts.ts';
 
 export const SESSION_EXPIRED_EVENT = 'tradex-session-expired';
 
@@ -837,6 +838,17 @@ export const updateServerBranding = (patch: Partial<ServerBranding>): Promise<{ 
   request<{ ok: boolean; branding: ServerBranding }>('/settings/branding', {
     method: 'PUT',
     body: JSON.stringify(patch),
+  });
+
+/** Fetch user's persisted alert configuration from the database. */
+export const fetchAlertConfig = (): Promise<{ ok: boolean; config: PositionAlertConfig | null }> =>
+  request<{ ok: boolean; config: PositionAlertConfig | null }>('/settings/alerts');
+
+/** Update user's persisted alert configuration in the database. */
+export const updateAlertConfig = (config: PositionAlertConfig): Promise<{ ok: boolean; config: PositionAlertConfig }> =>
+  request<{ ok: boolean; config: PositionAlertConfig }>('/settings/alerts', {
+    method: 'PUT',
+    body: JSON.stringify({ config }),
   });
 
 /** Satisfy the re-authentication requirement for the current session. */

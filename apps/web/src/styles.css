@@ -1525,6 +1525,28 @@ tr.skipped td { color: var(--muted); }
   margin-left: 4px;
 }
 
+.group-mark-chip.chip-pos {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.group-mark-chip.chip-pos .live-pulse-dot {
+  background-color: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.85);
+  animation-name: markPulsePos;
+}
+
+.group-mark-chip.chip-neg {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.group-mark-chip.chip-neg .live-pulse-dot {
+  background-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.85);
+  animation-name: markPulseNeg;
+}
+
 .live-pulse-dot {
   display: inline-block;
   width: 6px;
@@ -1543,6 +1565,32 @@ tr.skipped td { color: var(--muted); }
   50% {
     opacity: 0.4;
     transform: scale(0.85);
+  }
+}
+
+@keyframes markPulsePos {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.85);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+    box-shadow: 0 0 2px rgba(16, 185, 129, 0.3);
+  }
+}
+
+@keyframes markPulseNeg {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.85);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+    box-shadow: 0 0 2px rgba(239, 68, 68, 0.3);
   }
 }
 

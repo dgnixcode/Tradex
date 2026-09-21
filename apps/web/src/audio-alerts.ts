@@ -105,6 +105,15 @@ export function savePositionAlertConfig(config: PositionAlertConfig): void {
   }
 }
 
+/** Synchronize remote configuration into local cache and notify listeners. */
+export function syncPositionAlertConfigFromRemote(remoteConfig: PositionAlertConfig | null): PositionAlertConfig {
+  if (!remoteConfig) {
+    return loadPositionAlertConfig();
+  }
+  savePositionAlertConfig(remoteConfig);
+  return remoteConfig;
+}
+
 class AlertSoundEngine {
   private ctx: AudioContext | null = null;
   private isLooping = false;
