@@ -2131,24 +2131,6 @@ export function TradeTicket() {
               <button
                 type="button"
                 className="btn btn-sm"
-                aria-pressed={sizingMode === 'percent'}
-                style={{
-                  padding: '1px 8px',
-                  fontSize: 10.5,
-                  fontWeight: sizingMode === 'percent' ? 700 : 500,
-                  background: sizingMode === 'percent' ? '#ffffff' : 'transparent',
-                  color: sizingMode === 'percent' ? '#000000' : '#9ca3af',
-                  border: 'none',
-                  borderRadius: 3,
-                  cursor: 'pointer',
-                }}
-                onClick={() => switchSizingMode('percent')}
-              >
-                %
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm"
                 aria-pressed={sizingMode === 'quantity'}
                 style={{
                   padding: '1px 8px',
@@ -2163,6 +2145,24 @@ export function TradeTicket() {
                 onClick={() => switchSizingMode('quantity')}
               >
                 Qty
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={sizingMode === 'percent'}
+                style={{
+                  padding: '1px 8px',
+                  fontSize: 10.5,
+                  fontWeight: sizingMode === 'percent' ? 700 : 500,
+                  background: sizingMode === 'percent' ? '#ffffff' : 'transparent',
+                  color: sizingMode === 'percent' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                }}
+                onClick={() => switchSizingMode('percent')}
+              >
+                %
               </button>
             </div>
           </div>
@@ -2237,9 +2237,25 @@ export function TradeTicket() {
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}×)</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Notional ({leverage}x)</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtNotional}</span>
                     </div>
+                    {sizingRefPrice !== '' && Number(sizingRefPrice) > 0 && Number(leverage) > 0 && effectiveMarginType === 'isolated' && (() => {
+                      const refP = Number(sizingRefPrice);
+                      const lev = Number(leverage);
+                      const liqP = side === 'buy'
+                        ? refP * (1 - 1 / lev)
+                        : refP * (1 + 1 / lev);
+                      const fmtLiq = liqP > 0
+                        ? liqP.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+                        : '0.00';
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, gridColumn: '1 / -1', borderTop: '1px solid #1f232b', paddingTop: 6, marginTop: 2 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Liq. Price (Isolated)</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171' }}>~{fmtLiq} {quoteCurrency}</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {notionalInUsdt > 0 && notionalInUsdt < 5 && (
                     <div style={{
@@ -2285,6 +2301,22 @@ export function TradeTicket() {
                       <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Margin</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>{fmtMargin}</span>
                     </div>
+                    {Number(sizingRefPrice) > 0 && Number(leverage) > 0 && effectiveMarginType === 'isolated' && (() => {
+                      const refP = Number(sizingRefPrice);
+                      const lev = Number(leverage);
+                      const liqP = side === 'buy'
+                        ? refP * (1 - 1 / lev)
+                        : refP * (1 + 1 / lev);
+                      const fmtLiq = liqP > 0
+                        ? liqP.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+                        : '0.00';
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, gridColumn: '1 / -1', borderTop: '1px solid #1f232b', paddingTop: 6, marginTop: 2 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Est. Liq. Price (Isolated)</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171' }}>~{fmtLiq} {quoteCurrency}</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {notionalAmt > 0 && notionalAmt < 5 && (
                     <div style={{
