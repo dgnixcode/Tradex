@@ -439,7 +439,9 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                 <span style={{ fontSize: 21, fontWeight: 800, color: 'var(--ok)' }}>
                   {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>win rate</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                  win rate {kpis.closedTradesCount > 0 ? `(${kpis.winningClosedTrades}W / ${kpis.losingClosedTrades}L)` : ''}
+                </span>
               </div>
               <div className="kpi-subtext">
                 <div className="kpi-mini-bar-track">

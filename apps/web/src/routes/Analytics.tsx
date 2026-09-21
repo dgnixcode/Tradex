@@ -637,7 +637,9 @@ export function Analytics() {
                   <span className="kpi-single-val" style={{ color: kpis.winRatePct && kpis.winRatePct >= 50 ? 'var(--ok)' : kpis.winRatePct !== null ? '#f59e0b' : 'var(--muted)' }}>
                     {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
                   </span>
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>win rate</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                    win rate {kpis.closedTradesCount > 0 ? `(${kpis.winningClosedTrades}W / ${kpis.losingClosedTrades}L)` : ''}
+                  </span>
                 </div>
               </div>
               <div className="kpi-card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>

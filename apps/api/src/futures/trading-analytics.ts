@@ -742,10 +742,10 @@ export async function buildTradingAnalytics(
     }
   }
 
-  // Total win rate combining closed trades and open trades
-  const totalDecided = winningClosedTrades + losingClosedTrades + winningPositions + losingPositions;
-  const winRatePct = totalDecided > 0
-    ? ((winningClosedTrades + winningPositions) / totalDecided) * 100
+  // Win rate based strictly on closed/realized trades (industry standard)
+  const totalClosedDecided = winningClosedTrades + losingClosedTrades;
+  const winRatePct = totalClosedDecided > 0
+    ? (winningClosedTrades / totalClosedDecided) * 100
     : null;
 
   // 8. Strategy Groups Breakdown

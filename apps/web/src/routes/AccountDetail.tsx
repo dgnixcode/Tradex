@@ -1345,7 +1345,7 @@ export function AccountDetail() {
                           {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
                         </span>
                         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          ({kpis.winningPositions}W / {kpis.losingPositions}L)
+                          ({kpis.winningClosedTrades}W / {kpis.losingClosedTrades}L)
                         </span>
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
