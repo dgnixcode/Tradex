@@ -343,8 +343,6 @@ export function AccountDetail() {
     );
   }, [groups.data, a?.groupId]);
 
-  const [showHiddenTrades, setShowHiddenTrades] = useState(false);
-
   // Filter positions strictly for this account
   const accountPositions = useMemo(() => {
     const views = futuresPositions.data?.views ?? [];
@@ -360,11 +358,6 @@ export function AccountDetail() {
 
   const hiddenTradesCount = useMemo(() => accountPositions.filter((p) => p.isTradeHidden).length, [accountPositions]);
 
-  const displayedPositions = useMemo(() => {
-    if (showHiddenTrades) return accountPositions;
-    return accountPositions.filter((p) => !p.isTradeHidden);
-  }, [accountPositions, showHiddenTrades]);
-
   const liveManagingPosition = useMemo(() => {
     if (managingPosition === null) return null;
     const views = futuresPositions.data?.views ?? [];
@@ -377,10 +370,10 @@ export function AccountDetail() {
     return views.find((r) => r.venuePositionId === quickExitPosition.venuePositionId) ?? quickExitPosition;
   }, [futuresPositions.data?.views, quickExitPosition]);
 
-  // Aggregate unrealised PnL for this account (visible trades or all if showHiddenTrades is active)
+  // Aggregate unrealised PnL for this account
   const totalAccountPnl = useMemo(() => {
     const byCurrency: Record<string, string> = {};
-    for (const p of displayedPositions) {
+    for (const p of accountPositions) {
       if (p.unrealisedPnlMinor !== null) {
         const cur = p.marginCurrency;
         byCurrency[cur] = byCurrency[cur] === undefined
@@ -389,12 +382,12 @@ export function AccountDetail() {
       }
     }
     return byCurrency;
-  }, [displayedPositions]);
+  }, [accountPositions]);
 
-  // Aggregate margin for this account (visible trades or all if showHiddenTrades is active)
+  // Aggregate margin for this account
   const totalAccountMargin = useMemo(() => {
     const byCurrency: Record<string, string> = {};
-    for (const p of displayedPositions) {
+    for (const p of accountPositions) {
       if (p.lockedMarginMinor !== null && p.lockedMarginMinor !== '' && p.lockedMarginMinor !== '0') {
         const cur = p.marginCurrency;
         byCurrency[cur] = byCurrency[cur] === undefined
@@ -403,7 +396,7 @@ export function AccountDetail() {
       }
     }
     return byCurrency;
-  }, [displayedPositions]);
+  }, [accountPositions]);
 
   if (account.isLoading) return <div className="panel full-width-page">Loading account…</div>;
   if (account.isError) return <div className="panel error full-width-page">{(account.error as Error).message}</div>;
@@ -800,57 +793,15 @@ export function AccountDetail() {
                   <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
                     <div className="stat-label">Open Positions</div>
                     <div className="stat-value">
-                      {displayedPositions.length}
+                      {accountPositions.length}
                       {hiddenTradesCount > 0 && (
-                        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>
-                          ({hiddenTradesCount} hidden)
+                        <span style={{ fontSize: 11.5, fontWeight: 500, color: '#fca5a5', marginLeft: 6 }}>
+                          ({hiddenTradesCount} hidden from platform)
                         </span>
                       )}
                     </div>
                   </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {hiddenTradesCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowHiddenTrades((prev) => !prev)}
-                        style={{
-                          padding: '4px 11px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          borderRadius: 8,
-                          border: showHiddenTrades
-                            ? '1px solid rgba(239, 68, 68, 0.4)'
-                            : '1px solid var(--border)',
-                          background: showHiddenTrades
-                            ? 'rgba(239, 68, 68, 0.15)'
-                            : 'var(--surface-2)',
-                          color: showHiddenTrades ? '#fca5a5' : 'var(--muted)',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          transition: 'all 0.15s ease',
-                        }}
-                        title={showHiddenTrades ? 'Click to hide trades marked as hidden' : 'Click to show hidden trades'}
-                      >
-                        {showHiddenTrades ? (
-                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                            <circle cx="12" cy="12" r="3" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                            <line x1="1" y1="1" x2="23" y2="23" />
-                          </svg>
-                        )}
-                        <span>
-                          {showHiddenTrades
-                            ? `Showing ${hiddenTradesCount} Hidden`
-                            : `Show ${hiddenTradesCount} Hidden`}
-                        </span>
-                      </button>
-                    )}
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
                     {isStreaming ? (
                       <span
                         style={{
@@ -891,40 +842,25 @@ export function AccountDetail() {
                   </div>
                 </div>
 
-                {displayedPositions.length === 0 ? (
-                  <div className="empty-state" style={{ padding: '30px 20px', marginBottom: 16 }}>
-                    <p style={{ fontWeight: 600, fontSize: 14, margin: '4px 0' }}>All open trades for this account are hidden</p>
-                    <p className="muted" style={{ maxWidth: 420, margin: '0 auto 12px', fontSize: 12.5 }}>
-                      There are {hiddenTradesCount} trade(s) hidden from positions and analytics.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-sm secondary"
-                      onClick={() => setShowHiddenTrades(true)}
-                    >
-                      Show {hiddenTradesCount} Hidden Trade{hiddenTradesCount > 1 ? 's' : ''}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="table-scroll-container desktop-pos-table">
-                    <table style={{ width: '100%' }}>
-                      <thead>
-                        <tr>
-                          <th>Contract</th>
-                          <th>Side</th>
-                          <th style={{ textAlign: 'right' }}>Size</th>
-                          <th style={{ textAlign: 'right' }}>Avg Entry</th>
-                          <th>Entry Time</th>
-                          <th style={{ textAlign: 'right' }}>Live</th>
-                          <th style={{ textAlign: 'right' }}>Liq Price</th>
-                          <th style={{ textAlign: 'right' }}>Margin</th>
-                          <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
-                          <th>Protection</th>
-                          <th style={{ textAlign: 'center' }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayedPositions.map((p) => {
+                <div className="table-scroll-container desktop-pos-table">
+                  <table style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Contract</th>
+                        <th>Side</th>
+                        <th style={{ textAlign: 'right' }}>Size</th>
+                        <th style={{ textAlign: 'right' }}>Avg Entry</th>
+                        <th>Entry Time</th>
+                        <th style={{ textAlign: 'right' }}>Live</th>
+                        <th style={{ textAlign: 'right' }}>Liq Price</th>
+                        <th style={{ textAlign: 'right' }}>Margin</th>
+                        <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
+                        <th>Protection</th>
+                        <th style={{ textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountPositions.map((p) => {
                           const roe = calcRoePct(p);
                           const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
                           const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
@@ -1139,11 +1075,10 @@ export function AccountDetail() {
                       </tbody>
                     </table>
                   </div>
-                )}
 
                 {/* Mobile Position Cards (<= 768px) */}
                 <div className="mobile-pos-cards">
-                  {displayedPositions.map((p) => {
+                  {accountPositions.map((p) => {
                     const roe = calcRoePct(p);
                     const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
                     const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
