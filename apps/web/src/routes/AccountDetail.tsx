@@ -178,7 +178,7 @@ export function AccountDetail() {
   const futuresPositions = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
-    refetchInterval: 1000,
+    refetchInterval: isStreaming ? 10_000 : 3000,
   });
 
   const invalidate = () => {
@@ -563,9 +563,48 @@ export function AccountDetail() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {/* Socket stream indicator matching Trade Watchlist */}
+            {isStreaming ? (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: '#0ecb81',
+                  background: 'rgba(14, 203, 129, 0.12)',
+                  border: '1px solid rgba(14, 203, 129, 0.25)',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+                title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+              >
+                <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: '#f59e0b',
+                  background: 'rgba(245, 158, 11, 0.12)',
+                  border: '1px solid rgba(245, 158, 11, 0.25)',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+                title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
+              >
+                <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+              </span>
+            )}
+
             <button
               className="btn secondary btn-sm"
-              disabled={sync.isPending || account.isFetching || futuresPositions.isFetching}
+              disabled={sync.isPending}
               onClick={() => {
                 sync.mutate();
                 void account.refetch();

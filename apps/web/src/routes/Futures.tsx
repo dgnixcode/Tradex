@@ -3441,14 +3441,14 @@ export function Futures() {
   // collapsedGroups keeps track of cards the user explicitly minimized.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
+  // Keep live market price feed streaming in real-time while on positions page
+  const { isStreaming } = useLivePrices();
+
   const positions = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
-    refetchInterval: 1500,
+    refetchInterval: isStreaming ? 10_000 : 2_000,
   });
-
-  // Keep live market price feed streaming in real-time while on positions page
-  const { isStreaming } = useLivePrices();
 
   // Unified refresh handler: invalidates query cache immediately so local changes reflect instantly,
   // then runs exchange sync in the background to ensure venue mirror consistency.

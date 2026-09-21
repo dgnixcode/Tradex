@@ -76,7 +76,7 @@ export function GlobalPositionAlerts() {
   const positionsQuery = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
-    refetchInterval: 1000,
+    refetchInterval: 5000,
     refetchIntervalInBackground: true,
   });
 
