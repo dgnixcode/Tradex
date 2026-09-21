@@ -36,6 +36,20 @@ export interface AccountListItem {
   /** Whether the account is hidden from the main positions page. */
   readonly hideFromPositions: boolean;
   readonly createdAt?: string | null;
+  /** Live free balances per currency in tradable quote scale (INR scale 2, USDT scale 8). */
+  readonly balancesByCurrency?: Readonly<Record<SupportedQuote, string>>;
+}
+
+function projectToScale(minor: string, from: number, to: number): string {
+  if (!minor || minor === '0' || from === to) return minor || '0';
+  const negative = minor.startsWith('-');
+  const rawDigits = (negative ? minor.slice(1) : minor).replace(/^0+(?=\d)/, '');
+  if (rawDigits === '0' || rawDigits === '') return '0';
+  if (to > from) return `${negative ? '-' : ''}${rawDigits}${'0'.repeat(to - from)}`;
+  const kept = rawDigits.length - (from - to);
+  if (kept <= 0) return '0';
+  const result = `${negative ? '-' : ''}${rawDigits.slice(0, kept).replace(/^0+(?=\d)/, '')}`;
+  return result === '' || result === '-' ? '0' : result;
 }
 
 /**
@@ -72,8 +86,34 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
 
   const groupMap = new Map(memberships.map((m) => [m.accountId, m]));
 
+  const balanceRows = await tdb.selectFrom('account_balance')
+    .select(['account_id as accountId', 'currency', 'free_minor as freeMinor', 'scale'] as unknown as never)
+    .where('currency' as never, 'in', ['INR', 'USDT'] as never)
+    .execute() as unknown as ReadonlyArray<{ accountId: string; currency: string; freeMinor: string; scale: number }>;
+
+  const balanceMap = new Map<string, { INR: string; USDT: string }>();
+  for (const b of balanceRows) {
+    let entry = balanceMap.get(b.accountId);
+    if (!entry) {
+      entry = { INR: '0', USDT: '0' };
+      balanceMap.set(b.accountId, entry);
+    }
+    if (b.currency === 'INR') {
+      entry.INR = projectToScale(String(b.freeMinor), Number(b.scale), 2);
+    } else if (b.currency === 'USDT') {
+      entry.USDT = projectToScale(String(b.freeMinor), Number(b.scale), 8);
+    }
+  }
+
   return (rows as unknown as Array<Record<string, unknown>>).map((r, index) => {
     const grp = groupMap.get(r['id'] as string);
+    const bal = balanceMap.get(r['id'] as string) ?? { INR: '0', USDT: '0' };
+    if (bal.INR === '0' && bal.USDT === '0' && r['allocated_currency'] && r['allocated_capital_minor']) {
+      const curr = r['allocated_currency'] as SupportedQuote;
+      if (curr === 'INR' || curr === 'USDT') {
+        bal[curr] = String(r['allocated_capital_minor']);
+      }
+    }
     return {
       id: r['id'] as string,
       serialNo: index + 1,
@@ -91,6 +131,7 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
       groupName: grp?.groupName ?? null,
       hideFromPositions: Boolean(r['hide_from_positions'] ?? false),
       createdAt: r['created_at'] ? (r['created_at'] instanceof Date ? r['created_at'].toISOString() : String(r['created_at'])) : null,
+      balancesByCurrency: bal,
     };
   });
 }

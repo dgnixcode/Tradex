@@ -36,7 +36,7 @@ import { freeBalanceMinor, futuresPairOf } from '@tradex/exchange';
 import type { Balance, FuturesInstrument, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
-  dailySpentMinor, getChildOrders, getEnabledMembers, getGroupTrade, hasInFlightOrder,
+  dailySpentMinor, ensureDefaultGroup, getChildOrders, getEnabledMembers, getGroupTrade, hasInFlightOrder,
   latestMarketMetadataVersion, loadMarketRules, markPreviewed, persistPlan,
   readAccountStates, readBalances, readMarketStates, readPlatformFlags, readTenantCaps,
 } from '@tradex/db';
@@ -69,7 +69,9 @@ const quoteFor = (req: PlanRequest): string | undefined =>
   req.quoteCurrency ?? (req.isFutures === true ? 'USDT' : undefined);
 
 export interface PlanRequest {
-  readonly groupId: string;
+  readonly groupId?: string | undefined;
+  /** Single account trade scoping: when present, plan exclusively for this account. */
+  readonly accountId?: string | undefined;
   readonly createdBy: string;
   readonly asset: string;
   readonly side: 'buy' | 'sell';
@@ -101,9 +103,8 @@ export interface PlanRequest {
   readonly trailingDistanceBp?: number | undefined;
   readonly trailingStepBp?: number | undefined;
   readonly reduceOnly?: boolean | undefined;
-  /** Retry-failed scoping (T08.7): when present, plan ONLY these still-enabled
-   *  members of the group. The trade ticket never sends this — retry-failed uses
-   *  it to re-plan exactly the failed accounts as a fresh trade. */
+  /** Retry-failed or single-account scoping (T08.7): when present, plan ONLY these still-enabled
+   *  members of the group. */
   readonly accountIds?: readonly string[] | undefined;
 }
 
@@ -187,19 +188,53 @@ export class PlanningService {
     const dayStartMs = (this.deps.dayStartMs ?? (() => istDayStart(nowMs)))();
     const newToken = this.deps.newToken ?? (() => randomBytes(24).toString('base64url'));
 
-    let members = await getEnabledMembers(this.deps.tdb, req.groupId);
+    let targetGroupId = req.groupId;
+    let targetAccountIds = req.accountIds;
+
+    // Single account trade scoping: when accountId is specified, restrict to this account
+    if (req.accountId && (!targetAccountIds || targetAccountIds.length === 0)) {
+      targetAccountIds = [req.accountId];
+    }
+
+    if (!targetGroupId || targetGroupId.trim() === '') {
+      if (targetAccountIds && targetAccountIds.length > 0) {
+        // Find an active group the account is already a member of
+        const memberRow = await this.deps.tdb.selectFrom('group_member')
+          .select('group_id')
+          .where('account_id' as never, '=', targetAccountIds[0] as never)
+          .where('enabled' as never, '=', true as never)
+          .limit(1)
+          .executeTakeFirst() as { group_id: string } | undefined;
+        if (memberRow !== undefined) {
+          targetGroupId = memberRow.group_id;
+        } else {
+          targetGroupId = await ensureDefaultGroup(this.deps.tdb);
+        }
+      } else {
+        targetGroupId = await ensureDefaultGroup(this.deps.tdb);
+      }
+    }
+
+    let members = await getEnabledMembers(this.deps.tdb, targetGroupId);
     if (members.length === 0) {
       throw new PlanningError('this group has no enabled accounts to trade', 'empty_group');
     }
-    // Retry-failed scoping (T08.7): when the request names a subset, plan ONLY
-    // those still-enabled members — never anyone outside it. The ticket never
-    // sends this; only retry-failed does, so the old trade's placed accounts are
-    // excluded from the fresh plan by construction.
-    if (req.accountIds !== undefined && req.accountIds.length > 0) {
-      const wanted = new Set(req.accountIds);
+
+    // Filter to requested account(s) if specified
+    if (targetAccountIds !== undefined && targetAccountIds.length > 0) {
+      const wanted = new Set(targetAccountIds);
       members = members.filter((m) => wanted.has(m.accountId));
       if (members.length === 0) {
-        throw new PlanningError('none of the failed accounts are still enabled members of this group', 'nothing_to_retry');
+        // Fallback: If targetGroupId did not contain this account, resolve via master Default group
+        const defaultGroupId = await ensureDefaultGroup(this.deps.tdb);
+        if (targetGroupId !== defaultGroupId) {
+          targetGroupId = defaultGroupId;
+          members = await getEnabledMembers(this.deps.tdb, defaultGroupId);
+          members = members.filter((m) => wanted.has(m.accountId));
+        }
+        if (members.length === 0) {
+          throw new PlanningError('selected account is not an enabled trading account', 'nothing_to_retry');
+        }
       }
     }
 
@@ -326,7 +361,7 @@ export class PlanningService {
     // Supercede any previous unconfirmed previews for this group
     await this.deps.tdb.updateTable('group_trade')
       .set({ status: 'abandoned' as never })
-      .where('group_id' as never, '=', req.groupId as never)
+      .where('group_id' as never, '=', targetGroupId as never)
       .where('status' as never, '=', 'previewed' as never)
       .execute();
 
@@ -340,7 +375,7 @@ export class PlanningService {
     }
 
     const trade: NewGroupTrade = {
-      groupId: req.groupId,
+      groupId: targetGroupId,
       createdBy: req.createdBy,
       asset: req.asset,
       side: req.side,

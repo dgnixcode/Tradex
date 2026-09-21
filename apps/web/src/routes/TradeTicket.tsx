@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
-import type { GroupSummary, PlanRequest } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
+import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
 
@@ -484,6 +484,12 @@ export function TradeTicket() {
     refetchOnWindowFocus: true,
     staleTime: 5000,
   });
+  const accounts = useQuery({
+    queryKey: ['accounts'],
+    queryFn: fetchAccountList,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
   const assets = useQuery({ queryKey: ['assets'], queryFn: fetchAssets });
 
   const draft = useMemo(() => {
@@ -495,7 +501,10 @@ export function TradeTicket() {
     }
   }, []);
 
+  const [targetType, setTargetType] = useState<'group' | 'account'>(() => draft.targetType || 'group');
   const [groupId, setGroupId] = useState<string>(() => draft.groupId || '');
+  const [accountId, setAccountId] = useState<string>(() => draft.accountId || '');
+  const [accountSearch, setAccountSearch] = useState<string>('');
   const [asset, setAsset] = useState<string>(() => {
     try {
       return draft.asset || localStorage.getItem('tradex_selected_asset') || 'BTC';
@@ -565,7 +574,9 @@ export function TradeTicket() {
   useEffect(() => {
     try {
       localStorage.setItem('tradex_ticket_draft', JSON.stringify({
+        targetType,
         groupId,
+        accountId,
         asset,
         side,
         orderType,
@@ -587,7 +598,9 @@ export function TradeTicket() {
       }));
     } catch {}
   }, [
+    targetType,
     groupId,
+    accountId,
     asset,
     side,
     orderType,
@@ -639,20 +652,60 @@ export function TradeTicket() {
   // ─── Live WebSocket ticker — streams best bid/ask from CoinDCX every 2-3s ───
   const liveTicker = useLiveTicker(asset, quoteCurrency);
 
+  const activeAccounts = useMemo(() => {
+    return accounts.data?.filter((a) => a.status === 'active') ?? [];
+  }, [accounts.data]);
+
+  const filteredAccounts = useMemo(() => {
+    if (!accountSearch.trim()) return activeAccounts;
+    const q = accountSearch.toLowerCase().trim();
+    return activeAccounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        `#${a.serialNo}`.includes(q) ||
+        (a.groupName && a.groupName.toLowerCase().includes(q)),
+    );
+  }, [activeAccounts, accountSearch]);
+
+  const selectedAccount: AccountListItem | undefined = useMemo(
+    () => activeAccounts.find((a) => a.id === accountId),
+    [activeAccounts, accountId],
+  );
+
+  // Auto-select first active account if in account mode and no account selected
+  useEffect(() => {
+    if (targetType === 'account' && activeAccounts.length > 0) {
+      if (!accountId || !activeAccounts.some((a) => a.id === accountId)) {
+        setAccountId(activeAccounts[0].id);
+      }
+    }
+  }, [targetType, activeAccounts, accountId]);
+
   const selectedGroup: GroupSummary | undefined = useMemo(
     () => groups.data?.find((g) => g.id === groupId),
     [groups.data, groupId],
   );
 
+  const availableCapitalMinor = useMemo(() => {
+    if (targetType === 'account') {
+      if (!selectedAccount) return '0';
+      return (
+        selectedAccount.balancesByCurrency?.[marginCurrency] ??
+        (selectedAccount.allocatedCurrency === marginCurrency ? (selectedAccount.allocatedCapitalMinor || '0') : '0')
+      );
+    }
+    return selectedGroup?.allocatedByCurrency[marginCurrency] ?? '0';
+  }, [targetType, selectedAccount, selectedGroup, marginCurrency]);
+
   const formattedAvailableCapital = useMemo(() => {
-    if (!selectedGroup) return null;
-    const minor = selectedGroup.allocatedByCurrency[marginCurrency];
+    if (targetType === 'group' && !selectedGroup) return null;
+    if (targetType === 'account' && !selectedAccount) return null;
     const scale = marginCurrency === 'INR' ? 2 : 8;
-    const major = Number(minorToMajor(minor, scale));
+    const major = Number(minorToMajor(availableCapitalMinor, scale));
     return marginCurrency === 'INR'
       ? `₹${major.toLocaleString('en-IN')}`
       : `${major.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USDT`;
-  }, [selectedGroup, marginCurrency]);
+  }, [targetType, selectedGroup, selectedAccount, availableCapitalMinor, marginCurrency]);
 
   // Fetch and set the current market price.
   const fetchAndSetPrice = (): void => {
@@ -725,12 +778,12 @@ export function TradeTicket() {
   // Convert between percentage and quantity sizing modes.
   // Conversion needs: allocated capital, leverage, and current price.
   const convertPercentToQuantity = (): void => {
-    if (!selectedGroup || !percentValid || !leverageValid || sizingRefPrice === '') return;
-    const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
-    if (allocatedMinor === '0') return;
+    const hasTarget = targetType === 'account' ? Boolean(selectedAccount) : Boolean(selectedGroup);
+    if (!hasTarget || !percentValid || !leverageValid || sizingRefPrice === '') return;
+    if (availableCapitalMinor === '0') return;
 
     const scale = marginCurrency === 'INR' ? 2 : 8;
-    const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
+    const allocatedMajor = Number(availableCapitalMinor) / Math.pow(10, scale);
     let margin = allocatedMajor * (Number(percent) / 100);
     if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
       margin = margin / usdtInrRate;
@@ -741,12 +794,12 @@ export function TradeTicket() {
   };
 
   const convertQuantityToPercent = (): void => {
-    if (!selectedGroup || !leverageValid || sizingRefPrice === '' || quantity === '') return;
-    const allocatedMinor = selectedGroup.allocatedByCurrency[marginCurrency];
-    if (allocatedMinor === '0') return;
+    const hasTarget = targetType === 'account' ? Boolean(selectedAccount) : Boolean(selectedGroup);
+    if (!hasTarget || !leverageValid || sizingRefPrice === '' || quantity === '') return;
+    if (availableCapitalMinor === '0') return;
 
     const scale = marginCurrency === 'INR' ? 2 : 8;
-    const allocatedMajor = Number(allocatedMinor) / Math.pow(10, scale);
+    const allocatedMajor = Number(availableCapitalMinor) / Math.pow(10, scale);
     const notional = Number(quantity) * Number(sizingRefPrice);
     let margin = notional / Number(leverage);
     if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
@@ -784,7 +837,13 @@ export function TradeTicket() {
     setQuantity(filterNumeric(value));
   };
 
-  const accountCount = selectedGroup?.enabledCount ?? 0;
+  const accountCount = targetType === 'account'
+    ? (selectedAccount ? 1 : 0)
+    : (selectedGroup?.enabledCount ?? 0);
+  const targetValid = targetType === 'account'
+    ? (accountId !== '' && Boolean(selectedAccount))
+    : (groupId !== '' && accountCount > 0);
+
   const leverageValid = /^\d+(\.\d+)?$/.test(leverage)
     && Number(leverage) >= 1 && Number(leverage) <= MAX_LEVERAGE;
   const percentValid = /^\d+(\.\d+)?$/.test(percent) && Number(percent) > 0 && Number(percent) <= 100;
@@ -815,10 +874,14 @@ export function TradeTicket() {
 
   const canPreview =
     !isHalted
-    && groupId !== '' && asset !== '' && accountCount > 0
+    && targetValid && asset !== ''
     && leverageValid && sizeValid
     && (orderType !== 'limit' || (limitPrice !== '' && priceOk(limitPrice)))
     && slValid && tpValid;
+
+  const defaultGroup = useMemo(() => {
+    return groups.data?.find((g) => g.name === DEFAULT_GROUP_NAME) || groups.data?.[0];
+  }, [groups.data]);
 
   const submitPreview = (): void => {
     let sizingModeOut: string;
@@ -834,8 +897,16 @@ export function TradeTicket() {
       percentBpOut = Math.round(Number(percent) * 100);
     }
 
+    const effectiveGroupId = targetType === 'account'
+      ? (selectedAccount?.groupId || groupId || defaultGroup?.id || '')
+      : groupId;
+
     const req: PlanRequest = {
-      groupId,
+      groupId: effectiveGroupId,
+      ...(targetType === 'account' && selectedAccount ? {
+        accountId: selectedAccount.id,
+        accountIds: [selectedAccount.id],
+      } : {}),
       createdBy: '',
       asset,
       side,
@@ -934,79 +1005,327 @@ export function TradeTicket() {
                 <span>EMERGENCY KILL SWITCH ACTIVE: Order placement is locked across all groups (Read-Only Mode).</span>
               </div>
             )}
-      <div className="field">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <label htmlFor="group" style={{ margin: 0 }}>Group</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Funding wallet:</span>
-            <button
-              type="button"
-              className="btn ghost btn-sm"
-              style={{
-                padding: '1px 5px',
-                height: 20,
-                minHeight: 'unset',
-                fontSize: 11,
-                cursor: 'pointer',
-                opacity: groups.isFetching ? 0.5 : 0.8,
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-              onClick={() => void groups.refetch()}
-              disabled={groups.isFetching}
-              title="Refresh group balances from database"
-            >
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching ? 'spin 1s linear infinite' : 'none' }}>
-                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-              </svg>
-            </button>
-            <div style={{
-              display: 'flex',
-              background: '#0e1014',
-              border: '1px solid #1f232b',
+      {/* Target Mode Segmented Switch: Group Trade vs Single Account */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          background: '#0e1014',
+          border: '1px solid #1f232b',
+          borderRadius: 8,
+          padding: 3,
+          gap: 4,
+        }}>
+          <button
+            type="button"
+            className="btn ghost btn-sm"
+            onClick={() => setTargetType('group')}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: targetType === 'group' ? 700 : 500,
+              background: targetType === 'group' ? '#1f242f' : 'transparent',
+              color: targetType === 'group' ? '#ffffff' : '#9ca3af',
+              border: targetType === 'group' ? '1px solid #374151' : '1px solid transparent',
               borderRadius: 6,
-              padding: 2,
-              gap: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>Group Trade</span>
+            <span style={{
+              fontSize: 10.5,
+              padding: '1px 6px',
+              borderRadius: 10,
+              background: targetType === 'group' ? '#374151' : '#14171f',
+              color: targetType === 'group' ? '#f3f4f6' : '#6b7280',
             }}>
-              {(['INR', 'USDT'] as const).map((curr) => {
-                const active = marginCurrency === curr;
-                return (
-                  <button
-                    key={curr}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setMarginCurrency(curr)}
-                    style={{
-                      padding: '2px 10px',
-                      fontSize: 11,
-                      fontWeight: active ? 700 : 500,
-                      background: active ? '#ffffff' : 'transparent',
-                      color: active ? '#000000' : '#9ca3af',
-                      border: 'none',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    {curr}
-                  </button>
-                );
-              })}
+              {groups.data?.length ?? 0}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="btn ghost btn-sm"
+            onClick={() => setTargetType('account')}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: targetType === 'account' ? 700 : 500,
+              background: targetType === 'account' ? '#1f242f' : 'transparent',
+              color: targetType === 'account' ? '#ffffff' : '#9ca3af',
+              border: targetType === 'account' ? '1px solid #374151' : '1px solid transparent',
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>Single Account</span>
+            <span style={{
+              fontSize: 10.5,
+              padding: '1px 6px',
+              borderRadius: 10,
+              background: targetType === 'account' ? '#374151' : '#14171f',
+              color: targetType === 'account' ? '#f3f4f6' : '#6b7280',
+            }}>
+              {activeAccounts.length}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {targetType === 'group' ? (
+        <div className="field">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label htmlFor="group" style={{ margin: 0 }}>Target Group</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Funding:</span>
+              <button
+                type="button"
+                className="btn ghost btn-sm"
+                style={{
+                  padding: '1px 5px',
+                  height: 20,
+                  minHeight: 'unset',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  opacity: groups.isFetching || accounts.isFetching ? 0.5 : 0.8,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                onClick={() => {
+                  void groups.refetch();
+                  void accounts.refetch();
+                }}
+                disabled={groups.isFetching || accounts.isFetching}
+                title="Refresh balances from database"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching || accounts.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                </svg>
+              </button>
+              <div style={{
+                display: 'flex',
+                background: '#0e1014',
+                border: '1px solid #1f232b',
+                borderRadius: 6,
+                padding: 2,
+                gap: 2,
+              }}>
+                {(['INR', 'USDT'] as const).map((curr) => {
+                  const active = marginCurrency === curr;
+                  return (
+                    <button
+                      key={curr}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setMarginCurrency(curr)}
+                      style={{
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        fontWeight: active ? 700 : 500,
+                        background: active ? '#ffffff' : 'transparent',
+                        color: active ? '#000000' : '#9ca3af',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {curr}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
+          <select id="group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">Select a group…</option>
+            {groups.data?.map((g) => {
+              const isDefault = g.name === DEFAULT_GROUP_NAME;
+              return (
+                <option key={g.id} value={g.id}>
+                  {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}{isDefault ? ' (All Accounts)' : ''}
+                </option>
+              );
+            })}
+          </select>
+          {selectedGroup && formattedAvailableCapital && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginTop: 4,
+              fontSize: 11,
+              color: '#9ca3af',
+            }}>
+              <span>Group Available Capital:</span>
+              <span style={{ fontWeight: 600, color: '#f3f4f6' }}>{formattedAvailableCapital}</span>
+            </div>
+          )}
         </div>
-        <select id="group" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-          <option value="">Select a group…</option>
-          {groups.data?.map((g) => {
-            const isDefault = g.name === DEFAULT_GROUP_NAME;
-            return (
-              <option key={g.id} value={g.id}>
-                {g.name} — {g.enabledCount} account{g.enabledCount === 1 ? '' : 's'}{isDefault ? ' (All Accounts)' : ''}
-              </option>
-            );
-          })}
-        </select>
-      </div>
+      ) : (
+        <div className="field">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label htmlFor="account" style={{ margin: 0 }}>Target Account</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Funding:</span>
+              <button
+                type="button"
+                className="btn ghost btn-sm"
+                style={{
+                  padding: '1px 5px',
+                  height: 20,
+                  minHeight: 'unset',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  opacity: groups.isFetching || accounts.isFetching ? 0.5 : 0.8,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                onClick={() => {
+                  void groups.refetch();
+                  void accounts.refetch();
+                }}
+                disabled={groups.isFetching || accounts.isFetching}
+                title="Refresh balances from database"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching || accounts.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                </svg>
+              </button>
+              <div style={{
+                display: 'flex',
+                background: '#0e1014',
+                border: '1px solid #1f232b',
+                borderRadius: 6,
+                padding: 2,
+                gap: 2,
+              }}>
+                {(['INR', 'USDT'] as const).map((curr) => {
+                  const active = marginCurrency === curr;
+                  return (
+                    <button
+                      key={curr}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setMarginCurrency(curr)}
+                      style={{
+                        padding: '2px 10px',
+                        fontSize: 11,
+                        fontWeight: active ? 700 : 500,
+                        background: active ? '#ffffff' : 'transparent',
+                        color: active ? '#000000' : '#9ca3af',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {curr}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {activeAccounts.length > 5 && (
+            <div style={{ marginBottom: 6 }}>
+              <input
+                type="text"
+                placeholder="Filter accounts by name, #serial, or group…"
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  fontSize: 11.5,
+                  background: '#090a0d',
+                  border: '1px solid #1f232b',
+                  borderRadius: 6,
+                  color: '#e5e7eb',
+                }}
+              />
+            </div>
+          )}
+
+          <select
+            id="account"
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+          >
+            {filteredAccounts.length === 0 ? (
+              <option value="">No matching active accounts</option>
+            ) : (
+              filteredAccounts.map((a) => {
+                const balMinor = a.balancesByCurrency?.[marginCurrency] ??
+                  (a.allocatedCurrency === marginCurrency ? (a.allocatedCapitalMinor || '0') : '0');
+                const scale = marginCurrency === 'INR' ? 2 : 8;
+                const major = Number(minorToMajor(balMinor, scale));
+                const balDisplay = marginCurrency === 'INR'
+                  ? `₹${major.toLocaleString('en-IN')}`
+                  : `${major.toFixed(2)} USDT`;
+                return (
+                  <option key={a.id} value={a.id}>
+                    #{a.serialNo} · {a.name} — {balDisplay} ({a.groupName || 'Default'})
+                  </option>
+                );
+              })
+            )}
+          </select>
+
+          {selectedAccount && (
+            <div style={{
+              marginTop: 6,
+              padding: '8px 10px',
+              background: '#090a0d',
+              border: '1px solid #1f232b',
+              borderRadius: 6,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: 11,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--success, #22c55e)',
+                  display: 'inline-block',
+                }} />
+                <span style={{ fontWeight: 600, color: '#f3f4f6' }}>
+                  #{selectedAccount.serialNo} {selectedAccount.name}
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: '#181b22',
+                  color: '#9ca3af',
+                  border: '1px solid #282d37',
+                }}>
+                  {selectedAccount.groupName || 'Default (All Accounts)'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: '#9ca3af' }}>Free:</span>
+                <span style={{ fontWeight: 700, color: '#ffffff' }}>
+                  {formattedAvailableCapital}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="field">
         <label htmlFor="asset">Asset</label>
@@ -1296,9 +1615,9 @@ export function TradeTicket() {
                 );
               })}
             </div>
-            {percentValid && leverageValid && selectedGroup && (() => {
+            {percentValid && leverageValid && (targetType === 'account' ? Boolean(selectedAccount) : Boolean(selectedGroup)) && (() => {
               const scale = marginCurrency === 'INR' ? 2 : 8;
-              const allocatedMajor = Number(selectedGroup.allocatedByCurrency[marginCurrency]) / Math.pow(10, scale);
+              const allocatedMajor = Number(availableCapitalMinor) / Math.pow(10, scale);
               const marginAmt = allocatedMajor * (Number(percent) / 100);
               const notionalAmt = marginAmt * Number(leverage);
               const notionalInUsdt = marginCurrency === 'INR'
@@ -1526,7 +1845,9 @@ export function TradeTicket() {
           ? 'Trading Halted (Kill Switch Active)'
           : preview.isPending
             ? 'Previewing…'
-            : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
+            : targetType === 'account'
+              ? `Preview Trade · #${selectedAccount?.serialNo ?? ''} ${selectedAccount?.name ?? 'Account'}`
+              : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
       </button>
           </div>
         </div>
