@@ -98,20 +98,34 @@ export class TenantDb {
     return this.selectFrom(table).where(`${table}.id` as never, '=', id as never) as unknown as ScopedSelect<T>;
   }
 
-  /** INSERT with `tenant_id` forced to this context's tenant. */
+  /** INSERT with `tenant_id` forced to this context's tenant. Supports single row or batch array. */
   insertInto<T extends TenantScopedTable>(
     table: T,
-    values: Record<string, unknown> & { tenant_id?: string },
+    values: (Record<string, unknown> & { tenant_id?: string }) | ReadonlyArray<Record<string, unknown> & { tenant_id?: string }>,
   ): InsertQueryBuilder<DB, T, unknown> {
     this.assertScoped(table);
-    if (values.tenant_id !== undefined && values.tenant_id !== this.tenantId) {
+    if (Array.isArray(values)) {
+      const rows = values.map((row) => {
+        if (row.tenant_id !== undefined && row.tenant_id !== this.tenantId) {
+          throw new TenancyError(
+            `refusing to insert into ${table} with tenant_id ${row.tenant_id} from a context scoped to ${this.tenantId}`,
+          );
+        }
+        return { ...row, tenant_id: this.tenantId };
+      });
+      return this.db
+        .insertInto(table)
+        .values(rows as never) as InsertQueryBuilder<DB, T, unknown>;
+    }
+    const single = values as Record<string, unknown> & { tenant_id?: string };
+    if (single.tenant_id !== undefined && single.tenant_id !== this.tenantId) {
       throw new TenancyError(
-        `refusing to insert into ${table} with tenant_id ${values.tenant_id} from a context scoped to ${this.tenantId}`,
+        `refusing to insert into ${table} with tenant_id ${single.tenant_id} from a context scoped to ${this.tenantId}`,
       );
     }
     return this.db
       .insertInto(table)
-      .values({ ...values, tenant_id: this.tenantId } as never) as InsertQueryBuilder<DB, T, unknown>;
+      .values({ ...single, tenant_id: this.tenantId } as never) as InsertQueryBuilder<DB, T, unknown>;
   }
 
   /** UPDATE with the tenant predicate already applied. */

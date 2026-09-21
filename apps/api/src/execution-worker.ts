@@ -270,40 +270,52 @@ interface TradeRow {
 export class ExecutionWorker {
   constructor(private readonly deps: ExecutionWorkerDeps) {}
 
-  /** Drain up to `limit` 'place' jobs: write-before-send, submit, classify. */
-  async runPlaceOnce(limit = 10): Promise<WorkerRunSummary> {
+  /** Drain up to `limit` 'place' jobs in parallel: write-before-send, submit, classify. */
+  async runPlaceOnce(limit = 50): Promise<WorkerRunSummary> {
     const sum: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
     const jobs = await claimJobsFair(this.deps.db, `worker-${process.pid}`, { limit });
-    for (const job of jobs) {
-      if (job.kind !== 'place') continue;
-      sum.handled += 1;
-      const outcome = await this.placeOne(job.childOrderId, job.tenantId);
-      await deleteJob(this.deps.db, job.id);
-      if (outcome === 'sent') sum.sent += 1;
-      else if (outcome === 'ambiguous') { sum.ambiguous += 1; await enqueueJob(this.deps.db, job.childOrderId, job.tenantId, 'resolve', nowDate()); }
-      else if (outcome === 'rejected') sum.rejected += 1;
-    }
+    const placeJobs = jobs.filter((j) => j.kind === 'place');
+    sum.handled = placeJobs.length;
+
+    await Promise.all(
+      placeJobs.map(async (job) => {
+        const outcome = await this.placeOne(job.childOrderId, job.tenantId);
+        await deleteJob(this.deps.db, job.id);
+        if (outcome === 'sent') sum.sent += 1;
+        else if (outcome === 'ambiguous') {
+          sum.ambiguous += 1;
+          await enqueueJob(this.deps.db, job.childOrderId, job.tenantId, 'resolve', nowDate());
+        } else if (outcome === 'rejected') {
+          sum.rejected += 1;
+        }
+      }),
+    );
     return sum;
   }
 
-  /** Drain up to `limit` 'resolve' jobs: ask the venue by coid and settle. */
-  async runResolveOnce(limit = 10): Promise<WorkerRunSummary> {
+  /** Drain up to `limit` 'resolve' jobs in parallel: ask the venue by coid and settle. */
+  async runResolveOnce(limit = 50): Promise<WorkerRunSummary> {
     const sum: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
     const jobs = await claimJobsFair(this.deps.db, `resolve-${process.pid}`, { limit });
-    for (const job of jobs) {
-      if (job.kind !== 'resolve') continue;
-      sum.handled += 1;
-      const state = await this.resolveOne(job.childOrderId, job.tenantId);
-      await deleteJob(this.deps.db, job.id);
-      if (state === 'not_placed' || state === 'placed' || state === 'needs_human') sum.terminal += 1;
-    }
+    const resolveJobs = jobs.filter((j) => j.kind === 'resolve');
+    sum.handled = resolveJobs.length;
+
+    await Promise.all(
+      resolveJobs.map(async (job) => {
+        const state = await this.resolveOne(job.childOrderId, job.tenantId);
+        await deleteJob(this.deps.db, job.id);
+        if (state === 'not_placed' || state === 'placed' || state === 'needs_human') {
+          sum.terminal += 1;
+        }
+      }),
+    );
     return sum;
   }
 
   // ---- phase-09 sweep surfaces ----------------------------------------------
 
   /**
-   * Cancel fan-out over pre-checked children (T09.1). Each child's state is
+   * Cancel fan-out over pre-checked children (T09.1) in parallel. Each child's state is
    * re-checked against CANCELLABLE_STATES locally BEFORE any network call; a
    * settled child is refused with no venue request. Every accepted cancel is
    * followed by a resolve so the observed truth (cancelled, or filled if the
@@ -311,27 +323,25 @@ export class ExecutionWorker {
    * order (01 F8.10), so the poll is the truth.
    */
   async cancelChildren(tdb: TenantDb, children: readonly { id: string; groupTradeId: string; accountId: string; market: string | null }[]): Promise<readonly CancelRowResult[]> {
-    const out: CancelRowResult[] = [];
-    for (const child of children) {
-      const cur = await tdb.byId('child_order', child.id)
-        .select(['state', 'client_order_id as coid'] as never)
-        .executeTakeFirst();
-      const row = cur as unknown as { state: string; coid: string | null } | undefined;
-      const fromState = row?.state ?? 'missing';
-      if (row === undefined || !CANCELLABLE_STATES.has(row.state) || row.coid === null) {
-        // The per-account precondition, checked locally FIRST: a filled/cancelled/
-        // rejected order cannot be cancelled (the venue FAQ). No network call yet.
-        out.push({
-          childOrderId: child.id, accountId: child.accountId, market: child.market,
-          fromState, toState: fromState, outcome: 'refused',
-          detail: `cannot cancel an order in state ${fromState}`,
-        });
-        continue;
-      }
-      const res = await this.cancelOneAndObserve(tdb, child, row.coid, fromState);
-      out.push(res);
-    }
-    return out;
+    return Promise.all(
+      children.map(async (child) => {
+        const cur = await tdb.byId('child_order', child.id)
+          .select(['state', 'client_order_id as coid'] as never)
+          .executeTakeFirst();
+        const row = cur as unknown as { state: string; coid: string | null } | undefined;
+        const fromState = row?.state ?? 'missing';
+        if (row === undefined || !CANCELLABLE_STATES.has(row.state) || row.coid === null) {
+          // The per-account precondition, checked locally FIRST: a filled/cancelled/
+          // rejected order cannot be cancelled (the venue FAQ). No network call yet.
+          return {
+            childOrderId: child.id, accountId: child.accountId, market: child.market,
+            fromState, toState: fromState, outcome: 'refused' as const,
+            detail: `cannot cancel an order in state ${fromState}`,
+          };
+        }
+        return this.cancelOneAndObserve(tdb, child, row.coid, fromState);
+      }),
+    );
   }
 
   /** Cancel ONE order at the venue, then poll it and settle the observed truth. */
@@ -388,40 +398,43 @@ export class ExecutionWorker {
 
   /**
    * Poll the working legs of ONE group trade (Loop A for fills, T09.7): resolve
-   * each by client_order_id and settle what the venue now says. Returns how many
+   * each by client_order_id and settle what the venue now says in parallel. Returns how many
    * children changed. A child left open stays open — the trade stays executing.
    */
   async pollTrade(tdb: TenantDb, groupTradeId: string): Promise<{ changed: number }> {
     const working = await listWorkingChildren(tdb, groupTradeId);
     let changed = 0;
-    for (const child of working) {
-      if (child.clientOrderId === null || !POLLABLE.has(child.state) || child.market === null) continue;
-      let observed = await this.deps.resolve(child.clientOrderId);
-      if (!observed.ok || observed.order === null) {
-        // Exchange replication lag: give the venue up to 2 quick retries (500ms apart)
-        // before concluding the order is unresolvable or missing.
-        for (let retry = 0; retry < 2; retry++) {
-          await new Promise((r) => setTimeout(r, 500));
-          observed = await this.deps.resolve(child.clientOrderId);
-          if (observed.ok && observed.order !== null) break;
+    const pollable = working.filter((c) => c.clientOrderId !== null && POLLABLE.has(c.state) && c.market !== null);
+
+    await Promise.all(
+      pollable.map(async (child) => {
+        let observed = await this.deps.resolve(child.clientOrderId!);
+        if (!observed.ok || observed.order === null) {
+          // Exchange replication lag: give the venue up to 2 quick retries (500ms apart)
+          // before concluding the order is unresolvable or missing.
+          for (let retry = 0; retry < 2; retry++) {
+            await new Promise((r) => setTimeout(r, 500));
+            observed = await this.deps.resolve(child.clientOrderId!);
+            if (observed.ok && observed.order !== null) break;
+          }
         }
-      }
-      if (!observed.ok) continue; // venue error; the next cycle retries
-      if (observed.order === null) {
-        // We believed this order open, but the venue no longer knows it. Honest
-        // outcome is a human check — never a guess that it filled or cancelled.
-        await this.settle(tdb, { id: child.id, groupTradeId, accountId: child.accountId }, 'needs_human', {
-          refusalCode: 'order_not_found_on_poll',
-          refusalDetail: `order ${child.clientOrderId} was open but the venue could not find it on a poll`,
-        });
+        if (!observed.ok) return; // venue error; the next cycle retries
+        if (observed.order === null) {
+          // We believed this order open, but the venue no longer knows it. Honest
+          // outcome is a human check — never a guess that it filled or cancelled.
+          await this.settle(tdb, { id: child.id, groupTradeId, accountId: child.accountId }, 'needs_human', {
+            refusalCode: 'order_not_found_on_poll',
+            refusalDetail: `order ${child.clientOrderId} was open but the venue could not find it on a poll`,
+          });
+          changed += 1;
+          return;
+        }
+        const canonical = mapVenueOrderState(observed.order.statusRaw).state;
+        if (canonical === child.state) return;
+        await this.settle(tdb, { id: child.id, groupTradeId, accountId: child.accountId }, canonical, { exchangeOrderId: observed.order.id });
         changed += 1;
-        continue;
-      }
-      const canonical = mapVenueOrderState(observed.order.statusRaw).state;
-      if (canonical === child.state) continue;
-      await this.settle(tdb, { id: child.id, groupTradeId, accountId: child.accountId }, canonical, { exchangeOrderId: observed.order.id });
-      changed += 1;
-    }
+      }),
+    );
     return { changed };
   }
 

@@ -2131,7 +2131,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       // done before the client hears back. A later SSE surface (T08.6) decouples
       // the wait from the request; the group executor's 200-round cap keeps a
       // wedged queue from spinning this handler forever.
-      await engine.executor.drain();
+      await engine.executor.drain(100);
       // Poll working legs immediately after drain so immediate fills (e.g. market
       // orders or crossing limits) are recognized, protection (SL/TP) is attached,
       // and the trade flips to completed before the client receives the report.

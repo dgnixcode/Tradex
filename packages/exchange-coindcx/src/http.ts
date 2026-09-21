@@ -24,8 +24,8 @@ import type { Socket } from 'node:net';
 
 /** Well under any plausible server idle timeout, so we close before they do. */
 export const KEEP_ALIVE_MSECS = 30_000;
-/** Per origin. The rate limit binds long before this does (T01.5, T01.6). */
-export const MAX_SOCKETS_PER_ORIGIN = 8;
+/** Per origin. Sized for parallel group trade dispatch across up to 100 accounts. */
+export const MAX_SOCKETS_PER_ORIGIN = 64;
 /** Whole-request deadline. A hung read must not hold a fan-out slot open. */
 export const DEFAULT_DEADLINE_MS = 15_000;
 /** markets_details is ~554 KB; this is headroom, not a target. */

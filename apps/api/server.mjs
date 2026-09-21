@@ -181,7 +181,7 @@ if (sending) {
 }
 
 // --- boot --------------------------------------------------------------------
-const pool = new pg.Pool({ connectionString: url, max: 10 });
+const pool = new pg.Pool({ connectionString: url, max: 35 });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 // KMS for the TOTP envelope. Local in dev; a stable root key is defaulted so a
 // restart does not make every stored 2FA secret unrecoverable (the real CMK's
@@ -342,26 +342,39 @@ const enginePorts = {};
   /**
    * Mirror the venue's positions for a set of accounts. Shared by the
    * post-fan-out hook and the manual refresh, so both write the same way.
+   * Concurrently processes accounts in chunks to minimize latency across large groups.
    */
-const mirrorAccounts = async (tenantId, accountIds) => {
+  const mirrorAccounts = async (tenantId, accountIds) => {
     const tdb = forTenant(db, tenantId);
-    let positions = 0;
-    for (const accountId of accountIds) {
-      const sign = await signFor(tenantId, accountId);
-      if (sign === null) continue;
-      // BOTH margin currencies: the body must always carry both or INR-margined
-      // positions are invisible (research/04 G8).
-      const read = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
-      if (!read.ok) {
-        console.error(`[mirror] positions read failed for account ${accountId}: ${read.failure.detail ?? ''}`);
-        continue;
-      }
-      // REPLACE, not upsert: a position the venue no longer reports must stop
-      // rendering as open. The read above covers both margin currencies, so it is
-      // a complete picture and absent means closed.
-      positions += await replaceFuturesPositions(tdb, accountId, read.positions);
+    let totalPositions = 0;
+    const CHUNK_SIZE = 20;
+    for (let i = 0; i < accountIds.length; i += CHUNK_SIZE) {
+      const chunk = accountIds.slice(i, i + CHUNK_SIZE);
+      const counts = await Promise.all(
+        chunk.map(async (accountId) => {
+          try {
+            const sign = await signFor(tenantId, accountId);
+            if (sign === null) return 0;
+            // BOTH margin currencies: the body must always carry both or INR-margined
+            // positions are invisible (research/04 G8).
+            const read = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+            if (!read.ok) {
+              console.error(`[mirror] positions read failed for account ${accountId}: ${read.failure?.detail ?? ''}`);
+              return 0;
+            }
+            // REPLACE, not upsert: a position the venue no longer reports must stop
+            // rendering as open. The read above covers both margin currencies, so it is
+            // a complete picture and absent means closed.
+            return await replaceFuturesPositions(tdb, accountId, read.positions);
+          } catch (e) {
+            console.error(`[mirror] error mirroring account ${accountId}:`, e instanceof Error ? e.message : String(e));
+            return 0;
+          }
+        }),
+      );
+      totalPositions += counts.reduce((sum, c) => sum + c, 0);
     }
-    return { accounts: accountIds.length, positions };
+    return { accounts: accountIds.length, positions: totalPositions };
   };
 
   /**

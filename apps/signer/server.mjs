@@ -68,7 +68,7 @@ if (url === undefined || url === '') {
  */
 const TOKEN = process.env['TRADEX_SIGNER_TOKEN'];
 
-const pool = new pg.Pool({ connectionString: url, max: 5 });
+const pool = new pg.Pool({ connectionString: url, max: 15 });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
 
 /**

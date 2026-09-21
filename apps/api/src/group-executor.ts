@@ -13,7 +13,7 @@
 
 import { getChildOrders } from '@tradex/db';
 import type { ChildOrderRow } from '@tradex/db';
-import { forTenant, addExecutionJob } from '@tradex/db';
+import { forTenant, addExecutionJob, addExecutionJobs } from '@tradex/db';
 import type { DB, TenantDb } from '@tradex/db';
 import type { Kysely } from 'kysely';
 import type { ExecutionWorker, WorkerRunSummary } from './execution-worker.js';
@@ -57,14 +57,18 @@ export class GroupExecutor {
     let enqueued = 0;
     let alreadyTerminal = 0;
     const planned: ChildOrderRow[] = [];
+    const jobsToEnqueue: Array<{ childOrderId: string; tenantId: string; kind: 'place' }> = [];
     for (const child of children) {
       if (child.state === 'planned') {
-        await addExecutionJob(this.deps.db, child.id, tdb.tenantId, 'place');
+        jobsToEnqueue.push({ childOrderId: child.id, tenantId: tdb.tenantId, kind: 'place' });
         enqueued += 1;
         planned.push(child);
       } else {
         alreadyTerminal += 1;
       }
+    }
+    if (jobsToEnqueue.length > 0) {
+      await addExecutionJobs(this.deps.db, jobsToEnqueue);
     }
 
     // T15.5 — futures SL/TP fan-out. Each planned entry gets its conditional
@@ -109,11 +113,11 @@ export class GroupExecutor {
     if (legs.length === 0) return 0;
 
     let seq = entries.reduce((max, e) => Math.max(max, e.legSeq), 0);
-    let made = 0;
+    const bulkLegs: Array<Record<string, unknown>> = [];
     for (const entry of entries) {
       for (const leg of legs) {
         seq += 1;
-        await tdb.insertInto('child_order', {
+        bulkLegs.push({
           group_trade_id: groupTradeId,
           account_id: entry.accountId,
           leg_seq: seq,
@@ -124,19 +128,21 @@ export class GroupExecutor {
           price_used: leg.price,
           leg_kind: leg.kind,
           linked_entry_child_order_id: entry.id,
-        } as never).execute();
-        made += 1;
+        });
       }
     }
-    return made;
+    if (bulkLegs.length > 0) {
+      await tdb.insertInto('child_order', bulkLegs as never).execute();
+    }
+    return bulkLegs.length;
   }
 
   /**
    * Drain the queue for this tenant until no 'place' jobs remain or the loop cap
    * is hit, resolving any ambiguous sends between passes. Returns what happened.
    */
-  async drain(concurrency = 8): Promise<DrainResult> {
-    const cap = Math.max(1, Math.floor(concurrency));
+  async drain(concurrency = 50): Promise<DrainResult> {
+    const cap = Math.min(100, Math.max(1, Math.floor(concurrency)));
     const place: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
     const resolve: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
     let placeRuns = 0;

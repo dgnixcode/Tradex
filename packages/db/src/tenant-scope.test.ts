@@ -65,6 +65,17 @@ describe('every scoped query carries the tenant predicate', () => {
     expect(sql).toContain('"tenant_id"');
     expect(parameters).toContain(TENANT_A);
   });
+
+  it('forces tenant_id on batch array insert when caller omits it', () => {
+    const { sql, parameters } = t
+      .insertInto('app_user', [
+        { email: 'a1@b.co', password_hash: 'x1', role: 'owner' },
+        { email: 'a2@b.co', password_hash: 'x2', role: 'viewer' },
+      ])
+      .compile();
+    expect(sql).toContain('"tenant_id"');
+    expect(parameters).toContain(TENANT_A);
+  });
 });
 
 describe('the layer refuses the mistakes that cause leaks', () => {

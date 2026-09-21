@@ -129,6 +129,24 @@ export async function addExecutionJob(
     .execute();
 }
 
+/** Enqueue multiple jobs in a single bulk INSERT (e.g. 100 planned children in a group trade). */
+export async function addExecutionJobs(
+  db: Kysely<DB>,
+  jobs: readonly { childOrderId: string; tenantId: string; kind: ExecutionJobKind; runAfter?: Date }[],
+): Promise<void> {
+  if (jobs.length === 0) return;
+  const now = new Date();
+  const rows = jobs.map((j) => ({
+    child_order_id: j.childOrderId,
+    tenant_id: j.tenantId,
+    kind: j.kind,
+    run_after: j.runAfter ?? now,
+  }));
+  await db.insertInto('execution_job')
+    .values(rows as never)
+    .execute();
+}
+
 /** Claim up to `limit` jobs FROM ONE tenant. Used by the fair drainer. */
 async function claimFromTenant(
   db: Kysely<DB>,
