@@ -21,6 +21,8 @@ export interface AccountListItem {
   readonly id: string;
   readonly name: string;
   readonly status: 'pending_validation' | 'active' | 'suspended' | 'disconnected';
+  /** 1-based permanent chronological serial number (oldest account connected = 1). */
+  readonly serialNo: number;
   /** Null until the venue has been read for this account. */
   readonly allocatedCurrency: SupportedQuote | null;
   /** The free balance the exchange reported, minor units; null until read. */
@@ -33,10 +35,14 @@ export interface AccountListItem {
   readonly groupName: string | null;
   /** Whether the account is hidden from the main positions page. */
   readonly hideFromPositions: boolean;
+  readonly createdAt?: string | null;
 }
 
 /**
- * List a tenant's accounts, most recent first.
+ * List a tenant's accounts in chronological order (oldest first).
+ *
+ * Sorting oldest first ensures permanent 1-based serial numbers (#1, #2, ...)
+ * that never shift when new accounts are connected.
  *
  * A `pending_validation` account legitimately has a null basis: its row exists
  * (the sealed credential has a foreign key to it) but the venue read that fills
@@ -47,9 +53,10 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
     .select([
       'id', 'name', 'status', 'allocated_currency',
       'allocated_capital_minor', 'allocated_confirmed_against_minor', 'funding_currencies',
-      'hide_from_positions',
+      'hide_from_positions', 'created_at',
     ] as unknown as never)
-    .orderBy('created_at', 'desc' as never)
+    .orderBy('created_at', 'asc' as never)
+    .orderBy('id', 'asc' as never)
     .execute();
 
   const memberships = await tdb.selectFrom('group_member')
@@ -65,10 +72,11 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
 
   const groupMap = new Map(memberships.map((m) => [m.accountId, m]));
 
-  return (rows as unknown as Array<Record<string, unknown>>).map((r) => {
+  return (rows as unknown as Array<Record<string, unknown>>).map((r, index) => {
     const grp = groupMap.get(r['id'] as string);
     return {
       id: r['id'] as string,
+      serialNo: index + 1,
       name: r['name'] as string,
       status: r['status'] as AccountListItem['status'],
       allocatedCurrency: (r['allocated_currency'] as SupportedQuote | null) ?? null,
@@ -82,6 +90,7 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
       groupId: grp?.groupId ?? null,
       groupName: grp?.groupName ?? null,
       hideFromPositions: Boolean(r['hide_from_positions'] ?? false),
+      createdAt: r['created_at'] ? (r['created_at'] instanceof Date ? r['created_at'].toISOString() : String(r['created_at'])) : null,
     };
   });
 }

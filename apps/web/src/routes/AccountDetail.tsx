@@ -446,7 +446,14 @@ export function AccountDetail() {
               </form>
             ) : (
               <>
-                <h2 style={{ margin: 0 }}>{a.name}</h2>
+                <h2 style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {a.serialNo !== undefined && (
+                    <span className="mono muted" style={{ fontSize: '0.8em', opacity: 0.8 }}>
+                      #{a.serialNo}
+                    </span>
+                  )}
+                  <span>{a.name}</span>
+                </h2>
                 <span className={`badge ${statusBadgeClass(a.status)}`}>
                   {STATUS_LABEL[a.status] ?? a.status}
                 </span>

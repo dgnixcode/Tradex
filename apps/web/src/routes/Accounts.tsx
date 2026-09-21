@@ -138,7 +138,9 @@ export function Accounts() {
       const currMatch = (a.allocatedCurrency ?? '').toLowerCase().includes(q);
       const fundingMatch = a.fundingCurrencies.some((f) => f.toLowerCase().includes(q));
       const visMatch = (a.hideFromPositions ? 'hidden' : 'visible').includes(q);
-      return nameMatch || groupMatch || statusMatch || currMatch || fundingMatch || visMatch;
+      const serialStr = String(a.serialNo ?? '');
+      const serialMatch = serialStr.includes(q.replace(/^#/, '')) || `#${serialStr}`.includes(q);
+      return nameMatch || groupMatch || statusMatch || currMatch || fundingMatch || visMatch || serialMatch;
     });
   }, [accounts.data, search]);
 
@@ -380,7 +382,7 @@ export function Accounts() {
               </thead>
               <tbody>
                 {filteredAccounts.map((a) => {
-                  const serialNo = (accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1;
+                  const serialNo = a.serialNo ?? ((accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1);
                   return (
                     <tr key={a.id} className={a.status === 'disconnected' || a.status === 'suspended' ? 'skipped' : ''}>
                       <td className="mono muted" style={{ fontSize: 12, textAlign: 'center', fontWeight: 600 }}>#{serialNo}</td>
@@ -488,7 +490,7 @@ export function Accounts() {
           {/* Mobile Account Cards (<= 768px) */}
           <div className="mobile-pos-cards">
             {filteredAccounts.map((a) => {
-              const serialNo = (accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1;
+              const serialNo = a.serialNo ?? ((accounts.data?.findIndex((x) => x.id === a.id) ?? 0) + 1);
               return (
                 <div
                   key={`mobile-${a.id}`}
