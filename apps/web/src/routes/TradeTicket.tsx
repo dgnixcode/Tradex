@@ -741,6 +741,10 @@ export function TradeTicket() {
   const [groupId, setGroupId] = useState<string>(() => draft.groupId || '');
   const [accountId, setAccountId] = useState<string>(() => draft.accountId || '');
   const [accountSearch, setAccountSearch] = useState<string>('');
+  const [isAccountPickerOpen, setIsAccountPickerOpen] = useState<boolean>(false);
+  const [highlightedAccountIndex, setHighlightedAccountIndex] = useState<number>(0);
+  const accountPickerRef = useRef<HTMLDivElement>(null);
+  const accountSearchInputRef = useRef<HTMLInputElement>(null);
   const [asset, setAsset] = useState<string>(() => {
     try {
       return draft.asset || localStorage.getItem('tradex_selected_asset') || 'BTC';
@@ -913,6 +917,7 @@ export function TradeTicket() {
       (a) =>
         a.name.toLowerCase().includes(q) ||
         `#${a.serialNo}`.includes(q) ||
+        String(a.serialNo).includes(q) ||
         (a.groupName && a.groupName.toLowerCase().includes(q)),
     );
   }, [activeAccounts, accountSearch]);
@@ -922,6 +927,12 @@ export function TradeTicket() {
     [activeAccounts, accountId],
   );
 
+  const handleSelectAccount = (id: string): void => {
+    setAccountId(id);
+    setIsAccountPickerOpen(false);
+    setAccountSearch('');
+  };
+
   // Auto-select first active account if in account mode and no account selected
   useEffect(() => {
     if (targetType === 'account' && activeAccounts.length > 0) {
@@ -930,6 +941,33 @@ export function TradeTicket() {
       }
     }
   }, [targetType, activeAccounts, accountId]);
+
+  // Close account picker when clicking outside
+  useEffect(() => {
+    if (!isAccountPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (accountPickerRef.current && !accountPickerRef.current.contains(e.target as Node)) {
+        setIsAccountPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isAccountPickerOpen]);
+
+  // Focus search input when account picker opens
+  useEffect(() => {
+    if (isAccountPickerOpen) {
+      const timer = setTimeout(() => {
+        accountSearchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isAccountPickerOpen]);
+
+  // Reset highlighted index when search query changes
+  useEffect(() => {
+    setHighlightedAccountIndex(0);
+  }, [accountSearch]);
 
   const selectedGroup: GroupSummary | undefined = useMemo(
     () => groups.data?.find((g) => g.id === groupId),
@@ -1497,50 +1535,318 @@ export function TradeTicket() {
             </div>
           </div>
 
-          {activeAccounts.length > 5 && (
-            <div style={{ marginBottom: 6 }}>
-              <input
-                type="text"
-                placeholder="Filter accounts by name, #serial, or group…"
-                value={accountSearch}
-                onChange={(e) => setAccountSearch(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '6px 10px',
-                  fontSize: 11.5,
-                  background: '#090a0d',
-                  border: '1px solid #1f232b',
-                  borderRadius: 6,
-                  color: '#e5e7eb',
-                }}
-              />
-            </div>
-          )}
+          {/* Searchable Account Selector Combobox */}
+          <div ref={accountPickerRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              id="account-selector-btn"
+              onClick={() => setIsAccountPickerOpen((prev) => !prev)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '9px 12px',
+                background: '#0e1218',
+                border: isAccountPickerOpen ? '1px solid #3b82f6' : '1px solid #1f242b',
+                borderRadius: 7,
+                color: '#f3f4f6',
+                cursor: 'pointer',
+                fontSize: 12.5,
+                textAlign: 'left',
+                transition: 'border-color 0.15s ease, background-color 0.15s ease',
+              }}
+            >
+              {selectedAccount ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflow: 'hidden', minWidth: 0 }}>
+                  <span style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--success, #22c55e)',
+                    flexShrink: 0,
+                  }} />
+                  <span style={{
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    color: '#93c5fd',
+                    background: '#1e293b',
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    border: '1px solid #334155',
+                    flexShrink: 0,
+                  }}>
+                    #{selectedAccount.serialNo}
+                  </span>
+                  <span style={{ fontWeight: 600, color: '#f3f4f6', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                    {selectedAccount.name}
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    background: '#181b22',
+                    color: '#9ca3af',
+                    border: '1px solid #282d37',
+                    flexShrink: 0,
+                  }}>
+                    {selectedAccount.groupName || 'Default'}
+                  </span>
+                </div>
+              ) : (
+                <span style={{ color: '#6b7280' }}>Select an account…</span>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 8 }}>
+                {selectedAccount && formattedAvailableCapital && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#34d399' }}>
+                    {formattedAvailableCapital}
+                  </span>
+                )}
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  width="14"
+                  height="14"
+                  style={{
+                    color: '#9ca3af',
+                    transform: isAccountPickerOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                >
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </div>
+            </button>
 
-          <select
-            id="account"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-          >
-            {filteredAccounts.length === 0 ? (
-              <option value="">No matching active accounts</option>
-            ) : (
-              filteredAccounts.map((a) => {
-                const balMinor = a.balancesByCurrency?.[marginCurrency] ??
-                  (a.allocatedCurrency === marginCurrency ? (a.allocatedCapitalMinor || '0') : '0');
-                const scale = marginCurrency === 'INR' ? 2 : 8;
-                const major = Number(minorToMajor(balMinor, scale));
-                const balDisplay = marginCurrency === 'INR'
-                  ? `₹${major.toLocaleString('en-IN')}`
-                  : `${major.toFixed(2)} USDT`;
-                return (
-                  <option key={a.id} value={a.id}>
-                    #{a.serialNo} · {a.name} — {balDisplay} ({a.groupName || 'Default'})
-                  </option>
-                );
-              })
+            {/* Dropdown Panel */}
+            {isAccountPickerOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  background: '#0d1117',
+                  border: '1px solid #282f3c',
+                  borderRadius: 8,
+                  boxShadow: '0 12px 30px rgba(0,0,0,0.7)',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                }}
+              >
+                {/* Search Bar */}
+                <div style={{ padding: '8px 10px', borderBottom: '1px solid #1c222d', background: '#0a0d12' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="13"
+                      height="13"
+                      fill="none"
+                      stroke="#6b7280"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ position: 'absolute', left: 9, pointerEvents: 'none' }}
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      ref={accountSearchInputRef}
+                      type="text"
+                      placeholder="Search accounts by name, #serial, or group…"
+                      value={accountSearch}
+                      onChange={(e) => {
+                        setAccountSearch(e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setIsAccountPickerOpen(false);
+                        } else if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setHighlightedAccountIndex((prev) => Math.min(prev + 1, Math.max(0, filteredAccounts.length - 1)));
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setHighlightedAccountIndex((prev) => Math.max(prev - 1, 0));
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const target = filteredAccounts[highlightedAccountIndex] || filteredAccounts[0];
+                          if (target) {
+                            handleSelectAccount(target.id);
+                          }
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 28px 6px 28px',
+                        fontSize: 12,
+                        background: '#12161f',
+                        border: '1px solid #232a37',
+                        borderRadius: 6,
+                        color: '#f3f4f6',
+                        outline: 'none',
+                      }}
+                    />
+                    {accountSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setAccountSearch('')}
+                        style={{
+                          position: 'absolute',
+                          right: 8,
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#9ca3af',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          fontSize: 12,
+                          lineHeight: 1,
+                        }}
+                        title="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 5,
+                    fontSize: 10.5,
+                    color: '#6b7280',
+                    padding: '0 2px',
+                  }}>
+                    <span>
+                      {accountSearch.trim()
+                        ? `Found ${filteredAccounts.length} of ${activeAccounts.length} accounts`
+                        : `${activeAccounts.length} active account${activeAccounts.length === 1 ? '' : 's'}`}
+                    </span>
+                    <span style={{ fontSize: 10 }}>Enter to select</span>
+                  </div>
+                </div>
+
+                {/* Accounts List */}
+                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {filteredAccounts.length === 0 ? (
+                    <div style={{ padding: '16px 12px', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                      <div>No active accounts match &quot;{accountSearch}&quot;</div>
+                      {accountSearch && (
+                        <button
+                          type="button"
+                          className="btn ghost btn-sm"
+                          onClick={() => setAccountSearch('')}
+                          style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }}
+                        >
+                          Clear search
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    filteredAccounts.map((a, idx) => {
+                      const isSelected = a.id === accountId;
+                      const isHighlighted = idx === highlightedAccountIndex;
+                      const balMinor = a.balancesByCurrency?.[marginCurrency] ??
+                        (a.allocatedCurrency === marginCurrency ? (a.allocatedCapitalMinor || '0') : '0');
+                      const scale = marginCurrency === 'INR' ? 2 : 8;
+                      const major = Number(minorToMajor(balMinor, scale));
+                      const balDisplay = marginCurrency === 'INR'
+                        ? `₹${major.toLocaleString('en-IN')}`
+                        : `${major.toFixed(2)} USDT`;
+
+                      return (
+                        <div
+                          key={a.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => handleSelectAccount(a.id)}
+                          onMouseEnter={() => setHighlightedAccountIndex(idx)}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: isSelected
+                              ? '#162235'
+                              : isHighlighted
+                              ? '#141822'
+                              : 'transparent',
+                            borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #141822',
+                            transition: 'background 0.1s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: isSelected ? '#93c5fd' : '#9ca3af',
+                              background: isSelected ? '#1e293b' : '#14171f',
+                              padding: '2px 5px',
+                              borderRadius: 4,
+                              border: '1px solid #282d37',
+                              flexShrink: 0,
+                            }}>
+                              #{a.serialNo}
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{
+                                fontWeight: isSelected ? 700 : 500,
+                                color: isSelected ? '#ffffff' : '#e5e7eb',
+                                fontSize: 12,
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                overflow: 'hidden',
+                              }}>
+                                {a.name}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#6b7280' }}>
+                                {a.groupName || 'Default (All Accounts)'}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'right', flexShrink: 0 }}>
+                            <div>
+                              <div style={{
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                color: isSelected ? '#34d399' : '#d1d5db',
+                              }}>
+                                {balDisplay}
+                              </div>
+                              <div style={{ fontSize: 9.5, color: '#6b7280' }}>Free Capital</div>
+                            </div>
+                            {isSelected && (
+                              <svg viewBox="0 0 20 20" fill="#3b82f6" width="15" height="15">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             )}
-          </select>
+
+            {/* Hidden native select for accessibility / form compatibility */}
+            <select
+              id="account"
+              value={accountId}
+              onChange={(e) => handleSelectAccount(e.target.value)}
+              style={{ display: 'none' }}
+              tabIndex={-1}
+              aria-hidden="true"
+            >
+              {activeAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  #{a.serialNo} · {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {selectedAccount && (
             <div style={{
