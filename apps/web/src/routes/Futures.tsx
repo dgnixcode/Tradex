@@ -1258,10 +1258,13 @@ export function PositionManageModal({
     const mark = position.markPrice ? Number(position.markPrice) : (position.avgEntryPrice ? Number(position.avgEntryPrice) : 0);
     const lev = position.leverage ? Number(position.leverage) : 1;
     if (mark > 0 && lev > 0) {
-      return mark / lev;
+      const peg = (position.marginCurrency === 'INR' && (position.pair.endsWith('_USDT') || position.pair.includes('USDT')))
+        ? (position.settlementCurrencyAvgPrice && Number(position.settlementCurrencyAvgPrice) > 0 ? Number(position.settlementCurrencyAvgPrice) : 100)
+        : 1;
+      return (mark * peg) / lev;
     }
     return 0;
-  }, [totalQty, lockedMarginMajor, position.markPrice, position.avgEntryPrice, position.leverage]);
+  }, [totalQty, lockedMarginMajor, position.markPrice, position.avgEntryPrice, position.leverage, position.marginCurrency, position.pair, position.settlementCurrencyAvgPrice]);
 
   const { calculatedAddQty, calculatedAddMarginMajor, calculatedAddMarginMinor, effectiveSliderPct, isOverBudget } = useMemo(() => {
     if (increaseSizingMode === 'percent') {
@@ -1343,12 +1346,26 @@ export function PositionManageModal({
   const targetLevNum = Number(targetLeverage);
   const isTargetLevValid = !Number.isNaN(targetLevNum) && targetLevNum >= 1 && targetLevNum <= 100;
 
+  const posPeg = (position.marginCurrency === 'INR' && (position.pair.endsWith('_USDT') || position.pair.includes('USDT')))
+    ? (position.settlementCurrencyAvgPrice && Number(position.settlementCurrencyAvgPrice) > 0 ? Number(position.settlementCurrencyAvgPrice) : 100)
+    : 1;
+
   const posMarkPrice = position.markPrice ? Number(position.markPrice) : (position.avgEntryPrice ? Number(position.avgEntryPrice) : 0);
   const posEntryPrice = position.avgEntryPrice ? Number(position.avgEntryPrice) : posMarkPrice;
-  const posNotionalMajor = totalQty * posMarkPrice;
 
-  const currentMarginMajor = posNotionalMajor > 0 && currentLev > 0 ? posNotionalMajor / currentLev : lockedMarginMajor;
-  const newMarginMajor = isTargetLevValid && targetLevNum > 0 ? posNotionalMajor / targetLevNum : 0;
+  // Current margin in position's margin currency (INR or USDT)
+  const currentMarginMajor = lockedMarginMajor > 0
+    ? lockedMarginMajor
+    : (totalQty > 0 && posEntryPrice > 0 && currentLev > 0 ? (totalQty * posEntryPrice * posPeg) / currentLev : 0);
+
+  // New required margin when leverage changes to targetLevNum:
+  // Scales inversely with leverage: NewMargin = CurrentMargin * (currentLev / targetLevNum)
+  const newMarginMajor = isTargetLevValid && targetLevNum > 0
+    ? (currentMarginMajor > 0 && currentLev > 0
+        ? currentMarginMajor * (currentLev / targetLevNum)
+        : (totalQty > 0 && posEntryPrice > 0 ? (totalQty * posEntryPrice * posPeg) / targetLevNum : 0))
+    : 0;
+
   const marginDeltaMajor = newMarginMajor - currentMarginMajor;
 
   const isLevShortfall = marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor;
@@ -2937,9 +2954,12 @@ function GroupPositionManageModal({
 
       const posQty = Number(p.quantity);
       const lockedMarginMajor = p.lockedMarginMinor ? Number(p.lockedMarginMinor) / (10 ** quoteScale) : 0;
+      const posPeg = (p.marginCurrency === 'INR' && (p.pair.endsWith('_USDT') || p.pair.includes('USDT')))
+        ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 100)
+        : 1;
       const marginPerUnit = (posQty > 0 && lockedMarginMajor > 0)
         ? (lockedMarginMajor / posQty)
-        : (p.markPrice && p.leverage ? Number(p.markPrice) / Number(p.leverage) : 0);
+        : (p.markPrice && p.leverage ? (Number(p.markPrice) * posPeg) / Number(p.leverage) : 0);
 
       let addQtyNum = 0;
       let targetAddMarginMajor = 0;
@@ -3031,12 +3051,18 @@ function GroupPositionManageModal({
       const entryOrMark = (p.avgEntryPrice && Number(p.avgEntryPrice) > 0) ? Number(p.avgEntryPrice) : (p.markPrice ? Number(p.markPrice) : 0);
       const currentLev = (p.leverage && Number(p.leverage) > 0) ? Number(p.leverage) : 1;
 
+      const posPeg = (p.marginCurrency === 'INR' && (p.pair.endsWith('_USDT') || p.pair.includes('USDT')))
+        ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 100)
+        : 1;
+
       const currentMarginMajor = p.lockedMarginMinor && Number(p.lockedMarginMinor) > 0
         ? Number(p.lockedMarginMinor) / (10 ** quoteScale)
-        : (currentLev > 0 ? (posQty * entryOrMark) / currentLev : 0);
+        : (currentLev > 0 && posQty > 0 && entryOrMark > 0 ? (posQty * entryOrMark * posPeg) / currentLev : 0);
 
       const newMarginMajor = isTargetLevValid && targetLevNum > 0
-        ? (posQty * entryOrMark) / targetLevNum
+        ? (currentMarginMajor > 0 && currentLev > 0
+            ? currentMarginMajor * (currentLev / targetLevNum)
+            : (posQty > 0 && entryOrMark > 0 ? (posQty * entryOrMark * posPeg) / targetLevNum : 0))
         : currentMarginMajor;
 
       const marginDeltaMajor = newMarginMajor - currentMarginMajor;
@@ -4690,7 +4716,7 @@ function GroupPositionManageModal({
                               {item.isSame ? (
                                 <span className="badge" style={{ fontSize: 10, background: 'var(--surface-3)', color: 'var(--muted)' }}>Already {item.currentLev}×</span>
                               ) : !item.isEligible ? (
-                                <span className="status-badge-skipped" title={`Needs ₹${item.shortfallMajor.toFixed(2)} more free cash`}>Shortfall</span>
+                                <span className="status-badge-skipped" title={`Needs ${group.marginCurrency === 'INR' ? `₹${item.shortfallMajor.toFixed(2)}` : `${item.shortfallMajor.toFixed(4)} USDT`} more free cash`}>Shortfall</span>
                               ) : (
                                 <span className="status-badge-funded">Eligible</span>
                               )}
