@@ -197,6 +197,7 @@ export interface ExchangeAccountTable {
   frozen_reason: string | null;
   created_at: Generated<Timestamp>;
   disconnected_at: Timestamp | null;
+  hide_from_positions: Generated<boolean>;
 }
 
 /**

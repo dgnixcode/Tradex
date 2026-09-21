@@ -33,6 +33,7 @@ export interface FuturesPositionRow {
   readonly settlementCurrencyAvgPrice?: string | null;
   readonly groupName?: string | null;
   readonly entryTimeMs?: number | null;
+  readonly hideFromPositions?: boolean;
 }
 
 export interface FuturesPositionView {
@@ -40,6 +41,7 @@ export interface FuturesPositionView {
   readonly accountId: string;
   readonly accountName: string;
   readonly groupName?: string | null;
+  readonly hideFromPositions?: boolean;
   readonly pair: string;
   readonly marginCurrency: Quote;
   readonly side: 'long' | 'short' | 'flat';
@@ -138,6 +140,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
     accountId: row.accountId,
     accountName: row.accountName,
     groupName: row.groupName ?? null,
+    hideFromPositions: row.hideFromPositions ?? false,
     pair: row.pair,
     marginCurrency: row.marginCurrency,
     side,

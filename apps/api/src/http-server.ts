@@ -40,7 +40,7 @@ import {
   updateGroup, archiveGroup, addMember, removeMember, setMemberEnabled,
   getGroupMembers, getEnabledMembers, getGroupTrade, getGroupHeader, GroupRepoError, listAuditEvents,
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
-  deleteAccount, renameAccount, setAccountStatus, requeueStale,
+  deleteAccount, renameAccount, updateAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
   getPlatformBranding, updatePlatformBranding, createSession,
   readPlatformFlags, readPlatformKillSwitchDetails, setPlatformKillSwitch,
@@ -1842,21 +1842,26 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
-    // ---- PATCH /api/accounts/:id — rename an account ----
+    // ---- PATCH /api/accounts/:id — update account settings (rename / hideFromPositions) ----
     if (method === 'PATCH' && accountMatch !== null) {
-      requireAction(principal, 'credential.write');
-      const body = (ctx.body ?? {}) as { name?: string };
-      if (typeof body.name !== 'string' || body.name.trim() === '') {
-        throw new HttpError(400, 'name is required');
+      requireAction(principal, 'group.write');
+      const body = (ctx.body ?? {}) as { name?: string; hideFromPositions?: boolean };
+      if (body.name === undefined && body.hideFromPositions === undefined) {
+        throw new HttpError(400, 'at least one field (name, hideFromPositions) must be provided');
       }
-      const newName = body.name.trim();
+      if (body.name !== undefined && (typeof body.name !== 'string' || body.name.trim() === '')) {
+        throw new HttpError(400, 'name cannot be blank');
+      }
       const tdb = forTenant(deps.db, principal.tenantId);
       const updated = await runAccountOp(async () => {
         try {
-          return await renameAccount(tdb, accountMatch[1] as string, newName);
+          return await updateAccount(tdb, accountMatch[1] as string, {
+            name: body.name !== undefined ? body.name.trim() : undefined,
+            hideFromPositions: body.hideFromPositions !== undefined ? Boolean(body.hideFromPositions) : undefined,
+          });
         } catch (err: unknown) {
           if (err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === '23505') {
-            throw new AccountRepoError(`an account named "${newName}" already exists`);
+            throw new AccountRepoError(`an account named "${body.name?.trim()}" already exists`);
           }
           throw err;
         }

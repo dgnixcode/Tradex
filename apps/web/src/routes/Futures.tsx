@@ -385,6 +385,21 @@ function AccountRow({
           </Link>
           <div style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
             {p.groupName || 'Ungrouped'}
+            {p.hideFromPositions && (
+              <span
+                style={{
+                  fontSize: 9.5,
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  background: 'rgba(239, 68, 68, 0.18)',
+                  color: '#fca5a5',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  fontWeight: 600,
+                }}
+              >
+                Hidden
+              </span>
+            )}
           </div>
         </div>
       </td>
@@ -560,7 +575,24 @@ function AccountMobileCard({
               <line x1="10" y1="14" x2="21" y2="3" />
             </svg>
           </Link>
-          <div className="pos-mobile-grp-badge">{p.groupName || 'Ungrouped'}</div>
+          <div className="pos-mobile-grp-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span>{p.groupName || 'Ungrouped'}</span>
+            {p.hideFromPositions && (
+              <span
+                style={{
+                  fontSize: 9,
+                  padding: '1px 4px',
+                  borderRadius: 3,
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: '#fca5a5',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  fontWeight: 600,
+                }}
+              >
+                Hidden
+              </span>
+            )}
+          </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{
@@ -3489,7 +3521,16 @@ export function Futures() {
     onError: (e) => setMessage({ kind: 'err', text: (e as Error).message }),
   });
 
-  const rows = positions.data?.views ?? [];
+  const [showHiddenAccounts, setShowHiddenAccounts] = useState(false);
+
+  const allRows = positions.data?.views ?? [];
+  const hiddenRowsCount = useMemo(() => allRows.filter((r) => r.hideFromPositions).length, [allRows]);
+
+  const rows = useMemo(() => {
+    if (showHiddenAccounts) return allRows;
+    return allRows.filter((r) => !r.hideFromPositions);
+  }, [allRows, showHiddenAccounts]);
+
   const hasAny = rows.length > 0;
 
   // Build grouped positions
@@ -3915,6 +3956,50 @@ export function Futures() {
                   </span>
                 </button>
               </div>
+
+              {/* Hidden Accounts Visibility Toggle Button */}
+              {hiddenRowsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowHiddenAccounts((prev) => !prev)}
+                  style={{
+                    padding: '4px 11px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: showHiddenAccounts
+                      ? '1px solid rgba(239, 68, 68, 0.4)'
+                      : '1px solid var(--border)',
+                    background: showHiddenAccounts
+                      ? 'rgba(239, 68, 68, 0.15)'
+                      : 'var(--surface-2)',
+                    color: showHiddenAccounts ? '#fca5a5' : 'var(--muted)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={showHiddenAccounts ? 'Click to hide accounts marked as hidden' : 'Click to show positions from hidden accounts'}
+                >
+                  {showHiddenAccounts ? (
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  )}
+                  <span>
+                    {showHiddenAccounts
+                      ? `Showing ${hiddenRowsCount} Hidden`
+                      : `Show ${hiddenRowsCount} Hidden`}
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Group or Coin Search Input */}

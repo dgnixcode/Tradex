@@ -76,16 +76,19 @@ export async function resolveAccounts(
   tdb: TenantDb,
   req: { readonly groupId?: string | null; readonly accountId?: string | null },
 ): Promise<NamedAccount[]> {
+  const all = await listAccounts(tdb);
   if (req.accountId !== undefined && req.accountId !== null && req.accountId !== '') {
-    const all = await listAccounts(tdb);
     const one = all.find((a) => a.id === req.accountId);
     return one === undefined ? [] : [{ accountId: one.id, accountName: one.name }];
   }
   if (req.groupId !== undefined && req.groupId !== null && req.groupId !== '') {
     const members = await getEnabledMembers(tdb, req.groupId);
-    return members.map((m) => ({ accountId: m.accountId, accountName: m.accountName }));
+    const hiddenSet = new Set(all.filter((a) => a.hideFromPositions).map((a) => a.id));
+    return members
+      .filter((m) => !hiddenSet.has(m.accountId))
+      .map((m) => ({ accountId: m.accountId, accountName: m.accountName }));
   }
-  return (await listAccounts(tdb)).map((a) => ({ accountId: a.id, accountName: a.name }));
+  return all.filter((a) => !a.hideFromPositions).map((a) => ({ accountId: a.id, accountName: a.name }));
 }
 
 // ------------------------------------------------------------------ blotter

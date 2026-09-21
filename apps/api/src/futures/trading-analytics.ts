@@ -267,7 +267,7 @@ export async function buildTradingAnalytics(
   }
 
   // 2. Determine target scope
-  let targetAccounts = allAccounts;
+  let targetAccounts = allAccounts.filter((a) => !a.hideFromPositions);
   let scopeType: 'all' | 'group' | 'account' = 'all';
   let scopeId: string | null = null;
   let scopeName: string | null = null;
@@ -282,7 +282,7 @@ export async function buildTradingAnalytics(
     }
   } else if (query.groupId) {
     const memberIds = new Set(groupMembersMap.get(query.groupId) ?? []);
-    targetAccounts = allAccounts.filter((a) => memberIds.has(a.id));
+    targetAccounts = allAccounts.filter((a) => memberIds.has(a.id) && !a.hideFromPositions);
     const grp = rawGroups.find((g) => g.id === query.groupId);
     scopeType = 'group';
     scopeId = query.groupId;
@@ -750,7 +750,11 @@ export async function buildTradingAnalytics(
 
   // 8. Strategy Groups Breakdown
   const groups: GroupAnalyticsRow[] = rawGroups.map((g) => {
-    const memberIds = groupMembersMap.get(g.id) ?? [];
+    const rawMemberIds = groupMembersMap.get(g.id) ?? [];
+    const memberIds = rawMemberIds.filter((mId) => {
+      const acc = accountsMap.get(mId);
+      return acc !== undefined && !acc.hideFromPositions;
+    });
     const memberSet = new Set(memberIds);
     const grpPositions = posResponse.views.filter((p) => memberSet.has(p.accountId) && p.side !== 'flat');
 

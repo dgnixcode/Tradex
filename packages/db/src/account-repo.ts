@@ -310,6 +310,52 @@ export async function accountIsLive(tdb: TenantDb, accountId: string): Promise<b
   return row !== undefined;
 }
 
+export interface UpdateAccountParams {
+  readonly name?: string | undefined;
+  readonly hideFromPositions?: boolean | undefined;
+}
+
+/**
+ * Update an account's mutable settings (name, hide_from_positions).
+ */
+export async function updateAccount(
+  tdb: TenantDb,
+  accountId: string,
+  patch: UpdateAccountParams,
+): Promise<{ id: string; name: string; hideFromPositions: boolean }> {
+  const updates: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim();
+    if (trimmed === '') throw new AccountRepoError('an account name cannot be blank');
+    updates['name'] = trimmed;
+  }
+  if (patch.hideFromPositions !== undefined) {
+    updates['hide_from_positions'] = Boolean(patch.hideFromPositions);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    const row = await tdb.byId('exchange_account', accountId)
+      .select(['id', 'name', 'hide_from_positions'] as never)
+      .executeTakeFirst() as { id: string; name: string; hide_from_positions: boolean } | undefined;
+    if (row === undefined) {
+      throw new AccountRepoError(`account ${accountId} was not found`);
+    }
+    return { id: row.id, name: row.name, hideFromPositions: Boolean(row.hide_from_positions) };
+  }
+
+  const updated = await tdb.updateTable('exchange_account')
+    .set(updates as never)
+    .where('id' as never, '=', accountId as never)
+    .returning(['id', 'name', 'hide_from_positions'] as never)
+    .executeTakeFirst() as { id: string; name: string; hide_from_positions: boolean } | undefined;
+
+  if (updated === undefined) {
+    throw new AccountRepoError(`account ${accountId} was not found`);
+  }
+
+  return { id: updated.id, name: updated.name, hideFromPositions: Boolean(updated.hide_from_positions) };
+}
+
 /**
  * Rename an account.
  * Missing account -> AccountRepoError('account <id> was not found').
@@ -320,18 +366,7 @@ export async function renameAccount(
   accountId: string,
   newName: string,
 ): Promise<{ id: string; name: string }> {
-  const trimmed = newName.trim();
-  if (trimmed === '') throw new AccountRepoError('an account name cannot be blank');
-
-  const updated = await tdb.updateTable('exchange_account')
-    .set({ name: trimmed } as never)
-    .where('id' as never, '=', accountId as never)
-    .returning(['id', 'name'] as never)
-    .executeTakeFirst() as { id: string; name: string } | undefined;
-
-  if (updated === undefined) {
-    throw new AccountRepoError(`account ${accountId} was not found`);
-  }
-
-  return { id: updated.id, name: updated.name };
+  const res = await updateAccount(tdb, accountId, { name: newName });
+  return { id: res.id, name: res.name };
 }
+

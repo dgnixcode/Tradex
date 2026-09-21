@@ -49,4 +49,17 @@ describe('Futures Positions View', () => {
     expect(views.length).toBe(1);
     expect(views[0]?.venuePositionId).toBe('pos-123');
   });
+
+  it('preserves and propagates hideFromPositions flag', () => {
+    const hiddenRow: FuturesPositionRow = {
+      ...baseRow,
+      hideFromPositions: true,
+    };
+    const view = buildFuturesView(hiddenRow, 1726830500000);
+    expect(view.hideFromPositions).toBe(true);
+
+    const defaultView = buildFuturesView(baseRow, 1726830500000);
+    expect(defaultView.hideFromPositions).toBe(false);
+  });
 });
+

@@ -2,20 +2,25 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  addGroupMember,
   adjustFuturesPosition,
   confirmAccount,
+  DEFAULT_GROUP_NAME,
   deleteAccount,
   exitFuturesPosition,
   fetchAccount,
   fetchFuturesPositions,
+  fetchGroups,
   fetchKillSwitchStatus,
   fetchTradingAnalytics,
+  removeGroupMember,
   renameAccount,
   resumeAccount,
   setFuturesProtection,
   setTrailingProtection,
   suspendAccount,
   syncAccount,
+  updateAccount,
 } from '../api.ts';
 import type { FuturesPositionRow } from '../api.ts';
 import { useAuth } from '../auth.tsx';
@@ -199,6 +204,49 @@ export function AccountDetail() {
     onError: (e) => setOpError(e instanceof Error ? e.message : 'could not delete the account'),
   });
 
+  const groups = useQuery({
+    queryKey: ['groups'],
+    queryFn: fetchGroups,
+  });
+
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [targetGroupId, setTargetGroupId] = useState('');
+  const [groupModalError, setGroupModalError] = useState<string | null>(null);
+
+  const toggleVisibility = useMutation({
+    mutationFn: (hideFromPositions: boolean) => updateAccount(accountId, { hideFromPositions }),
+    onSuccess: (res) => {
+      setSyncNote(`Visibility updated: ${res.account.name} is now ${res.account.hideFromPositions ? 'hidden from' : 'visible on'} positions and analytics.`);
+      invalidate();
+    },
+    onError: (e) => setOpError((e as Error).message || 'Failed to update visibility'),
+  });
+
+  const assignGroupMut = useMutation({
+    mutationFn: (newGroupId: string) => addGroupMember(newGroupId, accountId, true),
+    onSuccess: () => {
+      setGroupModalOpen(false);
+      setTargetGroupId('');
+      setGroupModalError(null);
+      setSyncNote('Strategy group updated successfully.');
+      invalidate();
+    },
+    onError: (e) => setGroupModalError((e as Error).message || 'Failed to assign group'),
+  });
+
+  const unassignGroupMut = useMutation({
+    mutationFn: (currentGroupId: string) => removeGroupMember(currentGroupId, accountId),
+    onSuccess: () => {
+      setGroupModalOpen(false);
+      setTargetGroupId('');
+      setGroupModalError(null);
+      setSyncNote('Removed from strategy group.');
+      invalidate();
+    },
+    onError: (e) => setGroupModalError((e as Error).message || 'Failed to remove from group'),
+  });
+
+
   const adjustMut = useMutation({
     mutationFn: ({ id, direction, percentBp }: { id: string; direction: 'reduce' | 'increase'; percentBp: number }) =>
       adjustFuturesPosition(id, direction, percentBp),
@@ -258,6 +306,13 @@ export function AccountDetail() {
 
   const a = account.data;
   const busy = finish.isPending || suspend.isPending || resume.isPending || remove.isPending || sync.isPending;
+
+  const availableGroups = useMemo(() => {
+    if (!groups.data) return [];
+    return groups.data.filter(
+      (g) => g.name !== DEFAULT_GROUP_NAME && g.id !== a?.groupId
+    );
+  }, [groups.data, a?.groupId]);
 
   // Filter positions strictly for this account
   const accountPositions = useMemo(() => {
@@ -395,6 +450,79 @@ export function AccountDetail() {
                 <span className={`badge ${statusBadgeClass(a.status)}`}>
                   {STATUS_LABEL[a.status] ?? a.status}
                 </span>
+
+                {/* Strategy Group Badge & Move Action */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {a.groupId && a.groupName ? (
+                    <Link to={`/app/groups/${a.groupId}`} style={{ textDecoration: 'none' }}>
+                      <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                        {a.groupName}
+                      </span>
+                    </Link>
+                  ) : (
+                    <span className="muted" style={{ fontSize: 12 }}>Unassigned Group</span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn secondary btn-sm"
+                    style={{ padding: '2px 8px', fontSize: 11, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    onClick={() => {
+                      setGroupModalOpen(true);
+                      setTargetGroupId('');
+                      setGroupModalError(null);
+                    }}
+                    title={a.groupId ? 'Move to another strategy group' : 'Assign to a strategy group'}
+                  >
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    {a.groupId ? 'Move Group' : 'Assign Group'}
+                  </button>
+                </div>
+
+                {/* Positions Page Visibility Toggle */}
+                <button
+                  type="button"
+                  className="btn secondary btn-sm"
+                  disabled={toggleVisibility.isPending}
+                  onClick={() => toggleVisibility.mutate(!a.hideFromPositions)}
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    borderRadius: 14,
+                    border: a.hideFromPositions
+                      ? '1px solid rgba(239, 68, 68, 0.35)'
+                      : '1px solid rgba(16, 185, 129, 0.35)',
+                    background: a.hideFromPositions
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'rgba(16, 185, 129, 0.12)',
+                    color: a.hideFromPositions ? '#fca5a5' : '#6ee7b7',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                  }}
+                  title={a.hideFromPositions ? 'Click to show this account on platform positions and analytics' : 'Click to hide this account from platform positions and analytics'}
+                >
+                  {toggleVisibility.isPending ? (
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                    </svg>
+                  ) : a.hideFromPositions ? (
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                  {a.hideFromPositions ? 'Hidden from Positions & Analytics' : 'Visible in Positions & Analytics'}
+                </button>
+
                 {isOwner && (
                   <button
                     className="btn ghost btn-sm"
@@ -1696,6 +1824,179 @@ export function AccountDetail() {
           onRefreshPositions={invalidate}
           isHalted={isHalted}
         />
+      )}
+
+      {/* ── Assign / Move Strategy Group Modal ── */}
+      {groupModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setGroupModalOpen(false);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--panel-bg, #111827)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              padding: 24,
+              width: '100%',
+              maxWidth: 460,
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>
+                {a.groupId ? 'Move Strategy Group' : 'Assign Strategy Group'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setGroupModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--muted)',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                }}
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <p className="muted" style={{ fontSize: 13, marginTop: -6, marginBottom: 16 }}>
+              Account: <strong style={{ color: 'var(--text)' }}>{a.name}</strong>
+              <br />
+              Current Strategy Group:{' '}
+              {a.groupName ? (
+                <span style={{ color: '#60a5fa', fontWeight: 600 }}>{a.groupName}</span>
+              ) : (
+                <span style={{ fontStyle: 'italic' }}>Unassigned</span>
+              )}
+            </p>
+
+            {groupModalError && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  fontSize: 12.5,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  marginBottom: 16,
+                }}
+              >
+                {groupModalError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 6 }}>
+                Select Strategy Group:
+              </label>
+              <select
+                value={targetGroupId}
+                onChange={(e) => setTargetGroupId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  fontSize: 13.5,
+                  background: 'var(--surface, #1f2937)',
+                  color: 'var(--text, #ffffff)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  outline: 'none',
+                }}
+              >
+                <option value="">-- Choose a group --</option>
+                {availableGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.memberCount} account{g.memberCount === 1 ? '' : 's'})
+                  </option>
+                ))}
+              </select>
+              {availableGroups.length === 0 && (
+                <p className="muted" style={{ fontSize: 11.5, marginTop: 6, marginBottom: 0 }}>
+                  No other custom strategy groups available.{' '}
+                  <Link to="/app/groups" style={{ color: 'var(--accent)' }}>
+                    Create a group
+                  </Link>{' '}
+                  first.
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                {a.groupId && (
+                  <button
+                    type="button"
+                    className="btn secondary btn-sm"
+                    disabled={unassignGroupMut.isPending || assignGroupMut.isPending}
+                    onClick={() => {
+                      if (a.groupId) {
+                        unassignGroupMut.mutate(a.groupId);
+                      }
+                    }}
+                    style={{
+                      color: '#f87171',
+                      borderColor: 'rgba(239, 68, 68, 0.3)',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      fontSize: 12,
+                    }}
+                  >
+                    {unassignGroupMut.isPending ? 'Removing…' : 'Remove from Group'}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn secondary btn-sm"
+                  onClick={() => setGroupModalOpen(false)}
+                  disabled={assignGroupMut.isPending || unassignGroupMut.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={!targetGroupId || assignGroupMut.isPending || unassignGroupMut.isPending}
+                  onClick={() => {
+                    if (targetGroupId) {
+                      assignGroupMut.mutate(targetGroupId);
+                    }
+                  }}
+                >
+                  {assignGroupMut.isPending
+                    ? 'Saving…'
+                    : a.groupId
+                      ? 'Move to Group'
+                      : 'Assign Group'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

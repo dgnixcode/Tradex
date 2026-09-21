@@ -125,6 +125,7 @@ export async function buildFuturesPositions(
   const accounts = await listAccounts(tdb);
   const accountIds = accounts.map((a) => a.id);
   const nameOf = new Map(accounts.map((a) => [a.id, a.name]));
+  const hideMap = new Map(accounts.map((a) => [a.id, a.hideFromPositions]));
 
   const memberships = accountIds.length > 0
     ? await tdb.selectFrom('group_member')
@@ -226,6 +227,7 @@ export async function buildFuturesPositions(
         fundingRateBp: r.fundingRateBp,
         settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
         entryTimeMs,
+        hideFromPositions: hideMap.get(r.accountId) ?? false,
       };
     });
   return {

@@ -31,6 +31,8 @@ export interface AccountListItem {
   /** Custom strategy group the account belongs to, if assigned. */
   readonly groupId: string | null;
   readonly groupName: string | null;
+  /** Whether the account is hidden from the main positions page. */
+  readonly hideFromPositions: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
     .select([
       'id', 'name', 'status', 'allocated_currency',
       'allocated_capital_minor', 'allocated_confirmed_against_minor', 'funding_currencies',
+      'hide_from_positions',
     ] as unknown as never)
     .orderBy('created_at', 'desc' as never)
     .execute();
@@ -78,6 +81,7 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
       fundingCurrencies: (r['funding_currencies'] as SupportedQuote[]) ?? [],
       groupId: grp?.groupId ?? null,
       groupName: grp?.groupName ?? null,
+      hideFromPositions: Boolean(r['hide_from_positions'] ?? false),
     };
   });
 }
