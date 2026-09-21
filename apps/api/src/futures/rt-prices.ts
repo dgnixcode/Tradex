@@ -64,3 +64,51 @@ export async function getFuturesRtPrices(baseUrl = 'https://public.coindcx.com')
   }
   return cachedPrices ?? new Map();
 }
+
+export function normalizeFuturesPair(pairOrMarket: string | null | undefined): string {
+  if (!pairOrMarket) return '';
+  const s = String(pairOrMarket).trim().toUpperCase();
+  if (s.startsWith('B-') && s.includes('_')) return s;
+  const clean = s.replace(/^B-/, '').trim();
+  if (clean.endsWith('USDT')) {
+    const base = clean.slice(0, -4).replace(/[-_]$/, '');
+    return `B-${base}_USDT`;
+  }
+  if (clean.endsWith('INR')) {
+    const base = clean.slice(0, -3).replace(/[-_]$/, '');
+    return `B-${base}_INR`;
+  }
+  if (clean.includes('-') || clean.includes('_')) {
+    const parts = clean.split(/[-_]/);
+    return `B-${parts[0]}_${parts[1] || 'USDT'}`;
+  }
+  return `B-${clean}_USDT`;
+}
+
+export function findRtPrice(
+  rtPricesMap: Map<string, FuturesRtPrice>,
+  pairOrMarket: string | null | undefined,
+): FuturesRtPrice | undefined {
+  if (!pairOrMarket) return undefined;
+  const raw = String(pairOrMarket).trim();
+  if (rtPricesMap.has(raw)) return rtPricesMap.get(raw);
+
+  const norm = normalizeFuturesPair(raw);
+  if (rtPricesMap.has(norm)) return rtPricesMap.get(norm);
+
+  // Try raw without B- prefix (e.g. TAOUSDT, SOLUSDT)
+  const clean = raw.replace(/^B-/, '').replace(/[-_]/g, '').toUpperCase();
+  for (const [key, val] of rtPricesMap.entries()) {
+    const keyClean = key.replace(/^B-/, '').replace(/[-_]/g, '').toUpperCase();
+    if (keyClean === clean) return val;
+  }
+
+  // Base asset fallback
+  const base = norm.replace(/^B-/, '').split('_')[0];
+  if (base) {
+    for (const [key, val] of rtPricesMap.entries()) {
+      if (key.startsWith(`B-${base}_`)) return val;
+    }
+  }
+  return undefined;
+}

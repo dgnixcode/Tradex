@@ -16,7 +16,7 @@ import { buildFuturesViews } from '@tradex/futures-positions';
 import { listAccounts } from '../accounts-query.js';
 import type { FuturesPositionRow, FuturesPositionView, Quote } from '@tradex/futures-positions';
 import type { Kysely } from 'kysely';
-import { getFuturesRtPrices, type FuturesRtPrice } from './rt-prices.js';
+import { getFuturesRtPrices, findRtPrice, type FuturesRtPrice } from './rt-prices.js';
 
 export type { FuturesPositionView } from '@tradex/futures-positions';
 
@@ -196,7 +196,7 @@ export async function buildFuturesPositions(
   const shaped: FuturesPositionRow[] = raw
     .filter((r) => r.marginCurrency === 'INR' || r.marginCurrency === 'USDT')
     .map((r) => {
-      const live = prices.get(r.pair);
+      const live = findRtPrice(prices, r.pair);
       const markPrice = live?.markPrice ?? r.markPrice;
       const markObservedAtMs = live ? nowMs : (r.markObservedAt === null ? null : r.markObservedAt.getTime());
       const grp = groupsByAccount.get(r.accountId);

@@ -10,6 +10,7 @@ import {
   exitFuturesPosition,
   fetchAccount,
   fetchFuturesPositions,
+  fetchFuturesPrices,
   fetchGroups,
   fetchKillSwitchStatus,
   fetchTradingAnalytics,
@@ -24,6 +25,7 @@ import {
 } from '../api.ts';
 import type { FuturesPositionRow } from '../api.ts';
 import { useAuth } from '../auth.tsx';
+import { useLivePrices } from '../useLivePrices.ts';
 import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
 import {
   PositionManageModal,
@@ -150,17 +152,27 @@ export function AccountDetail() {
   const fromMs = analyticsTimeframe === 'custom' && customFrom ? new Date(`${customFrom}T00:00:00Z`).getTime() : undefined;
   const toMs = analyticsTimeframe === 'custom' && customTo ? new Date(`${customTo}T23:59:59.999Z`).getTime() : undefined;
 
+  // Real-time market price streaming via WebSocket/SSE
+  useLivePrices();
+
+  const pricesQuery = useQuery({
+    queryKey: ['futures-prices'],
+    queryFn: fetchFuturesPrices,
+    staleTime: 2000,
+  });
+  const pricesData = pricesQuery.data;
+
   const tradingAnalytics = useQuery({
     queryKey: ['trading-analytics', 'account', accountId, analyticsTimeframe, fromMs, toMs],
     queryFn: () => fetchTradingAnalytics({ accountId, timeframe: analyticsTimeframe, fromMs, toMs }),
     enabled: activeTab === 'analytics',
-    refetchInterval: 5000,
+    refetchInterval: 1000,
   });
 
   const futuresPositions = useQuery({
     queryKey: ['futures-positions'],
     queryFn: fetchFuturesPositions,
-    refetchInterval: 3000,
+    refetchInterval: 1000,
   });
 
   const invalidate = () => {
@@ -739,8 +751,8 @@ export function AccountDetail() {
                         padding: '2px 8px',
                       }}
                     >
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
-                      Live (3s)
+                      <span className="live-pulse-dot" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
+                      Live Stream (1s)
                     </span>
                   </div>
                 </div>
@@ -755,7 +767,7 @@ export function AccountDetail() {
                         <th style={{ textAlign: 'right' }}>Size</th>
                         <th style={{ textAlign: 'right' }}>Avg Entry</th>
                         <th>Entry Time</th>
-                        <th style={{ textAlign: 'right' }}>Mark</th>
+                        <th style={{ textAlign: 'right' }}>Live</th>
                         <th style={{ textAlign: 'right' }}>Liq Price</th>
                         <th style={{ textAlign: 'right' }}>Margin</th>
                         <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
@@ -770,6 +782,12 @@ export function AccountDetail() {
                         const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
                         const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
                         const entryTime = fmtEntryTime(p.entryTimeMs);
+                        const liveItem = pricesData?.prices?.[p.pair];
+                        const curPrice = liveItem?.markPrice || liveItem?.lastPrice || p.markPrice;
+                        const changePct = liveItem?.priceChangePercent;
+                        const hasChange = typeof changePct === 'number' && Number.isFinite(changePct);
+                        const isPos = hasChange && changePct >= 0;
+                        const isNeg = hasChange && changePct < 0;
                         return (
                           <tr key={p.venuePositionId}>
                             <td style={{ fontWeight: 600 }}>
@@ -814,8 +832,22 @@ export function AccountDetail() {
                                 <span className="muted">—</span>
                               )}
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>
-                              {fmtPrice(p.markPrice)}
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              <span style={{ fontWeight: 600, color: isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--accent)' }}>
+                                {curPrice ? fmtPrice(curPrice) : '—'}
+                              </span>
+                              {hasChange && (
+                                <span
+                                  style={{
+                                    display: 'block',
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    color: isPos ? 'var(--ok)' : 'var(--danger)',
+                                  }}
+                                >
+                                  {isPos ? '+' : ''}{changePct.toFixed(2)}%
+                                </span>
+                              )}
                             </td>
                             <td className="mono" style={{ textAlign: 'right' }}>
                               <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
@@ -928,6 +960,12 @@ export function AccountDetail() {
                     const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
                     const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
                     const entryTime = fmtEntryTime(p.entryTimeMs);
+                    const liveItem = pricesData?.prices?.[p.pair];
+                    const curPrice = liveItem?.markPrice || liveItem?.lastPrice || p.markPrice;
+                    const changePct = liveItem?.priceChangePercent;
+                    const hasChange = typeof changePct === 'number' && Number.isFinite(changePct);
+                    const isPos = hasChange && changePct >= 0;
+                    const isNeg = hasChange && changePct < 0;
                     return (
                       <div key={`mobile-${p.venuePositionId}`} className="pos-mobile-card">
                         <div className="pos-mobile-card-top">
@@ -992,8 +1030,15 @@ export function AccountDetail() {
                             </span>
                           </div>
                           <div className="pos-mobile-cell">
-                            <span className="pos-mobile-label">Mark</span>
-                            <span className="pos-mobile-val mono" style={{ color: 'var(--accent)' }}>{fmtPrice(p.markPrice)}</span>
+                            <span className="pos-mobile-label">Live</span>
+                            <span className="pos-mobile-val mono" style={{ color: isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--accent)' }}>
+                              {curPrice ? fmtPrice(curPrice) : '—'}
+                            </span>
+                            {hasChange && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: isPos ? 'var(--ok)' : 'var(--danger)', display: 'block' }}>
+                                {isPos ? '+' : ''}{changePct.toFixed(2)}%
+                              </span>
+                            )}
                           </div>
                           <div className="pos-mobile-cell">
                             <span className="pos-mobile-label">Liq Price</span>
@@ -1408,7 +1453,7 @@ export function AccountDetail() {
                               <th>Side</th>
                               <th style={{ textAlign: 'right' }}>Size</th>
                               <th style={{ textAlign: 'right' }}>Entry Price</th>
-                              <th style={{ textAlign: 'right' }}>Mark Price</th>
+                              <th style={{ textAlign: 'right' }}>Live Price</th>
                               <th style={{ textAlign: 'right' }}>Locked Margin</th>
                               <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
                               <th style={{ textAlign: 'right' }}>ROE %</th>
@@ -1419,6 +1464,13 @@ export function AccountDetail() {
                               const sPnlNum = Number(s.unrealisedPnlMinor);
                               const sIsProf = sPnlNum > 0;
                               const sIsLoss = sPnlNum < 0;
+                              const sLiveItem = pricesData?.prices?.[s.pair]
+                                ?? (s.symbol ? pricesData?.prices?.[`B-${s.symbol.toUpperCase()}_USDT`] : undefined);
+                              const sCurPrice = sLiveItem?.markPrice || sLiveItem?.lastPrice || s.markPrice;
+                              const sChangePct = sLiveItem?.priceChangePercent;
+                              const sHasChange = typeof sChangePct === 'number' && Number.isFinite(sChangePct);
+                              const sIsPos = sHasChange && sChangePct >= 0;
+                              const sIsNeg = sHasChange && sChangePct < 0;
                               return (
                                 <tr key={s.pair}>
                                   <td><strong>{s.symbol}</strong> <span className="muted" style={{ fontSize: 11 }}>({s.pair})</span></td>
@@ -1429,7 +1481,23 @@ export function AccountDetail() {
                                   </td>
                                   <td className="mono" style={{ textAlign: 'right' }}>{s.totalQuantity}</td>
                                   <td className="mono" style={{ textAlign: 'right' }}>{s.avgEntryPrice ? fmtPrice(s.avgEntryPrice) : '—'}</td>
-                                  <td className="mono" style={{ textAlign: 'right' }}>{s.markPrice ? fmtPrice(s.markPrice) : '—'}</td>
+                                  <td className="mono" style={{ textAlign: 'right' }}>
+                                    <span style={{ fontWeight: 600, color: sIsPos ? 'var(--ok)' : sIsNeg ? 'var(--danger)' : 'var(--accent)' }}>
+                                      {sCurPrice ? fmtPrice(sCurPrice) : '—'}
+                                    </span>
+                                    {sHasChange && (
+                                      <span
+                                        style={{
+                                          display: 'block',
+                                          fontSize: 10.5,
+                                          fontWeight: 700,
+                                          color: sIsPos ? 'var(--ok)' : 'var(--danger)',
+                                        }}
+                                      >
+                                        {sIsPos ? '+' : ''}{sChangePct.toFixed(2)}%
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(s.lockedMarginMinor, s.marginCurrency)}</td>
                                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: sIsProf ? 'var(--ok)' : sIsLoss ? 'var(--danger)' : 'var(--text)' }}>
                                     {fmtSignedCurrency(s.unrealisedPnlMinor, s.marginCurrency)}

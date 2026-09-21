@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createGroup, DEFAULT_GROUP_NAME, fetchFuturesPositions, fetchGroups, updateGroup } from '../api.ts';
 import type { GroupSummary } from '../api.ts';
+import { useLivePrices } from '../useLivePrices.ts';
 
 // The Groups management list (T04.2 surface). Shows every group with its member
 // count and per-currency capital, and a create form. Clicking a group opens its
@@ -149,8 +150,10 @@ export function Groups() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
+  useLivePrices();
+
   const groups = useQuery({ queryKey: ['groups'], queryFn: fetchGroups });
-  const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions, refetchInterval: 3000 });
+  const positions = useQuery({ queryKey: ['futures-positions'], queryFn: fetchFuturesPositions, refetchInterval: 1000 });
 
   // Map each group name to active coins / pairs traded by its accounts
   const groupCoinsMap = useMemo(() => {

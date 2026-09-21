@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { fetchBlotterGroups, fetchGroup, fetchTradingAnalytics } from '../api.ts';
+import { fetchBlotterGroups, fetchFuturesPrices, fetchGroup, fetchTradingAnalytics } from '../api.ts';
 import type { TradingAnalyticsReport } from '../api.ts';
+import { useLivePrices } from '../useLivePrices.ts';
 import { fmtCurrency, fmtSignedCurrency, getPnlSentiment, renderMultiCurrency, renderKpiValue, downloadCsv } from './Analytics.tsx';
 import { fmtPrice } from './Futures.tsx';
 import { GroupOrderItem } from './Blotter.tsx';
@@ -40,6 +41,16 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
     enabled: Boolean(groupId),
   });
 
+  // Real-time market data streaming via WebSocket/SSE
+  useLivePrices();
+
+  const pricesQuery = useQuery({
+    queryKey: ['futures-prices'],
+    queryFn: fetchFuturesPrices,
+    staleTime: 2000,
+  });
+  const pricesData = pricesQuery.data;
+
   const fromMs = timeframe === 'custom' && customFrom ? new Date(`${customFrom}T00:00:00Z`).getTime() : undefined;
   const toMs = timeframe === 'custom' && customTo ? new Date(`${customTo}T23:59:59.999Z`).getTime() : undefined;
 
@@ -52,7 +63,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
       toMs,
     }),
     enabled: Boolean(groupId),
-    refetchInterval: 5_000,
+    refetchInterval: 1_000,
   });
 
   const groupOrdersQuery = useQuery({
@@ -62,7 +73,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
       limit: 50,
     }),
     enabled: Boolean(groupId),
-    refetchInterval: 6_000,
+    refetchInterval: 2_000,
   });
 
   const data = analyticsQuery.data;
@@ -547,7 +558,7 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     <th style={{ textAlign: 'right' }}>Total Size</th>
                     <th style={{ textAlign: 'right' }}>Positions</th>
                     <th style={{ textAlign: 'right' }}>Avg Entry</th>
-                    <th style={{ textAlign: 'right' }}>Mark Price</th>
+                    <th style={{ textAlign: 'right' }}>Live Price</th>
                     <th style={{ textAlign: 'right' }}>Locked Margin</th>
                     <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
                     <th style={{ textAlign: 'right' }}>ROE %</th>
@@ -567,6 +578,13 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                     const pnlNum = Number(s.unrealisedPnlMinor);
                     const isP = pnlNum > 0;
                     const isL = pnlNum < 0;
+                    const sLiveItem = pricesData?.prices?.[s.pair]
+                      ?? (s.symbol ? pricesData?.prices?.[`B-${s.symbol.toUpperCase()}_USDT`] : undefined);
+                    const sCurPrice = sLiveItem?.markPrice || sLiveItem?.lastPrice || s.markPrice;
+                    const sChangePct = sLiveItem?.priceChangePercent;
+                    const sHasChange = typeof sChangePct === 'number' && Number.isFinite(sChangePct);
+                    const sIsPos = sHasChange && sChangePct >= 0;
+                    const sIsNeg = sHasChange && sChangePct < 0;
 
                     return (
                       <tr key={`${s.pair}-${s.marginCurrency}`}>
@@ -594,7 +612,23 @@ export function GroupAnalytics({ propGroupId }: { readonly propGroupId?: string 
                         <td className="mono" style={{ textAlign: 'right' }}>{s.totalQuantity}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{s.positionsCount}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{s.avgEntryPrice ? fmtPrice(s.avgEntryPrice) : '—'}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: 'var(--accent)' }}>{s.markPrice ? fmtPrice(s.markPrice) : '—'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>
+                          <span style={{ fontWeight: 600, color: sIsPos ? 'var(--ok)' : sIsNeg ? 'var(--danger)' : 'var(--accent)' }}>
+                            {sCurPrice ? fmtPrice(sCurPrice) : '—'}
+                          </span>
+                          {sHasChange && (
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                color: sIsPos ? 'var(--ok)' : 'var(--danger)',
+                              }}
+                            >
+                              {sIsPos ? '+' : ''}{sChangePct.toFixed(2)}%
+                            </span>
+                          )}
+                        </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{fmtCurrency(s.lockedMarginMinor, s.marginCurrency)}</td>
                         <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: isP ? 'var(--ok)' : isL ? 'var(--danger)' : 'var(--text)' }}>
                           {fmtSignedCurrency(s.unrealisedPnlMinor, s.marginCurrency)}
