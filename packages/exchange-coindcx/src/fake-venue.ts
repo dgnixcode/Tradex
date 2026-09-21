@@ -909,6 +909,11 @@ export class FakeVenue {
           return;
         }
         this.futuresLeverage.set(`${pair}|${marginCurrency}`, String(leverage));
+        for (const pos of this.futuresPositions.values()) {
+          if (pos['pair'] === pair) {
+            pos['leverage'] = typeof leverage === 'number' ? leverage : Number(leverage);
+          }
+        }
         this.send(res, 200, '{"message":"success","status":"success","code":200}');
         return;
       }

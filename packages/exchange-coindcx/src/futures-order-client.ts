@@ -344,18 +344,29 @@ export async function fetchFuturesPositions(
  * an order whose leverage differs from the current position leverage — the
  * venue rejects with 422 otherwise (research/03 F5).
  */
-export async function updateFuturesLeverage(
-  apiKey: string,
-  apiSecret: string,
-  args: { readonly pair: string; readonly marginCurrency: FuturesMarginCurrency; readonly leverage: number },
+export async function updateFuturesLeverageSigned(
+  sign: BodySigner,
+  args: {
+    readonly pair: string;
+    readonly marginCurrency?: FuturesMarginCurrency | undefined;
+    readonly leverage: number | string;
+    readonly positionId?: string | undefined;
+  },
   opts: FuturesCallOptions = {},
 ): Promise<FuturesLeverageOutcome> {
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
-  const signed = signRequest(apiKey, apiSecret, {
+  const payload: Record<string, unknown> = {
     pair: args.pair,
-    margin_currency_short_name: args.marginCurrency,
-    leverage: args.leverage,
-  });
+    leverage: String(args.leverage),
+  };
+  if (args.marginCurrency !== undefined) {
+    payload['margin_currency_short_name'] = args.marginCurrency;
+  }
+  if (args.positionId !== undefined) {
+    payload['id'] = args.positionId;
+  }
+  const now = (opts.nowMs ?? Date.now)();
+  const signed = await signBody(sign, payload, now);
   let result: HttpResult;
   try {
     result = await send({
@@ -371,6 +382,15 @@ export async function updateFuturesLeverage(
   }
   if (result.status >= 200 && result.status < 300) return { ok: true };
   return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
+}
+
+export async function updateFuturesLeverage(
+  apiKey: string,
+  apiSecret: string,
+  args: { readonly pair: string; readonly marginCurrency?: FuturesMarginCurrency; readonly leverage: number | string; readonly positionId?: string },
+  opts: FuturesCallOptions = {},
+): Promise<FuturesLeverageOutcome> {
+  return updateFuturesLeverageSigned(plaintextSigner(apiKey, apiSecret), args, opts);
 }
 
 const FUTURES_TPSL_PATH = '/exchange/v1/derivatives/futures/positions/create_tpsl';

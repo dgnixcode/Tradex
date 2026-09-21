@@ -115,6 +115,15 @@ export interface FuturesTpSlPort {
     readonly takeProfit?: { readonly ok: boolean; readonly reason?: string | undefined } | undefined;
   }>;
 }
+
+/** Update leverage on an open futures position via exchange update_leverage endpoint. */
+export interface FuturesLeveragePort {
+  readonly updateLeverage: (args: {
+    readonly actor: FuturesActor;
+    readonly venuePositionId: string;
+    readonly leverage: number | string;
+  }) => Promise<{ readonly ok: true; readonly newLeverage: string } | { readonly ok: false; readonly code: string; readonly detail: string }>;
+}
 import type { Kysely } from 'kysely';
 import type { FuturesInstrument, MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
@@ -168,6 +177,8 @@ export interface HttpDeps {
   readonly futuresExit?: FuturesExitPort | undefined;
   /** Phase-15 post-entry SL/TP adjust — cancel-then-create when moving an existing leg. */
   readonly futuresTpSl?: FuturesTpSlPort | undefined;
+  /** Adjust leverage on open futures position. */
+  readonly futuresLeverage?: FuturesLeveragePort | undefined;
   /**
    * Phase-15 SL/TP fan-out — the worker's own attach port, distinct from
    * `futuresTpSl` above even though both touch protection.
@@ -1363,6 +1374,40 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
 
       sendJson(ctx.res, 200, adjusted);
+      return;
+    }
+
+    // ---- POST /api/futures/positions/:id/leverage — adjust position leverage ----
+    const futLevMatch = /^\/api\/futures\/positions\/([^/]+)\/leverage$/.exec(path);
+    if (method === 'POST' && futLevMatch !== null) {
+      requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
+      if (deps.futuresLeverage === undefined) {
+        throw new HttpError(503, 'futures execution is not configured in this build');
+      }
+      const body = (ctx.body ?? {}) as { leverage?: unknown };
+      const rawLev = body.leverage;
+      if (
+        rawLev === undefined ||
+        (typeof rawLev !== 'string' && typeof rawLev !== 'number') ||
+        Number(rawLev) <= 0 ||
+        Number(rawLev) > 100 ||
+        !Number.isFinite(Number(rawLev))
+      ) {
+        throw new HttpError(400, 'leverage must be a positive number between 1 and 100');
+      }
+      const levOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futLevMatch[1] as string);
+      if (levOwner === null) throw new HttpError(404, 'no such futures position');
+
+      const out = await deps.futuresLeverage.updateLeverage({
+        actor: { tenantId: principal.tenantId, accountId: levOwner.accountId },
+        venuePositionId: futLevMatch[1] as string,
+        leverage: rawLev,
+      });
+      if (!out.ok) {
+        throw new HttpError(400, out.detail);
+      }
+      sendJson(ctx.res, 200, out);
       return;
     }
 

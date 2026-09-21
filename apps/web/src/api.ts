@@ -934,6 +934,21 @@ export const refreshFuturesPositions = (): Promise<{ accounts: number; positions
     method: 'POST', body: JSON.stringify({}),
   });
 
+/**
+ * Update leverage for an open futures position.
+ */
+export const updateFuturesPositionLeverage = (
+  venuePositionId: string,
+  leverage: number | string,
+): Promise<{ ok: boolean; newLeverage: string }> =>
+  request<{ ok: boolean; newLeverage: string }>(
+    `/futures/positions/${venuePositionId}/leverage`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ leverage }),
+    },
+  );
+
 export const fetchFuturesPositions = (): Promise<FuturesPositionsResponse> =>
   request<FuturesPositionsResponse>('/futures/positions');
 

@@ -33,7 +33,7 @@ import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor } from '../../
 import {
   mapOrderBook, probeCredential, send,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
-  attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned,
+  attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned, updateFuturesLeverageSigned,
 } from '../../packages/exchange-coindcx/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -991,6 +991,48 @@ if (sending) {
 
 
 
+  const updateLeverage = async (args) => {
+    const sign = await signFor(args.actor.tenantId, args.actor.accountId);
+    if (sign === null) return { ok: false, code: 'no_credential', detail: 'no credential for this account' };
+
+    const read = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+    if (!read.ok) {
+      return { ok: false, code: 'positions_unreadable', detail: read.failure.detail ?? 'the venue did not answer the positions read' };
+    }
+    const pos = read.positions.find((p) => p.venuePositionId === args.venuePositionId);
+    if (pos === undefined) {
+      return { ok: false, code: 'no_position', detail: 'the exchange reports no open position with that id' };
+    }
+
+    const out = await updateFuturesLeverageSigned(sign, {
+      pair: pos.pair,
+      marginCurrency: pos.marginCurrency,
+      leverage: args.leverage,
+      positionId: pos.venuePositionId,
+    }, { baseUrl: VENUE_BASE });
+
+    if (!out.ok) {
+      return { ok: false, code: out.failure.code ?? 'leverage_refused', detail: out.failure.detail ?? 'the venue refused to update leverage' };
+    }
+
+    // Immediately update local DB cache
+    await forTenant(db, args.actor.tenantId)
+      .updateTable('futures_position')
+      .set({ leverage: String(args.leverage), updated_at: new Date() })
+      .where('venue_position_id', '=', args.venuePositionId)
+      .execute()
+      .catch(() => {});
+
+    // Schedule background mirror sync
+    setTimeout(() => {
+      mirrorAccounts(args.actor.tenantId, [args.actor.accountId]).catch((e) => {
+        console.error('[mirror] post-leverage background refresh failed:', e instanceof Error ? e.message : String(e));
+      });
+    }, 1200);
+
+    return { ok: true, newLeverage: String(args.leverage) };
+  };
+
   Object.assign(enginePorts, {
     submit,
     resolve,
@@ -1000,6 +1042,7 @@ if (sending) {
     futuresTpSl,
     afterFanOut,
     futuresAdjust: { adjustPosition },
+    futuresLeverage: { updateLeverage },
     // The sweep that keeps the resolve ladder alive after a confirm returns.
     resolverIntervalMs: 15_000,
   });

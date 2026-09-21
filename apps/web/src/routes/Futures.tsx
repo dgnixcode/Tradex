@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
   fetchFuturesPrices, fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
-  syncAccount,
+  syncAccount, updateFuturesPositionLeverage,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
@@ -1045,6 +1045,7 @@ const SL_PCT_CHIPS = [1, 2, 5, 10] as const;
 const TP_PCT_CHIPS = [2, 5, 10, 15, 20, 30] as const;
 const REDUCE_PCT_CHIPS = [10, 25, 50, 75] as const;
 const INCREASE_PCT_CHIPS = [25, 50, 100] as const;
+const LEVERAGE_PRESET_CHIPS = [2, 3, 4, 5, 10, 20, 25, 50] as const;
 
 export interface PositionManageModalProps {
   readonly position: FuturesPositionRow;
@@ -1069,7 +1070,7 @@ export function PositionManageModal({
   isProtecting,
   isHalted,
 }: PositionManageModalProps) {
-  const [activeTab, setActiveTab] = useState<'protection' | 'partial' | 'increase' | 'close'>('protection');
+  const [activeTab, setActiveTab] = useState<'protection' | 'partial' | 'increase' | 'leverage' | 'close'>('protection');
   const [confirmExit, setConfirmExit] = useState(false);
 
   const qc = useQueryClient();
@@ -1333,6 +1334,66 @@ export function PositionManageModal({
     }
   };
 
+  // Adjust Leverage State & Calculations
+  const currentLev = position.leverage !== null && Number(position.leverage) > 0 ? Number(position.leverage) : 1;
+  const [targetLeverage, setTargetLeverage] = useState<string>(() => String(currentLev));
+  const [isUpdatingLeverage, setIsUpdatingLeverage] = useState(false);
+  const [leverageMsg, setLeverageMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const targetLevNum = Number(targetLeverage);
+  const isTargetLevValid = !Number.isNaN(targetLevNum) && targetLevNum >= 1 && targetLevNum <= 100;
+
+  const posMarkPrice = position.markPrice ? Number(position.markPrice) : (position.avgEntryPrice ? Number(position.avgEntryPrice) : 0);
+  const posEntryPrice = position.avgEntryPrice ? Number(position.avgEntryPrice) : posMarkPrice;
+  const posNotionalMajor = totalQty * posMarkPrice;
+
+  const currentMarginMajor = posNotionalMajor > 0 && currentLev > 0 ? posNotionalMajor / currentLev : lockedMarginMajor;
+  const newMarginMajor = isTargetLevValid && targetLevNum > 0 ? posNotionalMajor / targetLevNum : 0;
+  const marginDeltaMajor = newMarginMajor - currentMarginMajor;
+
+  const isLevShortfall = marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor;
+  const levShortfallMajor = isLevShortfall ? (marginDeltaMajor - freeBalanceMajor) : 0;
+
+  const estNewLiqPrice = useMemo(() => {
+    if (!isTargetLevValid || targetLevNum <= 0 || posEntryPrice <= 0) return null;
+    const mmr = 0.005;
+    if (position.side === 'long') {
+      const p = posEntryPrice * (1 - (1 / targetLevNum) + mmr);
+      return p > 0 ? (posEntryPrice < 1 ? p.toFixed(6) : p.toFixed(2)) : '0';
+    } else if (position.side === 'short') {
+      const p = posEntryPrice * (1 + (1 / targetLevNum) - mmr);
+      return p > 0 ? (posEntryPrice < 1 ? p.toFixed(6) : p.toFixed(2)) : '0';
+    }
+    return null;
+  }, [isTargetLevValid, targetLevNum, posEntryPrice, position.side]);
+
+  const handleExecuteAdjustLeverage = async () => {
+    if (!isTargetLevValid || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted) return;
+    setIsUpdatingLeverage(true);
+    setLeverageMsg(null);
+    try {
+      const res = await updateFuturesPositionLeverage(position.venuePositionId, targetLeverage);
+      setLeverageMsg({
+        kind: 'ok',
+        text: `Successfully adjusted leverage to ${res.newLeverage || targetLeverage}×.`,
+      });
+      await Promise.all([
+        handleSyncBalance(),
+        qc.invalidateQueries({ queryKey: ['futures-positions'] }),
+      ]);
+      setTimeout(() => {
+        onClose();
+      }, 1400);
+    } catch (err) {
+      setLeverageMsg({
+        kind: 'err',
+        text: (err as Error).message || 'Failed to update leverage on the exchange.',
+      });
+    } finally {
+      setIsUpdatingLeverage(false);
+    }
+  };
+
   return (
     <div className="position-modal-overlay" onClick={onClose}>
       <div className="position-modal" onClick={(e) => e.stopPropagation()}>
@@ -1477,6 +1538,13 @@ export function PositionManageModal({
             onClick={() => setActiveTab('increase')}
           >
             Add / Increase
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'leverage' ? 'active' : ''}`}
+            onClick={() => setActiveTab('leverage')}
+          >
+            Adjust Leverage
           </button>
           <button
             type="button"
@@ -2331,7 +2399,235 @@ export function PositionManageModal({
             </div>
           )}
 
-          {/* ── Tab 4: Close Position (Two-Step Accidental Protection) ── */}
+          {/* ── Tab 4: Adjust Leverage ── */}
+          {activeTab === 'leverage' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Adjust the leverage for this open position. Decreasing leverage requires additional free balance in your account as margin. Increasing leverage reduces margin but increases liquidation risk.
+              </p>
+
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Current Leverage:</span>
+                    <span className="pos-lev-pill">{currentLev}×</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Target Leverage:</span>
+                    <strong style={{ fontSize: 16, color: '#818cf8', fontWeight: 800 }}>{targetLeverage}×</strong>
+                  </div>
+                </div>
+
+                {/* Preset Chips */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {LEVERAGE_PRESET_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: '1 1 0px',
+                        minWidth: 40,
+                        padding: '5px 0',
+                        fontSize: 11.5,
+                        background: Number(targetLeverage) === chip ? '#6366f1' : 'var(--surface-3)',
+                        color: Number(targetLeverage) === chip ? '#ffffff' : 'var(--text-dim)',
+                        borderColor: Number(targetLeverage) === chip ? '#6366f1' : 'var(--line)',
+                        fontWeight: Number(targetLeverage) === chip ? 700 : 500,
+                      }}
+                      onClick={() => setTargetLeverage(String(chip))}
+                    >
+                      {chip}×
+                    </button>
+                  ))}
+                </div>
+
+                {/* Stepper + Direct Input */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                    disabled={Number(targetLeverage) <= 1}
+                    onClick={() => {
+                      const cur = Number(targetLeverage) || 1;
+                      const next = Math.max(1, Math.round((cur - 0.5) * 10) / 10);
+                      setTargetLeverage(String(next));
+                    }}
+                  >
+                    −
+                  </button>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={targetLeverage}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setTargetLeverage(val);
+                      }}
+                      placeholder="e.g. 3.5"
+                      style={{
+                        width: '100%',
+                        padding: '6px 28px 6px 12px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        background: 'var(--surface-3)',
+                        borderColor: isTargetLevValid ? 'var(--line)' : 'var(--danger)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text)',
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                      ×
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                    disabled={Number(targetLeverage) >= 100}
+                    onClick={() => {
+                      const cur = Number(targetLeverage) || 1;
+                      const next = Math.min(100, Math.round((cur + 0.5) * 10) / 10);
+                      setTargetLeverage(String(next));
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Interactive Leverage Slider */}
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+                    <span>1× (Low risk)</span>
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>Slide to adjust: {targetLeverage}×</span>
+                    <span>100× (High risk)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={Number(targetLeverage) || 1}
+                    onChange={(e) => setTargetLeverage(e.target.value)}
+                    style={{
+                      width: '100%',
+                      cursor: 'pointer',
+                      accentColor: '#818cf8',
+                    }}
+                  />
+                </div>
+
+                {/* Financial Breakdown Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 12, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Current Margin: </span>
+                    <strong>{currentMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${currentMarginMajor.toFixed(2)}` : `${currentMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>New Required Margin: </span>
+                    <strong>{newMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${newMarginMajor.toFixed(2)}` : `${newMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Margin Change: </span>
+                    <strong style={{ color: marginDeltaMajor > 0 ? (isLevShortfall ? 'var(--danger)' : '#f59e0b') : 'var(--ok)' }}>
+                      {marginDeltaMajor > 0
+                        ? `+${position.marginCurrency === 'INR' ? `₹${marginDeltaMajor.toFixed(2)}` : `${marginDeltaMajor.toFixed(4)} USDT`} (Needs more)`
+                        : marginDeltaMajor < 0
+                          ? `−${position.marginCurrency === 'INR' ? `₹${Math.abs(marginDeltaMajor).toFixed(2)}` : `${Math.abs(marginDeltaMajor).toFixed(4)} USDT`} (To be freed)`
+                          : '0.00'}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Available Free Balance: </span>
+                    <strong style={{ color: isLevShortfall ? 'var(--danger)' : 'var(--ok)' }}>
+                      {position.marginCurrency === 'INR' ? `₹${freeBalanceMajor.toFixed(2)}` : `${freeBalanceMajor.toFixed(4)} USDT`}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Current Liq. Price: </span>
+                    <span className="mono" style={{ color: '#facc15' }}>{fmtPrice(position.liquidationPrice)}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Est. New Liq. Price: </span>
+                    <span className="mono" style={{ color: '#facc15', fontWeight: 700 }}>{fmtPrice(estNewLiqPrice)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {isLevShortfall && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--danger)', borderRadius: 6, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--danger)' }}>
+                  <strong>Insufficient Free Balance: </strong>
+                  Lowering leverage to {targetLeverage}× requires {position.marginCurrency === 'INR' ? `₹${marginDeltaMajor.toFixed(2)}` : `${marginDeltaMajor.toFixed(4)} USDT`} additional margin, but this account has only {position.marginCurrency === 'INR' ? `₹${freeBalanceMajor.toFixed(2)}` : `${freeBalanceMajor.toFixed(4)} USDT`} free. You need at least {position.marginCurrency === 'INR' ? `₹${levShortfallMajor.toFixed(2)}` : `${levShortfallMajor.toFixed(4)} USDT`} more.
+                </div>
+              )}
+
+              {leverageMsg && (
+                <div style={{
+                  background: leverageMsg.kind === 'ok' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                  border: `1px solid ${leverageMsg.kind === 'ok' ? 'var(--ok)' : 'var(--danger)'}`,
+                  color: leverageMsg.kind === 'ok' ? 'var(--ok)' : 'var(--danger)',
+                  borderRadius: 6,
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                }}>
+                  {leverageMsg.text}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}
+                  disabled={isSyncingBalance}
+                  onClick={handleSyncBalance}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    width="12"
+                    height="12"
+                    style={{ animation: isSyncingBalance ? 'spin 1s linear infinite' : 'none' }}
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                  {isSyncingBalance ? 'Syncing Balance…' : 'Sync Live Balance'}
+                </button>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isUpdatingLeverage}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ background: '#6366f1', color: '#ffffff', fontWeight: 700, border: 'none' }}
+                    disabled={!isTargetLevValid || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted}
+                    onClick={handleExecuteAdjustLeverage}
+                  >
+                    {isUpdatingLeverage
+                      ? 'Updating Leverage…'
+                      : targetLevNum === currentLev
+                        ? `Already at ${currentLev}×`
+                        : `Adjust Leverage to ${targetLeverage}×`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 5: Close Position (Two-Step Accidental Protection) ── */}
           {activeTab === 'close' && (
             <div>
               <div
@@ -2431,7 +2727,7 @@ function GroupPositionManageModal({
   onRefreshPositions,
   isHalted,
 }: GroupPositionManageModalProps) {
-  const [activeTab, setActiveTab] = useState<'increase' | 'partial' | 'close' | 'protection'>('increase');
+  const [activeTab, setActiveTab] = useState<'increase' | 'partial' | 'protection' | 'leverage' | 'close'>('increase');
   const [confirmExit, setConfirmExit] = useState(false);
 
   // Single balance fetch on modal mount (no 3s interval!)
@@ -2477,6 +2773,13 @@ function GroupPositionManageModal({
   const [reducePct, setReducePct] = useState<number>(25);
   const [customReduceInput, setCustomReduceInput] = useState<string>('');
   const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
+
+  // Group Leverage States
+  const [groupTargetLeverage, setGroupTargetLeverage] = useState<string>('5');
+  const [groupLeverageSelection, setGroupLeverageSelection] = useState<Record<string, boolean>>({});
+  const [isExecutingLeverage, setIsExecutingLeverage] = useState(false);
+  const [groupLeverageMsg, setGroupLeverageMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [leverageAccountSearch, setLeverageAccountSearch] = useState('');
 
   // Group-level weighted average entry price
   const groupAvgEntry = useMemo(() => {
@@ -2712,6 +3015,87 @@ function GroupPositionManageModal({
     );
   }, [evaluatedAccounts, modalSearch]);
 
+  const targetLevNum = parseFloat(groupTargetLeverage);
+  const isTargetLevValid = !isNaN(targetLevNum) && targetLevNum >= 1 && targetLevNum <= 100;
+
+  const evaluatedLeverageAccounts = useMemo(() => {
+    return group.positions.map((p) => {
+      const acc = accountsMap.get(p.accountId) ?? accountsMap.get(p.accountName.toLowerCase().trim()) ?? null;
+      const quoteScale = quoteScaleOf(p.marginCurrency);
+      const freeCashMinor = acc
+        ? (acc.balancesByCurrency?.[p.marginCurrency] ?? (acc.allocatedCurrency === p.marginCurrency ? acc.allocatedCapitalMinor : '0'))
+        : null;
+      const freeBalanceMajor = freeCashMinor ? Number(freeCashMinor) / (10 ** quoteScale) : 0;
+
+      const posQty = Number(p.quantity);
+      const entryOrMark = (p.avgEntryPrice && Number(p.avgEntryPrice) > 0) ? Number(p.avgEntryPrice) : (p.markPrice ? Number(p.markPrice) : 0);
+      const currentLev = (p.leverage && Number(p.leverage) > 0) ? Number(p.leverage) : 1;
+
+      const currentMarginMajor = p.lockedMarginMinor && Number(p.lockedMarginMinor) > 0
+        ? Number(p.lockedMarginMinor) / (10 ** quoteScale)
+        : (currentLev > 0 ? (posQty * entryOrMark) / currentLev : 0);
+
+      const newMarginMajor = isTargetLevValid && targetLevNum > 0
+        ? (posQty * entryOrMark) / targetLevNum
+        : currentMarginMajor;
+
+      const marginDeltaMajor = newMarginMajor - currentMarginMajor;
+      const isEligible = isTargetLevValid && (marginDeltaMajor <= 0 || freeBalanceMajor >= marginDeltaMajor);
+      const isSame = isTargetLevValid && Math.abs(currentLev - targetLevNum) < 0.01;
+      const shortfallMajor = (marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor) ? (marginDeltaMajor - freeBalanceMajor) : 0;
+
+      return {
+        position: p,
+        account: acc,
+        currentLev,
+        posQty,
+        freeBalanceMajor,
+        currentMarginMajor,
+        newMarginMajor,
+        marginDeltaMajor,
+        isEligible,
+        isSame,
+        shortfallMajor,
+      };
+    });
+  }, [group.positions, accountsMap, isTargetLevValid, targetLevNum]);
+
+  // Default select all eligible accounts that are not already at target leverage
+  useEffect(() => {
+    const nextSelection: Record<string, boolean> = {};
+    for (const item of evaluatedLeverageAccounts) {
+      if (item.isEligible && !item.isSame) {
+        nextSelection[item.position.venuePositionId] = true;
+      }
+    }
+    setGroupLeverageSelection(nextSelection);
+  }, [groupTargetLeverage]);
+
+  const selectedLeverageAccounts = useMemo(() => {
+    return evaluatedLeverageAccounts.filter((e) => groupLeverageSelection[e.position.venuePositionId] && e.isEligible && !e.isSame);
+  }, [evaluatedLeverageAccounts, groupLeverageSelection]);
+
+  const totalNetMarginDeltaMajor = useMemo(() => {
+    return selectedLeverageAccounts.reduce((sum, item) => sum + item.marginDeltaMajor, 0);
+  }, [selectedLeverageAccounts]);
+
+  const totalCurrentMarginMajor = useMemo(() => {
+    return selectedLeverageAccounts.reduce((sum, item) => sum + item.currentMarginMajor, 0);
+  }, [selectedLeverageAccounts]);
+
+  const totalNewMarginMajor = useMemo(() => {
+    return selectedLeverageAccounts.reduce((sum, item) => sum + item.newMarginMajor, 0);
+  }, [selectedLeverageAccounts]);
+
+  const filteredLeverageAccounts = useMemo(() => {
+    if (!leverageAccountSearch.trim()) return evaluatedLeverageAccounts;
+    const q = leverageAccountSearch.toLowerCase().trim();
+    return evaluatedLeverageAccounts.filter((e) =>
+      e.position.accountName.toLowerCase().includes(q) ||
+      (e.position.groupName && e.position.groupName.toLowerCase().includes(q)),
+    );
+  }, [evaluatedLeverageAccounts, leverageAccountSearch]);
+
   const sideBadgeColor = group.side === 'long' ? 'var(--ok)' : 'var(--danger)';
   const groupTitle = group.groupNames.length === 1
     ? group.groupNames[0]
@@ -2933,6 +3317,47 @@ function GroupPositionManageModal({
     });
   };
 
+  // 5. Group Leverage Action
+  const handleExecuteGroupLeverage = async () => {
+    if (selectedLeverageAccounts.length === 0 || !isTargetLevValid || isExecutingLeverage || isHalted) return;
+    setIsExecutingLeverage(true);
+    setGroupLeverageMsg(null);
+    let succeeded = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    let completed = 0;
+    await mapConcurrent(selectedLeverageAccounts, 12, async (item) => {
+      try {
+        await updateFuturesPositionLeverage(item.position.venuePositionId, targetLevNum);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        errors.push(`${item.position.accountName}: ${(err as Error).message}`);
+      } finally {
+        completed++;
+        setProgress({ current: completed, total: selectedLeverageAccounts.length, accountName: item.position.accountName });
+      }
+    });
+
+    setIsExecutingLeverage(false);
+    setProgress(null);
+    onRefreshPositions();
+    await accountsQuery.refetch();
+
+    if (failed === 0) {
+      setGroupLeverageMsg({
+        kind: 'ok',
+        text: `Successfully adjusted leverage to ${groupTargetLeverage}× across ${succeeded} account${succeeded === 1 ? '' : 's'}.`,
+      });
+    } else {
+      setGroupLeverageMsg({
+        kind: 'err',
+        text: `Adjusted ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
+      });
+    }
+  };
+
   return (
     <div className="position-modal-overlay" onClick={onClose}>
       <div className="position-modal group-manage-modal" onClick={(e) => e.stopPropagation()}>
@@ -3053,6 +3478,13 @@ function GroupPositionManageModal({
             onClick={() => setActiveTab('protection')}
           >
             SL / TP Protection
+          </button>
+          <button
+            type="button"
+            className={`position-modal-tab ${activeTab === 'leverage' ? 'active' : ''}`}
+            onClick={() => setActiveTab('leverage')}
+          >
+            Adjust Leverage
           </button>
           <button
             type="button"
@@ -3986,7 +4418,356 @@ function GroupPositionManageModal({
             </div>
           )}
 
-          {/* ── Tab 4: Close Group Position ── */}
+          {/* ── Tab 4: Adjust Leverage (Bulk across Group Accounts) ── */}
+          {activeTab === 'leverage' && (
+            <div>
+              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                Adjust leverage across accounts holding this position. Decreasing leverage requires additional free balance as margin in the respective accounts. Increasing leverage reduces required margin and frees collateral to the account wallet.
+              </p>
+
+              {/* Controls Card */}
+              <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Target Group Leverage
+                  </span>
+                  <strong style={{ fontSize: 16, color: '#818cf8', fontWeight: 800 }}>{groupTargetLeverage}×</strong>
+                </div>
+
+                {/* Preset Chips */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {LEVERAGE_PRESET_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{
+                        flex: '1 1 0px',
+                        minWidth: 40,
+                        padding: '5px 0',
+                        fontSize: 11.5,
+                        background: Number(groupTargetLeverage) === chip ? '#6366f1' : 'var(--surface-3)',
+                        color: Number(groupTargetLeverage) === chip ? '#ffffff' : 'var(--text-dim)',
+                        borderColor: Number(groupTargetLeverage) === chip ? '#6366f1' : 'var(--line)',
+                        fontWeight: Number(groupTargetLeverage) === chip ? 700 : 500,
+                      }}
+                      onClick={() => setGroupTargetLeverage(String(chip))}
+                    >
+                      {chip}×
+                    </button>
+                  ))}
+                </div>
+
+                {/* Stepper + Direct Input */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                    disabled={Number(groupTargetLeverage) <= 1}
+                    onClick={() => {
+                      const cur = Number(groupTargetLeverage) || 1;
+                      const next = Math.max(1, Math.round((cur - 0.5) * 10) / 10);
+                      setGroupTargetLeverage(String(next));
+                    }}
+                  >
+                    −
+                  </button>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={groupTargetLeverage}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        setGroupTargetLeverage(val);
+                      }}
+                      placeholder="e.g. 5"
+                      style={{
+                        width: '100%',
+                        padding: '6px 28px 6px 12px',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        background: 'var(--surface-3)',
+                        borderColor: isTargetLevValid ? 'var(--line)' : 'var(--danger)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: 'var(--text)',
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                      ×
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm secondary"
+                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                    disabled={Number(groupTargetLeverage) >= 100}
+                    onClick={() => {
+                      const cur = Number(groupTargetLeverage) || 1;
+                      const next = Math.min(100, Math.round((cur + 0.5) * 10) / 10);
+                      setGroupTargetLeverage(String(next));
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Interactive Slider */}
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+                    <span>1× (Low risk)</span>
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>Slide to adjust: {groupTargetLeverage}×</span>
+                    <span>100× (High risk)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    step="0.5"
+                    value={Number(groupTargetLeverage) || 1}
+                    onChange={(e) => setGroupTargetLeverage(e.target.value)}
+                    style={{
+                      width: '100%',
+                      cursor: 'pointer',
+                      accentColor: '#818cf8',
+                    }}
+                  />
+                </div>
+
+                {/* Aggregated Financial Breakdown Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 12, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Current Margin (Selected): </span>
+                    <strong>
+                      {group.marginCurrency === 'INR' ? `₹${totalCurrentMarginMajor.toFixed(2)}` : `${totalCurrentMarginMajor.toFixed(4)} USDT`}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>New Required Margin: </span>
+                    <strong>
+                      {group.marginCurrency === 'INR' ? `₹${totalNewMarginMajor.toFixed(2)}` : `${totalNewMarginMajor.toFixed(4)} USDT`}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Net Margin Delta: </span>
+                    <strong style={{ color: totalNetMarginDeltaMajor > 0 ? '#f59e0b' : 'var(--ok)' }}>
+                      {totalNetMarginDeltaMajor > 0
+                        ? `+${group.marginCurrency === 'INR' ? `₹${totalNetMarginDeltaMajor.toFixed(2)}` : `${totalNetMarginDeltaMajor.toFixed(4)} USDT`} (Needs more)`
+                        : totalNetMarginDeltaMajor < 0
+                          ? `−${group.marginCurrency === 'INR' ? `₹${Math.abs(totalNetMarginDeltaMajor).toFixed(2)}` : `${Math.abs(totalNetMarginDeltaMajor).toFixed(4)} USDT`} (To be freed)`
+                          : '0.00'}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ color: 'var(--muted)' }}>Selected / Eligible: </span>
+                    <strong style={{ color: '#818cf8' }}>
+                      {selectedLeverageAccounts.length} selected ({evaluatedLeverageAccounts.filter((e) => e.isEligible && !e.isSame).length} eligible)
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Selection & Breakdown Table */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-dim)' }}>
+                      Accounts ({filteredLeverageAccounts.length})
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      onClick={() => {
+                        const allEligible: Record<string, boolean> = {};
+                        for (const item of evaluatedLeverageAccounts) {
+                          if (item.isEligible && !item.isSame) {
+                            allEligible[item.position.venuePositionId] = true;
+                          }
+                        }
+                        setGroupLeverageSelection(allEligible);
+                      }}
+                    >
+                      Select All Eligible
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      onClick={() => setGroupLeverageSelection({})}
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="Filter accounts…"
+                    value={leverageAccountSearch}
+                    onChange={(e) => setLeverageAccountSearch(e.target.value)}
+                    style={{ padding: '3px 8px', fontSize: 11.5, width: 160, borderRadius: 4, background: 'var(--surface-3)', border: '1px solid var(--line)', color: 'var(--text)' }}
+                  />
+                </div>
+
+                <div className="table-scroll-container" style={{ maxHeight: 220 }}>
+                  <table style={{ fontSize: 11.5 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 32, textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={
+                              evaluatedLeverageAccounts.filter((e) => e.isEligible && !e.isSame).length > 0 &&
+                              evaluatedLeverageAccounts.filter((e) => e.isEligible && !e.isSame).every((e) => groupLeverageSelection[e.position.venuePositionId])
+                            }
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const next: Record<string, boolean> = {};
+                              if (checked) {
+                                for (const item of evaluatedLeverageAccounts) {
+                                  if (item.isEligible && !item.isSame) {
+                                    next[item.position.venuePositionId] = true;
+                                  }
+                                }
+                              }
+                              setGroupLeverageSelection(next);
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </th>
+                        <th>Account</th>
+                        <th style={{ textAlign: 'center' }}>Current Lev</th>
+                        <th style={{ textAlign: 'center' }}>Target Lev</th>
+                        <th style={{ textAlign: 'right' }}>Margin Change</th>
+                        <th style={{ textAlign: 'right' }}>Free Cash</th>
+                        <th style={{ textAlign: 'center' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLeverageAccounts.map((item) => {
+                        const isSelected = Boolean(groupLeverageSelection[item.position.venuePositionId]);
+                        return (
+                          <tr key={item.position.venuePositionId} style={{ opacity: item.isSame || !item.isEligible ? 0.65 : 1 }}>
+                            <td style={{ textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                disabled={item.isSame || !item.isEligible}
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setGroupLeverageSelection((prev) => ({
+                                    ...prev,
+                                    [item.position.venuePositionId]: checked,
+                                  }));
+                                }}
+                                style={{ cursor: item.isSame || !item.isEligible ? 'not-allowed' : 'pointer' }}
+                              />
+                            </td>
+                            <td style={{ fontWeight: 600, color: 'var(--text)' }}>
+                              {item.position.accountName}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span className="pos-lev-pill">{item.currentLev}×</span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#818cf8' }}>{groupTargetLeverage}×</span>
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                              <span style={{ color: item.marginDeltaMajor > 0 ? (!item.isEligible ? 'var(--danger)' : '#f59e0b') : 'var(--ok)' }}>
+                                {item.marginDeltaMajor > 0
+                                  ? `+${group.marginCurrency === 'INR' ? `₹${item.marginDeltaMajor.toFixed(2)}` : `${item.marginDeltaMajor.toFixed(4)}`}`
+                                  : item.marginDeltaMajor < 0
+                                    ? `−${group.marginCurrency === 'INR' ? `₹${Math.abs(item.marginDeltaMajor).toFixed(2)}` : `${Math.abs(item.marginDeltaMajor).toFixed(4)}`}`
+                                    : '0.00'}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right', color: !item.isEligible ? 'var(--danger)' : 'var(--text)' }}>
+                              {group.marginCurrency === 'INR' ? `₹${item.freeBalanceMajor.toFixed(2)}` : `${item.freeBalanceMajor.toFixed(4)} USDT`}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              {item.isSame ? (
+                                <span className="badge" style={{ fontSize: 10, background: 'var(--surface-3)', color: 'var(--muted)' }}>Already {item.currentLev}×</span>
+                              ) : !item.isEligible ? (
+                                <span className="status-badge-skipped" title={`Needs ₹${item.shortfallMajor.toFixed(2)} more free cash`}>Shortfall</span>
+                              ) : (
+                                <span className="status-badge-funded">Eligible</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {groupLeverageMsg && (
+                <div style={{
+                  padding: '10px 14px',
+                  background: groupLeverageMsg.kind === 'ok' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(240, 85, 90, 0.15)',
+                  border: `1px solid ${groupLeverageMsg.kind === 'ok' ? 'var(--ok)' : 'var(--danger)'}`,
+                  borderRadius: 'var(--radius)',
+                  marginBottom: 14,
+                  fontSize: 13,
+                  color: groupLeverageMsg.kind === 'ok' ? 'var(--ok)' : 'var(--danger)',
+                  fontWeight: 600,
+                }}>
+                  {groupLeverageMsg.text}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}
+                  disabled={isRefreshing}
+                  onClick={() => void handleSyncAllBalances()}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    width="12"
+                    height="12"
+                    style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}
+                  >
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                  </svg>
+                  {isRefreshing ? 'Syncing Balances…' : 'Sync All Balances'}
+                </button>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecutingLeverage}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ background: '#6366f1', color: '#ffffff', fontWeight: 700, border: 'none' }}
+                    disabled={!isTargetLevValid || selectedLeverageAccounts.length === 0 || isExecutingLeverage || isHalted}
+                    onClick={handleExecuteGroupLeverage}
+                  >
+                    {isExecutingLeverage
+                      ? 'Adjusting Leverage…'
+                      : selectedLeverageAccounts.length === 0
+                        ? 'No Accounts Selected'
+                        : `Adjust Leverage on ${selectedLeverageAccounts.length} Account${selectedLeverageAccounts.length === 1 ? '' : 's'} to ${groupTargetLeverage}×`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab 5: Close Group Position ── */}
           {activeTab === 'close' && (
             <div>
               <div
