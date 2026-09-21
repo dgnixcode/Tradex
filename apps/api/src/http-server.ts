@@ -56,7 +56,7 @@ import { buildPositions } from './positions.js';
 import type { NamedAccount } from './positions.js';
 import { analyticsReport, blotterPage, blotterGroupPage, reportToCsv, resolveAccounts, resolveWindow } from './analytics.js';
 import { SettingsService, SettingsServiceError } from './settings-service.js';
-import { buildFuturesPositions, venuePositionOwner } from './futures/positions.js';
+import { buildFuturesPositions, updateFuturesPositionVisibility, venuePositionOwner } from './futures/positions.js';
 import { getFuturesRtPrices } from './futures/rt-prices.js';
 import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { startWsPriceFeed, priceEmitter, isWsFeedConnected } from './futures/ws-prices.js';
@@ -1408,6 +1408,26 @@ export function createHttpServer(deps: HttpDeps): Server {
         throw new HttpError(400, out.detail);
       }
       sendJson(ctx.res, 200, out);
+      return;
+    }
+
+    // ---- PATCH /api/futures/positions/:id — update position visibility (hideFromPositions) ----
+    const futPatchMatch = /^\/api\/futures\/positions\/([^/]+)$/.exec(path);
+    if (method === 'PATCH' && futPatchMatch !== null) {
+      requireAction(principal, 'trade.place');
+      const venuePositionId = futPatchMatch[1] as string;
+      const tdb = forTenant(deps.db, principal.tenantId);
+      const owner = await venuePositionOwner(tdb, venuePositionId);
+      if (owner === null) throw new HttpError(404, 'no such futures position');
+
+      const body = (ctx.body ?? {}) as { hideFromPositions?: unknown };
+      if (body.hideFromPositions === undefined || typeof body.hideFromPositions !== 'boolean') {
+        throw new HttpError(400, 'hideFromPositions must be a boolean');
+      }
+
+      const res = await updateFuturesPositionVisibility(tdb, venuePositionId, body.hideFromPositions);
+      if (res === null) throw new HttpError(404, 'no such futures position');
+      sendJson(ctx.res, 200, res);
       return;
     }
 

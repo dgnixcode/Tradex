@@ -248,7 +248,7 @@ export async function buildTradingAnalytics(
   const rtPricesMap = await getFuturesRtPrices().catch(() => new Map<string, FuturesRtPrice>());
   const posResponse = await buildFuturesPositions(db, tenantId, nowMs, rtPricesMap);
   const targetPositions: FuturesPositionView[] = posResponse.views.filter(
-    (p) => targetAccountIds.has(p.accountId) && p.side !== 'flat',
+    (p) => targetAccountIds.has(p.accountId) && p.side !== 'flat' && !p.hideFromPositions,
   );
 
   // 4. Compute Live KPIs
@@ -317,6 +317,16 @@ export async function buildTradingAnalytics(
     }
 
     rawOrders = (await ordersQuery.limit(500).execute()) as unknown as Array<Record<string, unknown>>;
+  }
+
+  const hiddenVenuePosRows = (await tdb.selectFrom('futures_position')
+    .select(['venue_position_id as venuePositionId'])
+    .where('hide_from_positions' as never, '=', true as never)
+    .execute()) as unknown as ReadonlyArray<{ venuePositionId: string }>;
+  const hiddenVenuePosIds = new Set(hiddenVenuePosRows.map((r) => r.venuePositionId));
+
+  if (hiddenVenuePosIds.size > 0) {
+    rawOrders = rawOrders.filter((o) => !o['venuePositionId'] || !hiddenVenuePosIds.has(String(o['venuePositionId'])));
   }
 
   let totalOrders = 0;
@@ -501,6 +511,9 @@ export async function buildTradingAnalytics(
     const marginCurrency = (r['marginCurrency'] as string) || (r['quoteCurrency'] as string) || 'INR';
     const leverage = r['leverage'] ? Number(r['leverage']) : 1;
     const venuePosId = r['venuePositionId'] ? String(r['venuePositionId']) : null;
+    if (venuePosId !== null && hiddenVenuePosIds.has(venuePosId)) {
+      continue;
+    }
     const key = `${accId}|${pair}`;
 
     if (!isExit) {

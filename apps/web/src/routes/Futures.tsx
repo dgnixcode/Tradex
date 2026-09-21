@@ -398,7 +398,7 @@ function AccountRow({
                   fontWeight: 600,
                 }}
               >
-                Hidden
+                {p.isTradeHidden ? 'Hidden Trade' : 'Hidden Account'}
               </span>
             )}
           </div>
@@ -590,7 +590,7 @@ function AccountMobileCard({
                   fontWeight: 600,
                 }}
               >
-                Hidden
+                {p.isTradeHidden ? 'Hidden Trade' : 'Hidden Account'}
               </span>
             )}
           </div>

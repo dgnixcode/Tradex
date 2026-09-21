@@ -893,6 +893,7 @@ export interface FuturesPositionRow {
   readonly markStaleForMs: number | null;
   readonly entryTimeMs?: number | null;
   readonly hideFromPositions?: boolean;
+  readonly isTradeHidden?: boolean;
 }
 
 export interface FuturesPositionsResponse {
@@ -946,6 +947,21 @@ export const updateFuturesPositionLeverage = (
     {
       method: 'POST',
       body: JSON.stringify({ leverage }),
+    },
+  );
+
+/**
+ * Update visibility (hideFromPositions) for a specific futures position / trade.
+ */
+export const updateFuturesPositionVisibility = (
+  venuePositionId: string,
+  hideFromPositions: boolean,
+): Promise<{ ok: boolean; venuePositionId: string; hideFromPositions: boolean }> =>
+  request<{ ok: boolean; venuePositionId: string; hideFromPositions: boolean }>(
+    `/futures/positions/${venuePositionId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ hideFromPositions }),
     },
   );
 

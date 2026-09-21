@@ -22,6 +22,7 @@ import {
   suspendAccount,
   syncAccount,
   updateAccount,
+  updateFuturesPositionVisibility,
 } from '../api.ts';
 import type { FuturesPositionRow } from '../api.ts';
 import { useAuth } from '../auth.tsx';
@@ -240,6 +241,16 @@ export function AccountDetail() {
     onError: (e) => setOpError((e as Error).message || 'Failed to update visibility'),
   });
 
+  const toggleTradeVisibilityMut = useMutation({
+    mutationFn: ({ venuePositionId, hideFromPositions }: { venuePositionId: string; hideFromPositions: boolean }) =>
+      updateFuturesPositionVisibility(venuePositionId, hideFromPositions),
+    onSuccess: (res) => {
+      setSyncNote(`Trade visibility updated: trade is now ${res.hideFromPositions ? 'hidden from' : 'visible on'} positions and analytics.`);
+      invalidate();
+    },
+    onError: (e) => setOpError((e as Error).message || 'Failed to update trade visibility'),
+  });
+
   const assignGroupMut = useMutation({
     mutationFn: (newGroupId: string) => addGroupMember(newGroupId, accountId, true),
     onSuccess: () => {
@@ -332,6 +343,8 @@ export function AccountDetail() {
     );
   }, [groups.data, a?.groupId]);
 
+  const [showHiddenTrades, setShowHiddenTrades] = useState(false);
+
   // Filter positions strictly for this account
   const accountPositions = useMemo(() => {
     const views = futuresPositions.data?.views ?? [];
@@ -345,6 +358,13 @@ export function AccountDetail() {
     });
   }, [futuresPositions.data?.views, accountId, a]);
 
+  const hiddenTradesCount = useMemo(() => accountPositions.filter((p) => p.isTradeHidden).length, [accountPositions]);
+
+  const displayedPositions = useMemo(() => {
+    if (showHiddenTrades) return accountPositions;
+    return accountPositions.filter((p) => !p.isTradeHidden);
+  }, [accountPositions, showHiddenTrades]);
+
   const liveManagingPosition = useMemo(() => {
     if (managingPosition === null) return null;
     const views = futuresPositions.data?.views ?? [];
@@ -357,10 +377,10 @@ export function AccountDetail() {
     return views.find((r) => r.venuePositionId === quickExitPosition.venuePositionId) ?? quickExitPosition;
   }, [futuresPositions.data?.views, quickExitPosition]);
 
-  // Aggregate unrealised PnL for this account
+  // Aggregate unrealised PnL for this account (visible trades or all if showHiddenTrades is active)
   const totalAccountPnl = useMemo(() => {
     const byCurrency: Record<string, string> = {};
-    for (const p of accountPositions) {
+    for (const p of displayedPositions) {
       if (p.unrealisedPnlMinor !== null) {
         const cur = p.marginCurrency;
         byCurrency[cur] = byCurrency[cur] === undefined
@@ -369,12 +389,12 @@ export function AccountDetail() {
       }
     }
     return byCurrency;
-  }, [accountPositions]);
+  }, [displayedPositions]);
 
-  // Aggregate margin for this account
+  // Aggregate margin for this account (visible trades or all if showHiddenTrades is active)
   const totalAccountMargin = useMemo(() => {
     const byCurrency: Record<string, string> = {};
-    for (const p of accountPositions) {
+    for (const p of displayedPositions) {
       if (p.lockedMarginMinor !== null && p.lockedMarginMinor !== '' && p.lockedMarginMinor !== '0') {
         const cur = p.marginCurrency;
         byCurrency[cur] = byCurrency[cur] === undefined
@@ -383,7 +403,7 @@ export function AccountDetail() {
       }
     }
     return byCurrency;
-  }, [accountPositions]);
+  }, [displayedPositions]);
 
   if (account.isLoading) return <div className="panel full-width-page">Loading account…</div>;
   if (account.isError) return <div className="panel error full-width-page">{(account.error as Error).message}</div>;
@@ -779,9 +799,58 @@ export function AccountDetail() {
                   </div>
                   <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
                     <div className="stat-label">Open Positions</div>
-                    <div className="stat-value">{accountPositions.length}</div>
+                    <div className="stat-value">
+                      {displayedPositions.length}
+                      {hiddenTradesCount > 0 && (
+                        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>
+                          ({hiddenTradesCount} hidden)
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {hiddenTradesCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowHiddenTrades((prev) => !prev)}
+                        style={{
+                          padding: '4px 11px',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          borderRadius: 8,
+                          border: showHiddenTrades
+                            ? '1px solid rgba(239, 68, 68, 0.4)'
+                            : '1px solid var(--border)',
+                          background: showHiddenTrades
+                            ? 'rgba(239, 68, 68, 0.15)'
+                            : 'var(--surface-2)',
+                          color: showHiddenTrades ? '#fca5a5' : 'var(--muted)',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          transition: 'all 0.15s ease',
+                        }}
+                        title={showHiddenTrades ? 'Click to hide trades marked as hidden' : 'Click to show hidden trades'}
+                      >
+                        {showHiddenTrades ? (
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                          </svg>
+                        )}
+                        <span>
+                          {showHiddenTrades
+                            ? `Showing ${hiddenTradesCount} Hidden`
+                            : `Show ${hiddenTradesCount} Hidden`}
+                        </span>
+                      </button>
+                    )}
                     {isStreaming ? (
                       <span
                         style={{
@@ -822,204 +891,259 @@ export function AccountDetail() {
                   </div>
                 </div>
 
-                {/* Positions Table (Desktop > 768px) */}
-                <div className="table-scroll-container desktop-pos-table">
-                  <table style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th>Contract</th>
-                        <th>Side</th>
-                        <th style={{ textAlign: 'right' }}>Size</th>
-                        <th style={{ textAlign: 'right' }}>Avg Entry</th>
-                        <th>Entry Time</th>
-                        <th style={{ textAlign: 'right' }}>Live</th>
-                        <th style={{ textAlign: 'right' }}>Liq Price</th>
-                        <th style={{ textAlign: 'right' }}>Margin</th>
-                        <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
-                        <th>Protection</th>
-                        <th style={{ textAlign: 'center' }}>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {accountPositions.map((p) => {
-                        const roe = calcRoePct(p);
-                        const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
-                        const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
-                        const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
-                        const entryTime = fmtEntryTime(p.entryTimeMs);
-                        const liveItem = pricesData?.prices?.[p.pair];
-                        const curPrice = liveItem?.markPrice || liveItem?.lastPrice || p.markPrice;
-                        const changePct = liveItem?.priceChangePercent;
-                        const hasChange = typeof changePct === 'number' && Number.isFinite(changePct);
-                        const isPos = hasChange && changePct >= 0;
-                        const isNeg = hasChange && changePct < 0;
-                        return (
-                          <tr key={p.venuePositionId}>
-                            <td style={{ fontWeight: 600 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span>{p.pair}</span>
-                                <span className="muted" style={{ fontSize: 11 }}>({p.marginCurrency})</span>
-                              </div>
-                              {p.groupName && (
-                                <span className="group-badge" style={{ marginTop: 3 }}>
-                                  {p.groupName}
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <span
-                                className="badge"
-                                style={{
-                                  color: sideBadgeColor,
-                                  borderColor: sideBadgeColor,
-                                  background: p.side === 'long' ? 'rgba(75,181,99,0.1)' : p.side === 'short' ? 'rgba(240,85,90,0.1)' : 'transparent',
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                {p.side} {p.leverage ? `${p.leverage}×` : ''}
-                              </span>
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              {p.quantity}
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              {fmtPrice(p.avgEntryPrice)}
-                            </td>
-                            <td style={{ whiteSpace: 'nowrap' }}>
-                              {entryTime ? (
-                                <div>
-                                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', display: 'block' }}>{entryTime.dateStr}</span>
-                                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
+                {displayedPositions.length === 0 ? (
+                  <div className="empty-state" style={{ padding: '30px 20px', marginBottom: 16 }}>
+                    <p style={{ fontWeight: 600, fontSize: 14, margin: '4px 0' }}>All open trades for this account are hidden</p>
+                    <p className="muted" style={{ maxWidth: 420, margin: '0 auto 12px', fontSize: 12.5 }}>
+                      There are {hiddenTradesCount} trade(s) hidden from positions and analytics.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      onClick={() => setShowHiddenTrades(true)}
+                    >
+                      Show {hiddenTradesCount} Hidden Trade{hiddenTradesCount > 1 ? 's' : ''}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="table-scroll-container desktop-pos-table">
+                    <table style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Contract</th>
+                          <th>Side</th>
+                          <th style={{ textAlign: 'right' }}>Size</th>
+                          <th style={{ textAlign: 'right' }}>Avg Entry</th>
+                          <th>Entry Time</th>
+                          <th style={{ textAlign: 'right' }}>Live</th>
+                          <th style={{ textAlign: 'right' }}>Liq Price</th>
+                          <th style={{ textAlign: 'right' }}>Margin</th>
+                          <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
+                          <th>Protection</th>
+                          <th style={{ textAlign: 'center' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedPositions.map((p) => {
+                          const roe = calcRoePct(p);
+                          const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
+                          const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
+                          const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
+                          const entryTime = fmtEntryTime(p.entryTimeMs);
+                          const liveItem = pricesData?.prices?.[p.pair];
+                          const curPrice = liveItem?.markPrice || liveItem?.lastPrice || p.markPrice;
+                          const changePct = liveItem?.priceChangePercent;
+                          const hasChange = typeof changePct === 'number' && Number.isFinite(changePct);
+                          const isPos = hasChange && changePct >= 0;
+                          const isNeg = hasChange && changePct < 0;
+                          return (
+                            <tr key={p.venuePositionId}>
+                              <td style={{ fontWeight: 600 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span>{p.pair}</span>
+                                  <span className="muted" style={{ fontSize: 11 }}>({p.marginCurrency})</span>
+                                  {p.isTradeHidden && (
+                                    <span
+                                      style={{
+                                        fontSize: 9.5,
+                                        padding: '1px 5px',
+                                        borderRadius: 3,
+                                        background: 'rgba(239, 68, 68, 0.18)',
+                                        color: '#fca5a5',
+                                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                                        fontWeight: 600,
+                                      }}
+                                      title="This trade is hidden from platform positions and analytics"
+                                    >
+                                      Hidden Trade
+                                    </span>
+                                  )}
                                 </div>
-                              ) : (
-                                <span className="muted">—</span>
-                              )}
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              <span style={{ fontWeight: 600, color: isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--accent)' }}>
-                                {curPrice ? fmtPrice(curPrice) : '—'}
-                              </span>
-                              {hasChange && (
+                                {p.groupName && (
+                                  <span className="group-badge" style={{ marginTop: 3 }}>
+                                    {p.groupName}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
                                 <span
+                                  className="badge"
                                   style={{
-                                    display: 'block',
-                                    fontSize: 10.5,
+                                    color: sideBadgeColor,
+                                    borderColor: sideBadgeColor,
+                                    background: p.side === 'long' ? 'rgba(75,181,99,0.1)' : p.side === 'short' ? 'rgba(240,85,90,0.1)' : 'transparent',
+                                    fontSize: 11,
                                     fontWeight: 700,
-                                    color: isPos ? 'var(--ok)' : 'var(--danger)',
+                                    textTransform: 'uppercase',
                                   }}
                                 >
-                                  {isPos ? '+' : ''}{changePct.toFixed(2)}%
+                                  {p.side} {p.leverage ? `${p.leverage}×` : ''}
                                 </span>
-                              )}
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
-                                {fmtPrice(p.liquidationPrice)}
-                              </span>
-                              {p.liqBufferBp !== null && (
-                                <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#ca8a04', marginTop: 1 }}>
-                                  {(p.liqBufferBp / 100).toFixed(1)}% buf
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {p.quantity}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {fmtPrice(p.avgEntryPrice)}
+                              </td>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                {entryTime ? (
+                                  <div>
+                                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', display: 'block' }}>{entryTime.dateStr}</span>
+                                    <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 1 }}>{entryTime.relStr}</span>
+                                  </div>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                <span style={{ fontWeight: 600, color: isPos ? 'var(--ok)' : isNeg ? 'var(--danger)' : 'var(--accent)' }}>
+                                  {curPrice ? fmtPrice(curPrice) : '—'}
                                 </span>
-                              )}
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              {p.lockedMarginMinor !== null && p.lockedMarginMinor !== ''
-                                ? fmtMinor(p.lockedMarginMinor, p.marginCurrency)
-                                : '—'}
-                            </td>
-                            <td className="mono" style={{ textAlign: 'right' }}>
-                              <div style={{
-                                fontSize: 14.5,
-                                fontWeight: 700,
-                                color: (p.unrealisedPnlMinor && p.unrealisedPnlMinor.startsWith('-'))
-                                  ? '#ef4444'
-                                  : (p.unrealisedPnlMinor && p.unrealisedPnlMinor !== '0' && p.unrealisedPnlMinor !== '')
-                                    ? '#10b981'
-                                    : 'var(--text-dim)',
-                              }}>
-                                {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
-                              </div>
-                              {roe !== null && (
+                                {hasChange && (
+                                  <span
+                                    style={{
+                                      display: 'block',
+                                      fontSize: 10.5,
+                                      fontWeight: 700,
+                                      color: isPos ? 'var(--ok)' : 'var(--danger)',
+                                    }}
+                                  >
+                                    {isPos ? '+' : ''}{changePct.toFixed(2)}%
+                                  </span>
+                                )}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                <span style={{ color: '#facc15', fontWeight: 700, fontSize: 14.5, display: 'block' }}>
+                                  {fmtPrice(p.liquidationPrice)}
+                                </span>
+                                {p.liqBufferBp !== null && (
+                                  <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#ca8a04', marginTop: 1 }}>
+                                    {(p.liqBufferBp / 100).toFixed(1)}% buf
+                                  </span>
+                                )}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
+                                {p.lockedMarginMinor !== null && p.lockedMarginMinor !== ''
+                                  ? fmtMinor(p.lockedMarginMinor, p.marginCurrency)
+                                  : '—'}
+                              </td>
+                              <td className="mono" style={{ textAlign: 'right' }}>
                                 <div style={{
-                                  fontSize: 12.5,
+                                  fontSize: 14.5,
                                   fontWeight: 700,
-                                  marginTop: 2,
-                                  color: roe < 0 ? '#ef4444' : '#10b981',
+                                  color: (p.unrealisedPnlMinor && p.unrealisedPnlMinor.startsWith('-'))
+                                    ? '#ef4444'
+                                    : (p.unrealisedPnlMinor && p.unrealisedPnlMinor !== '0' && p.unrealisedPnlMinor !== '')
+                                      ? '#10b981'
+                                      : 'var(--text-dim)',
                                 }}>
-                                  {roeText(roe).trim()}
+                                  {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
                                 </div>
-                              )}
-                            </td>
-                            <td>
-                              {!hasSl && !hasTp ? (
-                                <span className="muted" style={{ fontSize: 11.5 }}>none</span>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                  {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
-                                  {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+                                {roe !== null && (
+                                  <div style={{
+                                    fontSize: 12.5,
+                                    fontWeight: 700,
+                                    marginTop: 2,
+                                    color: roe < 0 ? '#ef4444' : '#10b981',
+                                  }}>
+                                    {roeText(roe).trim()}
+                                  </div>
+                                )}
+                              </td>
+                              <td>
+                                {!hasSl && !hasTp ? (
+                                  <span className="muted" style={{ fontSize: 11.5 }}>none</span>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
+                                    {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm secondary"
+                                    style={{
+                                      fontSize: 11.5,
+                                      padding: '3px 10px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontWeight: 600,
+                                    }}
+                                    onClick={() => {
+                                      setManagingPosition(p);
+                                      setOpError(null);
+                                      setSyncNote(null);
+                                    }}
+                                  >
+                                    Manage
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm secondary"
+                                    disabled={toggleTradeVisibilityMut.isPending}
+                                    style={{
+                                      fontSize: 11.5,
+                                      padding: '3px 8px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontWeight: 600,
+                                      color: p.isTradeHidden ? '#10b981' : 'var(--text-dim)',
+                                      borderColor: p.isTradeHidden ? 'rgba(16, 185, 129, 0.3)' : undefined,
+                                    }}
+                                    onClick={() => {
+                                      toggleTradeVisibilityMut.mutate({
+                                        venuePositionId: p.venuePositionId,
+                                        hideFromPositions: !p.isTradeHidden,
+                                      });
+                                    }}
+                                    title={p.isTradeHidden ? 'Unhide this trade from positions and analytics' : 'Hide this trade from positions and analytics'}
+                                  >
+                                    {p.isTradeHidden ? 'Unhide' : 'Hide'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm quick-exit-btn"
+                                    disabled={isHalted}
+                                    style={{
+                                      fontSize: 11.5,
+                                      padding: '3px 8px',
+                                      borderRadius: 'var(--radius-sm)',
+                                      opacity: isHalted ? 0.4 : 1,
+                                      cursor: isHalted ? 'not-allowed' : 'pointer',
+                                    }}
+                                    onClick={() => {
+                                      setQuickExitPosition(p);
+                                      setOpError(null);
+                                      setSyncNote(null);
+                                    }}
+                                    title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : `Quick exit position for ${p.pair}`}
+                                  >
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                      <polyline points="16 17 21 12 16 7" />
+                                      <line x1="21" y1="12" x2="9" y2="12" />
+                                    </svg>
+                                    Exit
+                                  </button>
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm secondary"
-                                  style={{
-                                    fontSize: 11.5,
-                                    padding: '3px 10px',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontWeight: 600,
-                                  }}
-                                  onClick={() => {
-                                    setManagingPosition(p);
-                                    setOpError(null);
-                                    setSyncNote(null);
-                                  }}
-                                >
-                                  Manage
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm quick-exit-btn"
-                                  disabled={isHalted}
-                                  style={{
-                                    fontSize: 11.5,
-                                    padding: '3px 8px',
-                                    borderRadius: 'var(--radius-sm)',
-                                    opacity: isHalted ? 0.4 : 1,
-                                    cursor: isHalted ? 'not-allowed' : 'pointer',
-                                  }}
-                                  onClick={() => {
-                                    setQuickExitPosition(p);
-                                    setOpError(null);
-                                    setSyncNote(null);
-                                  }}
-                                  title={isHalted ? 'Emergency Kill Switch is ACTIVE (Read-Only Mode)' : `Quick exit position for ${p.pair}`}
-                                >
-                                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                                    <polyline points="16 17 21 12 16 7" />
-                                    <line x1="21" y1="12" x2="9" y2="12" />
-                                  </svg>
-                                  Exit
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 {/* Mobile Position Cards (<= 768px) */}
                 <div className="mobile-pos-cards">
-                  {accountPositions.map((p) => {
+                  {displayedPositions.map((p) => {
                     const roe = calcRoePct(p);
                     const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
                     const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
@@ -1035,7 +1159,24 @@ export function AccountDetail() {
                       <div key={`mobile-${p.venuePositionId}`} className="pos-mobile-card">
                         <div className="pos-mobile-card-top">
                           <div>
-                            <div className="pos-mobile-acc-name">{p.pair} ({p.marginCurrency})</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div className="pos-mobile-acc-name">{p.pair} ({p.marginCurrency})</div>
+                              {p.isTradeHidden && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    padding: '1px 5px',
+                                    borderRadius: 3,
+                                    background: 'rgba(239, 68, 68, 0.2)',
+                                    color: '#fca5a5',
+                                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Hidden Trade
+                                </span>
+                              )}
+                            </div>
                             {p.groupName && <div className="pos-mobile-grp-badge">{p.groupName}</div>}
                           </div>
                           <div style={{ textAlign: 'right' }}>
@@ -1142,7 +1283,30 @@ export function AccountDetail() {
                                 setSyncNote(null);
                               }}
                             >
-                              Manage Position
+                              Manage
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm secondary"
+                              disabled={toggleTradeVisibilityMut.isPending}
+                              style={{
+                                flex: 1,
+                                padding: '8px',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                borderRadius: 8,
+                                color: p.isTradeHidden ? '#10b981' : 'var(--text-dim)',
+                                borderColor: p.isTradeHidden ? 'rgba(16, 185, 129, 0.3)' : undefined,
+                              }}
+                              onClick={() => {
+                                toggleTradeVisibilityMut.mutate({
+                                  venuePositionId: p.venuePositionId,
+                                  hideFromPositions: !p.isTradeHidden,
+                                });
+                              }}
+                              title={p.isTradeHidden ? 'Unhide this trade from positions and analytics' : 'Hide this trade from positions and analytics'}
+                            >
+                              {p.isTradeHidden ? 'Unhide Trade' : 'Hide Trade'}
                             </button>
                             <button
                               type="button"

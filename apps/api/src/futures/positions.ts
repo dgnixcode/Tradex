@@ -65,6 +65,7 @@ interface RawFuturesPositionRow {
   readonly settlementCurrencyAvgPrice: string | null;
   readonly openedAt: Date | null;
   readonly exchangeUpdatedAt: Date | null;
+  readonly hideFromPositions: boolean;
 }
 
 async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]): Promise<readonly RawFuturesPositionRow[]> {
@@ -81,6 +82,7 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
       'settlement_currency_avg_price as settlementCurrencyAvgPrice',
       'opened_at as openedAt',
       'exchange_updated_at as exchangeUpdatedAt',
+      'hide_from_positions as hideFromPositions',
     ] as unknown as never)
     .where('account_id' as never, 'in', accountIds as never)
     .execute();
@@ -102,6 +104,7 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
     settlementCurrencyAvgPrice: r['settlementCurrencyAvgPrice'] === null ? null : String(r['settlementCurrencyAvgPrice']),
     openedAt: r['openedAt'] === null || r['openedAt'] === undefined ? null : new Date(String(r['openedAt'])),
     exchangeUpdatedAt: r['exchangeUpdatedAt'] === null || r['exchangeUpdatedAt'] === undefined ? null : new Date(String(r['exchangeUpdatedAt'])),
+    hideFromPositions: Boolean(r['hideFromPositions'] ?? false),
   }));
 }
 
@@ -227,7 +230,8 @@ export async function buildFuturesPositions(
         fundingRateBp: r.fundingRateBp,
         settlementCurrencyAvgPrice: r.settlementCurrencyAvgPrice,
         entryTimeMs,
-        hideFromPositions: hideMap.get(r.accountId) ?? false,
+        hideFromPositions: (hideMap.get(r.accountId) ?? false) || r.hideFromPositions,
+        isTradeHidden: r.hideFromPositions,
       };
     });
   return {
@@ -235,3 +239,29 @@ export async function buildFuturesPositions(
     at: new Date(nowMs).toISOString(),
   };
 }
+
+/**
+ * Update visibility (hideFromPositions) for a specific futures position.
+ */
+export async function updateFuturesPositionVisibility(
+  tdb: TenantDb,
+  venuePositionId: string,
+  hideFromPositions: boolean,
+): Promise<{ readonly ok: true; readonly venuePositionId: string; readonly hideFromPositions: boolean } | null> {
+  const updated = await tdb.updateTable('futures_position')
+    .set({
+      hide_from_positions: hideFromPositions,
+      updated_at: new Date(),
+    } as never)
+    .where('venue_position_id' as never, '=', venuePositionId as never)
+    .returning(['venue_position_id as venuePositionId', 'hide_from_positions as hideFromPositions'] as never)
+    .executeTakeFirst();
+  if (updated === undefined) return null;
+  const row = updated as unknown as { venuePositionId: string; hideFromPositions: boolean };
+  return {
+    ok: true,
+    venuePositionId: row.venuePositionId,
+    hideFromPositions: Boolean(row.hideFromPositions),
+  };
+}
+

@@ -34,6 +34,7 @@ export interface FuturesPositionRow {
   readonly groupName?: string | null;
   readonly entryTimeMs?: number | null;
   readonly hideFromPositions?: boolean;
+  readonly isTradeHidden?: boolean;
 }
 
 export interface FuturesPositionView {
@@ -42,6 +43,7 @@ export interface FuturesPositionView {
   readonly accountName: string;
   readonly groupName?: string | null;
   readonly hideFromPositions?: boolean;
+  readonly isTradeHidden?: boolean;
   readonly pair: string;
   readonly marginCurrency: Quote;
   readonly side: 'long' | 'short' | 'flat';
@@ -141,6 +143,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
     accountName: row.accountName,
     groupName: row.groupName ?? null,
     hideFromPositions: row.hideFromPositions ?? false,
+    isTradeHidden: row.isTradeHidden ?? false,
     pair: row.pair,
     marginCurrency: row.marginCurrency,
     side,

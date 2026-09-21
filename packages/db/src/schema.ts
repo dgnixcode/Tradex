@@ -578,6 +578,7 @@ export interface FuturesPositionTable {
   settlement_currency_avg_price: string | null;
   opened_at?: Generated<Timestamp>;
   exchange_updated_at?: Timestamp | null;
+  hide_from_positions?: Generated<boolean>;
   updated_at: Generated<Timestamp>;
 }
 
