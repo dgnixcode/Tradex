@@ -1377,8 +1377,9 @@ export function createHttpServer(deps: HttpDeps): Server {
       const body = (ctx.body ?? {}) as { stopLossPrice?: unknown; takeProfitPrice?: unknown; moveExisting?: unknown };
       const sl = body.stopLossPrice;
       const tp = body.takeProfitPrice;
-      if ((sl !== undefined && typeof sl !== 'string') || (tp !== undefined && typeof tp !== 'string')) {
-        throw new HttpError(400, 'stopLossPrice and takeProfitPrice must be decimal strings');
+      if ((sl !== undefined && (typeof sl !== 'string' || Number(sl) <= 0 || !Number.isFinite(Number(sl)))) ||
+          (tp !== undefined && (typeof tp !== 'string' || Number(tp) <= 0 || !Number.isFinite(Number(tp))))) {
+        throw new HttpError(400, 'stopLossPrice and takeProfitPrice must be positive decimal strings');
       }
       if (sl === undefined && tp === undefined) {
         throw new HttpError(400, 'at least one of stopLossPrice or takeProfitPrice is required');

@@ -155,6 +155,10 @@ interface TradeProtectionModalProps {
   readonly hasRef: boolean;
   readonly slTpMode: SlTpMode;
   readonly setSlTpMode: (mode: SlTpMode) => void;
+  readonly enableSl: boolean;
+  readonly setEnableSl: (e: boolean) => void;
+  readonly enableTp: boolean;
+  readonly setEnableTp: (e: boolean) => void;
   readonly stopLossPrice: string;
   readonly setStopLossPrice: (p: string) => void;
   readonly takeProfitPrice: string;
@@ -184,6 +188,10 @@ function TradeProtectionModal({
   hasRef,
   slTpMode,
   setSlTpMode,
+  enableSl,
+  setEnableSl,
+  enableTp,
+  setEnableTp,
   stopLossPrice,
   setStopLossPrice,
   takeProfitPrice,
@@ -202,11 +210,51 @@ function TradeProtectionModal({
 }: TradeProtectionModalProps) {
   if (!isOpen) return null;
 
+  const currentPreset = (enableSl && enableTp)
+    ? 'both'
+    : (!enableSl && enableTp)
+      ? 'tp_only'
+      : (enableSl && !enableTp)
+        ? 'sl_only'
+        : 'none';
+
+  const selectPreset = (preset: 'both' | 'tp_only' | 'sl_only' | 'none') => {
+    if (preset === 'both') {
+      setEnableSl(true);
+      setEnableTp(true);
+      if (slTpMode === 'percent') {
+        if (!slPercent || Number(slPercent) <= 0) setSlPercent('5');
+        if (!tpPercent || Number(tpPercent) <= 0) setTpPercent('10');
+      }
+    } else if (preset === 'tp_only') {
+      setEnableSl(false);
+      setEnableTp(true);
+      setStopLossPrice('');
+      setSlPercent('');
+      setTrailingStopLoss(false);
+      if (slTpMode === 'percent' && (!tpPercent || Number(tpPercent) <= 0)) {
+        setTpPercent('10');
+      }
+    } else if (preset === 'sl_only') {
+      setEnableSl(true);
+      setEnableTp(false);
+      setTakeProfitPrice('');
+      setTpPercent('');
+      if (slTpMode === 'percent' && (!slPercent || Number(slPercent) <= 0)) {
+        setSlPercent('5');
+      }
+    } else {
+      setEnableSl(false);
+      setEnableTp(false);
+      onClearAll();
+    }
+  };
+
   return (
     <div className="position-modal-overlay" onClick={onClose}>
       <div
         className="position-modal"
-        style={{ maxWidth: 460, width: '100%', background: '#0e1015' }}
+        style={{ maxWidth: 470, width: '100%', background: '#0e1015' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="position-modal-header" style={{ padding: '14px 18px' }}>
@@ -224,9 +272,94 @@ function TradeProtectionModal({
         </div>
 
         <div className="position-modal-body" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Quick presets bar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Protection Strategy
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, background: '#08090c', border: '1px solid #1f232b', borderRadius: 6, padding: 3 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={currentPreset === 'both'}
+                style={{
+                  padding: '4px 6px',
+                  fontSize: 11,
+                  fontWeight: currentPreset === 'both' ? 700 : 500,
+                  background: currentPreset === 'both' ? '#ffffff' : 'transparent',
+                  color: currentPreset === 'both' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+                onClick={() => selectPreset('both')}
+              >
+                Both SL &amp; TP
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={currentPreset === 'tp_only'}
+                style={{
+                  padding: '4px 6px',
+                  fontSize: 11,
+                  fontWeight: currentPreset === 'tp_only' ? 700 : 500,
+                  background: currentPreset === 'tp_only' ? '#10b981' : 'transparent',
+                  color: currentPreset === 'tp_only' ? '#000000' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+                onClick={() => selectPreset('tp_only')}
+              >
+                TP Only
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={currentPreset === 'sl_only'}
+                style={{
+                  padding: '4px 6px',
+                  fontSize: 11,
+                  fontWeight: currentPreset === 'sl_only' ? 700 : 500,
+                  background: currentPreset === 'sl_only' ? '#ef4444' : 'transparent',
+                  color: currentPreset === 'sl_only' ? '#ffffff' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+                onClick={() => selectPreset('sl_only')}
+              >
+                SL Only
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-pressed={currentPreset === 'none'}
+                style={{
+                  padding: '4px 6px',
+                  fontSize: 11,
+                  fontWeight: currentPreset === 'none' ? 700 : 500,
+                  background: currentPreset === 'none' ? '#2a2e39' : 'transparent',
+                  color: currentPreset === 'none' ? '#ffffff' : '#6b7280',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+                onClick={() => selectPreset('none')}
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+
           {/* Mode toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Input Mode</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 2 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>Input Mode</span>
             <div style={{ display: 'flex', background: '#08090c', border: '1px solid #1f232b', borderRadius: 6, padding: 2, gap: 2 }}>
               <button
                 type="button"
@@ -268,20 +401,60 @@ function TradeProtectionModal({
           </div>
 
           {/* Stop Loss Card */}
-          <div style={{ background: '#12141a', border: '1px solid #1f232b', borderRadius: 8, padding: 12 }}>
+          <div style={{
+            background: '#12141a',
+            border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : '#1f232b'}`,
+            borderRadius: 8,
+            padding: 12,
+            opacity: enableSl ? 1 : 0.6,
+            transition: 'opacity 0.15s ease',
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <label style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: '#f87171' }}>Stop Loss</label>
-              <select
-                value={trailingStopLoss ? 'trailing' : 'fixed'}
-                onChange={(e) => setTrailingStopLoss(e.target.value === 'trailing')}
-                style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#08090c', border: '1px solid #222631' }}
-              >
-                <option value="fixed">Fixed SL</option>
-                <option value="trailing">Trailing SL</option>
-              </select>
+              <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={enableSl}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEnableSl(checked);
+                    if (checked && slTpMode === 'percent' && (!slPercent || Number(slPercent) <= 0)) {
+                      setSlPercent('5');
+                    }
+                  }}
+                  style={{ width: 14, height: 14, cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : 'var(--muted)' }}>Stop Loss</span>
+                <span style={{
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  background: enableSl ? 'rgba(239, 68, 68, 0.15)' : '#1f232b',
+                  color: enableSl ? '#f87171' : '#6b7280',
+                  border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : '#2a2e39'}`,
+                  textTransform: 'uppercase',
+                }}>
+                  {enableSl ? 'Active' : 'Disabled'}
+                </span>
+              </label>
+
+              {enableSl && (
+                <select
+                  value={trailingStopLoss ? 'trailing' : 'fixed'}
+                  onChange={(e) => setTrailingStopLoss(e.target.value === 'trailing')}
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#08090c', border: '1px solid #222631' }}
+                >
+                  <option value="fixed">Fixed SL</option>
+                  <option value="trailing">Trailing SL</option>
+                </select>
+              )}
             </div>
 
-            {trailingStopLoss ? (
+            {!enableSl ? (
+              <div style={{ fontSize: 11.5, color: '#6b7280', padding: '6px 0', fontStyle: 'italic' }}>
+                Stop Loss is disabled. No stop-loss order will be placed. Check the box above to enable.
+              </div>
+            ) : trailingStopLoss ? (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Distance (%)</div>
@@ -313,10 +486,18 @@ function TradeProtectionModal({
                   inputMode="decimal"
                   value={stopLossPrice}
                   placeholder="Trigger Price, e.g. 80000"
-                  onChange={(e) => setStopLossPrice(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setStopLossPrice(v);
+                  }}
                   style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
                 />
-                {stopLossPrice !== '' && hasRef && (
+                {stopLossPrice !== '' && Number(stopLossPrice) <= 0 && (
+                  <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>
+                    Trigger price must be greater than 0.
+                  </div>
+                )}
+                {stopLossPrice !== '' && Number(stopLossPrice) > 0 && hasRef && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                     ≈ {priceToPercent(slTpRefNum, Number(stopLossPrice), side, 'sl').toFixed(2)}% from entry
                   </div>
@@ -363,7 +544,12 @@ function TradeProtectionModal({
                     );
                   })}
                 </div>
-                {hasRef && slPercent !== '' && (
+                {slPercent !== '' && Number(slPercent) <= 0 && (
+                  <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>
+                    Distance % must be greater than 0%. Entering 0% would cause an immediate stop-out.
+                  </div>
+                )}
+                {hasRef && slPercent !== '' && Number(slPercent) > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                     ≈ {percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(2)} trigger price
                   </div>
@@ -373,22 +559,67 @@ function TradeProtectionModal({
           </div>
 
           {/* Take Profit Card */}
-          <div style={{ background: '#12141a', border: '1px solid #1f232b', borderRadius: 8, padding: 12 }}>
+          <div style={{
+            background: '#12141a',
+            border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : '#1f232b'}`,
+            borderRadius: 8,
+            padding: 12,
+            opacity: enableTp ? 1 : 0.6,
+            transition: 'opacity 0.15s ease',
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <label style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: '#34d399' }}>Take Profit</label>
+              <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={enableTp}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEnableTp(checked);
+                    if (checked && slTpMode === 'percent' && (!tpPercent || Number(tpPercent) <= 0)) {
+                      setTpPercent('10');
+                    }
+                  }}
+                  style={{ width: 14, height: 14, cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : 'var(--muted)' }}>Take Profit</span>
+                <span style={{
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                  background: enableTp ? 'rgba(52, 211, 153, 0.15)' : '#1f232b',
+                  color: enableTp ? '#34d399' : '#6b7280',
+                  border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : '#2a2e39'}`,
+                  textTransform: 'uppercase',
+                }}>
+                  {enableTp ? 'Active' : 'Disabled'}
+                </span>
+              </label>
             </div>
 
-            {slTpMode === 'price' ? (
+            {!enableTp ? (
+              <div style={{ fontSize: 11.5, color: '#6b7280', padding: '6px 0', fontStyle: 'italic' }}>
+                Take Profit is disabled. No take-profit order will be placed. Check the box above to enable.
+              </div>
+            ) : slTpMode === 'price' ? (
               <div>
                 <input
                   id="modal-tp-price"
                   inputMode="decimal"
                   value={takeProfitPrice}
                   placeholder="Target Price, e.g. 92000"
-                  onChange={(e) => setTakeProfitPrice(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTakeProfitPrice(v);
+                  }}
                   style={{ width: '100%', padding: '6px 10px', fontSize: 12 }}
                 />
-                {takeProfitPrice !== '' && hasRef && (
+                {takeProfitPrice !== '' && Number(takeProfitPrice) <= 0 && (
+                  <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>
+                    Target price must be greater than 0.
+                  </div>
+                )}
+                {takeProfitPrice !== '' && Number(takeProfitPrice) > 0 && hasRef && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                     ≈ {priceToPercent(slTpRefNum, Number(takeProfitPrice), side, 'tp').toFixed(2)}% from entry
                   </div>
@@ -435,7 +666,12 @@ function TradeProtectionModal({
                     );
                   })}
                 </div>
-                {hasRef && tpPercent !== '' && (
+                {tpPercent !== '' && Number(tpPercent) <= 0 && (
+                  <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>
+                    Target % must be greater than 0%.
+                  </div>
+                )}
+                {hasRef && tpPercent !== '' && Number(tpPercent) > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                     ≈ {percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(2)} trigger price
                   </div>
@@ -539,6 +775,14 @@ export function TradeTicket() {
   const [percent, setPercent] = useState<string>(() => draft.percent || '');
   const [quantity, setQuantity] = useState<string>(() => draft.quantity || '');
   const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>(() => draft.sizingMode || 'percent');
+  const [enableSl, setEnableSl] = useState<boolean>(() => {
+    if (typeof draft.enableSl === 'boolean') return draft.enableSl;
+    return Boolean(draft.stopLossPrice || draft.slPercent || draft.trailingStopLoss);
+  });
+  const [enableTp, setEnableTp] = useState<boolean>(() => {
+    if (typeof draft.enableTp === 'boolean') return draft.enableTp;
+    return Boolean(draft.takeProfitPrice || draft.tpPercent);
+  });
   const [stopLossPrice, setStopLossPrice] = useState<string>(() => draft.stopLossPrice || '');
   const [takeProfitPrice, setTakeProfitPrice] = useState<string>(() => draft.takeProfitPrice || '');
   const [trailingStopLoss, setTrailingStopLoss] = useState<boolean>(() => draft.trailingStopLoss ?? false);
@@ -563,6 +807,8 @@ export function TradeTicket() {
   const [showProtectionModal, setShowProtectionModal] = useState(false);
 
   const clearAllProtection = (): void => {
+    setEnableSl(false);
+    setEnableTp(false);
     setStopLossPrice('');
     setTakeProfitPrice('');
     setSlPercent('');
@@ -588,6 +834,8 @@ export function TradeTicket() {
         percent,
         quantity,
         slTpMode,
+        enableSl,
+        enableTp,
         stopLossPrice,
         slPercent,
         takeProfitPrice,
@@ -612,6 +860,8 @@ export function TradeTicket() {
     percent,
     quantity,
     slTpMode,
+    enableSl,
+    enableTp,
     stopLossPrice,
     slPercent,
     takeProfitPrice,
@@ -848,7 +1098,7 @@ export function TradeTicket() {
     && Number(leverage) >= 1 && Number(leverage) <= MAX_LEVERAGE;
   const percentValid = /^\d+(\.\d+)?$/.test(percent) && Number(percent) > 0 && Number(percent) <= 100;
   const quantityValid = /^\d+(\.\d+)?$/.test(quantity) && Number(quantity) > 0;
-  const priceOk = (p: string): boolean => p === '' || /^\d+(\.\d+)?$/.test(p);
+  const priceOk = (p: string): boolean => p === '' || (/^\d+(\.\d+)?$/.test(p) && Number(p) > 0);
 
   // The reference price for SL/TP percentage calculation:
   // limit orders use the limit price, market orders use the last-fetched market price.
@@ -860,17 +1110,27 @@ export function TradeTicket() {
   const pctOk = (p: string): boolean => p === '' || (/^\d+(\.\d+)?$/.test(p) && Number(p) > 0 && Number(p) <= 100);
 
   // Compute the effective absolute SL/TP prices (for validation + submission).
-  const effectiveSlPrice: string = slTpMode === 'percent' && slPercent !== '' && hasRef
-    ? percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(8).replace(/\.?0+$/, '')
-    : stopLossPrice;
-  const effectiveTpPrice: string = slTpMode === 'percent' && tpPercent !== '' && hasRef
-    ? percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(8).replace(/\.?0+$/, '')
-    : takeProfitPrice;
+  const effectiveSlPrice: string = enableSl
+    ? (slTpMode === 'percent' && slPercent !== '' && Number(slPercent) > 0 && hasRef
+        ? percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(8).replace(/\.?0+$/, '')
+        : (stopLossPrice !== '' && Number(stopLossPrice) > 0 ? stopLossPrice : ''))
+    : '';
+  const effectiveTpPrice: string = enableTp
+    ? (slTpMode === 'percent' && tpPercent !== '' && Number(tpPercent) > 0 && hasRef
+        ? percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(8).replace(/\.?0+$/, '')
+        : (takeProfitPrice !== '' && Number(takeProfitPrice) > 0 ? takeProfitPrice : ''))
+    : '';
 
   const sizeValid = sizingMode === 'percent' ? percentValid : quantityValid;
 
-  const slValid = slTpMode === 'price' ? priceOk(stopLossPrice) : pctOk(slPercent);
-  const tpValid = slTpMode === 'price' ? priceOk(takeProfitPrice) : pctOk(tpPercent);
+  const slValid = !enableSl || (
+    trailingStopLoss
+      ? (/^\d+(\.\d+)?$/.test(trailingDistancePercent) && Number(trailingDistancePercent) > 0)
+      : (slTpMode === 'price' ? (stopLossPrice !== '' && priceOk(stopLossPrice)) : (slPercent !== '' && pctOk(slPercent)))
+  );
+  const tpValid = !enableTp || (
+    slTpMode === 'price' ? (takeProfitPrice !== '' && priceOk(takeProfitPrice)) : (tpPercent !== '' && pctOk(tpPercent))
+  );
 
   const canPreview =
     !isHalted
@@ -920,9 +1180,9 @@ export function TradeTicket() {
       marginCurrency,
       quoteCurrency,
       positionMarginType: effectiveMarginType,
-      ...(effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
-      ...(effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
-      ...(trailingStopLoss ? { 
+      ...(enableSl && effectiveSlPrice !== '' ? { stopLossPrice: effectiveSlPrice } : {}),
+      ...(enableTp && effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
+      ...(enableSl && trailingStopLoss ? { 
         trailingStopLoss: true,
         trailingDistanceBp: Math.round(Number(trailingDistancePercent) * 100),
         trailingStepBp: Math.round(Number(trailingStepPercent) * 100),
@@ -1711,8 +1971,8 @@ export function TradeTicket() {
       {/* ── TP / SL Protection Modal Trigger ── */}
       <div className="field" style={{ marginTop: 2, marginBottom: 8 }}>
         {(() => {
-          const hasSl = Boolean(trailingStopLoss || (slTpMode === 'percent' ? slPercent : stopLossPrice));
-          const hasTp = Boolean(slTpMode === 'percent' ? tpPercent : takeProfitPrice);
+          const hasSl = Boolean(enableSl && (trailingStopLoss || (slTpMode === 'percent' ? (slPercent !== '' && Number(slPercent) > 0) : (stopLossPrice !== '' && Number(stopLossPrice) > 0))));
+          const hasTp = Boolean(enableTp && (slTpMode === 'percent' ? (tpPercent !== '' && Number(tpPercent) > 0) : (takeProfitPrice !== '' && Number(takeProfitPrice) > 0)));
           const hasProtection = hasSl || hasTp;
 
           if (!hasProtection) {
@@ -1753,17 +2013,17 @@ export function TradeTicket() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '7px 10px',
-              background: 'rgba(59, 130, 246, 0.08)',
-              border: '1px solid rgba(59, 130, 246, 0.25)',
+              background: hasSl && hasTp ? 'rgba(59, 130, 246, 0.08)' : hasTp ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+              border: `1px solid ${hasSl && hasTp ? 'rgba(59, 130, 246, 0.25)' : hasTp ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
               borderRadius: 6,
               fontSize: 11.5,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 700, color: '#93c5fd', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontWeight: 700, color: hasSl && hasTp ? '#93c5fd' : hasTp ? '#6ee7b7' : '#fca5a5', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   </svg>
-                  TP / SL:
+                  {hasSl && hasTp ? 'TP & SL:' : hasTp ? 'Take Profit Only:' : 'Stop Loss Only:'}
                 </span>
                 {trailingStopLoss ? (
                   <span style={{ color: '#f87171', fontWeight: 600 }}>TSL: {trailingDistancePercent}%</span>
@@ -1778,6 +2038,12 @@ export function TradeTicket() {
                   <span style={{ color: '#34d399', fontWeight: 600 }}>
                     TP: {slTpMode === 'percent' ? `${tpPercent}% (≈ ${effectiveTpPrice})` : takeProfitPrice}
                   </span>
+                )}
+                {!hasSl && hasTp && (
+                  <span style={{ color: '#6b7280', fontSize: 10.5 }}>(No SL)</span>
+                )}
+                {hasSl && !hasTp && (
+                  <span style={{ color: '#6b7280', fontSize: 10.5 }}>(No TP)</span>
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1878,6 +2144,10 @@ export function TradeTicket() {
         hasRef={hasRef}
         slTpMode={slTpMode}
         setSlTpMode={setSlTpMode}
+        enableSl={enableSl}
+        setEnableSl={setEnableSl}
+        enableTp={enableTp}
+        setEnableTp={setEnableTp}
         stopLossPrice={stopLossPrice}
         setStopLossPrice={setStopLossPrice}
         takeProfitPrice={takeProfitPrice}

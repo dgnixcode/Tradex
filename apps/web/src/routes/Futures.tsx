@@ -1117,12 +1117,58 @@ export function PositionManageModal({
   // Protection state
   const initSl = position.stopLossTrigger && position.stopLossTrigger !== '0' && Number(position.stopLossTrigger) > 0 ? position.stopLossTrigger : '';
   const initTp = position.takeProfitTrigger && position.takeProfitTrigger !== '0' && Number(position.takeProfitTrigger) > 0 ? position.takeProfitTrigger : '';
+  const [enableSl, setEnableSl] = useState<boolean>(() => Boolean(initSl));
+  const [enableTp, setEnableTp] = useState<boolean>(() => Boolean(initTp));
   const [sl, setSl] = useState(initSl);
   const [tp, setTp] = useState(initTp);
   const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
   const [slPct, setSlPct] = useState('');
   const [tpPct, setTpPct] = useState('');
   const [trailing, setTrailing] = useState(false);
+
+  const currentProtectionPreset = (enableSl && enableTp)
+    ? 'both'
+    : (!enableSl && enableTp)
+      ? 'tp_only'
+      : (enableSl && !enableTp)
+        ? 'sl_only'
+        : 'none';
+
+  const selectPreset = (preset: 'both' | 'tp_only' | 'sl_only' | 'none') => {
+    if (preset === 'both') {
+      setEnableSl(true);
+      setEnableTp(true);
+      if (slTpMode === 'percent') {
+        if (!slPct || Number(slPct) <= 0) setSlPct('5');
+        if (!tpPct || Number(tpPct) <= 0) setTpPct('10');
+      }
+    } else if (preset === 'tp_only') {
+      setEnableSl(false);
+      setEnableTp(true);
+      setSl('');
+      setSlPct('');
+      setTrailing(false);
+      if (slTpMode === 'percent' && (!tpPct || Number(tpPct) <= 0)) {
+        setTpPct('10');
+      }
+    } else if (preset === 'sl_only') {
+      setEnableSl(true);
+      setEnableTp(false);
+      setTp('');
+      setTpPct('');
+      if (slTpMode === 'percent' && (!slPct || Number(slPct) <= 0)) {
+        setSlPct('5');
+      }
+    } else {
+      setEnableSl(false);
+      setEnableTp(false);
+      setSl('');
+      setTp('');
+      setSlPct('');
+      setTpPct('');
+      setTrailing(false);
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
@@ -1140,17 +1186,40 @@ export function PositionManageModal({
   const hasRef = Number.isFinite(refPrice) && refPrice > 0;
   const sideOk = position.side === 'long' || position.side === 'short';
 
-  const effectiveSl = slTpMode === 'percent' && slPct !== '' && hasRef && sideOk
-    ? pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
-    : sl;
-  const effectiveTp = slTpMode === 'percent' && tpPct !== '' && hasRef && sideOk
-    ? pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
-    : tp;
+  const effectiveSl = enableSl
+    ? (slTpMode === 'percent' && slPct !== '' && Number(slPct) > 0 && hasRef && sideOk
+        ? pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '')
+        : (sl.trim() !== '' && Number(sl) > 0 ? sl.trim() : ''))
+    : '';
+  const effectiveTp = enableTp
+    ? (slTpMode === 'percent' && tpPct !== '' && Number(tpPct) > 0 && hasRef && sideOk
+        ? pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '')
+        : (tp.trim() !== '' && Number(tp) > 0 ? tp.trim() : ''))
+    : '';
 
-  const validNumber = /^\d+(\.\d+)?$/;
-  const slValid = slTpMode === 'price' ? (sl === '' || validNumber.test(sl)) : (slPct === '' || (validNumber.test(slPct) && Number(slPct) <= 100));
-  const tpValid = slTpMode === 'price' ? (tp === '' || validNumber.test(tp)) : (tpPct === '' || (validNumber.test(tpPct) && Number(tpPct) <= 100));
-  const canSaveProtection = slValid && tpValid && ((slTpMode === 'price' ? sl !== '' : slPct !== '') || (slTpMode === 'price' ? tp !== '' : tpPct !== ''));
+  const validPositive = /^\d+(\.\d+)?$/;
+  const slValid = !enableSl || (
+    slTpMode === 'price'
+      ? (sl.trim() !== '' && validPositive.test(sl) && Number(sl) > 0)
+      : (slPct.trim() !== '' && validPositive.test(slPct) && Number(slPct) > 0 && Number(slPct) <= 100)
+  );
+  const tpValid = !enableTp || (
+    slTpMode === 'price'
+      ? (tp.trim() !== '' && validPositive.test(tp) && Number(tp) > 0)
+      : (tpPct.trim() !== '' && validPositive.test(tpPct) && Number(tpPct) > 0 && Number(tpPct) <= 100)
+  );
+
+  const isSlActive = enableSl && (
+    slTpMode === 'price'
+      ? (sl.trim() !== '' && Number(sl) > 0)
+      : (slPct.trim() !== '' && Number(slPct) > 0)
+  );
+  const isTpActive = enableTp && (
+    slTpMode === 'price'
+      ? (tp.trim() !== '' && Number(tp) > 0)
+      : (tpPct.trim() !== '' && Number(tpPct) > 0)
+  );
+  const canSaveProtection = (isSlActive || isTpActive) && slValid && tpValid;
 
   const sideBadgeColor = position.side === 'long' ? 'var(--ok)' : 'var(--danger)';
   const totalQty = Number(position.quantity);
@@ -1320,59 +1389,186 @@ export function PositionManageModal({
           {/* ── Tab 1: SL/TP Protection ── */}
           {activeTab === 'protection' && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-                  Set automatic bracket protection on CoinDCX.
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--panel-2)', padding: '2px 4px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--line)' }}>
+              {/* Strategy Presets Bar */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Protection Strategy
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--panel-2)', padding: '2px 4px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--line)' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        padding: '2px 10px', fontSize: 11,
+                        background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
+                        color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
+                        fontWeight: slTpMode === 'percent' ? 700 : 400,
+                        border: 'none',
+                      }}
+                      onClick={() => setSlTpMode('percent')}
+                    >
+                      % Percent
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        padding: '2px 10px', fontSize: 11,
+                        background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
+                        color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
+                        fontWeight: slTpMode === 'price' ? 700 : 400,
+                        border: 'none',
+                      }}
+                      onClick={() => setSlTpMode('price')}
+                    >
+                      Exact Price
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 3 }}>
                   <button
                     type="button"
                     className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'both'}
                     style={{
-                      padding: '2px 10px', fontSize: 11,
-                      background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
-                      fontWeight: slTpMode === 'percent' ? 700 : 400,
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'both' ? 700 : 500,
+                      background: currentProtectionPreset === 'both' ? '#ffffff' : 'transparent',
+                      color: currentProtectionPreset === 'both' ? '#000000' : 'var(--muted)',
                       border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
                     }}
-                    onClick={() => setSlTpMode('percent')}
+                    onClick={() => selectPreset('both')}
                   >
-                    % Percent
+                    Both SL &amp; TP
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'tp_only'}
                     style={{
-                      padding: '2px 10px', fontSize: 11,
-                      background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
-                      fontWeight: slTpMode === 'price' ? 700 : 400,
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'tp_only' ? 700 : 500,
+                      background: currentProtectionPreset === 'tp_only' ? '#10b981' : 'transparent',
+                      color: currentProtectionPreset === 'tp_only' ? '#000000' : 'var(--muted)',
                       border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
                     }}
-                    onClick={() => setSlTpMode('price')}
+                    onClick={() => selectPreset('tp_only')}
                   >
-                    Exact Price
+                    TP Only
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'sl_only'}
+                    style={{
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'sl_only' ? 700 : 500,
+                      background: currentProtectionPreset === 'sl_only' ? '#ef4444' : 'transparent',
+                      color: currentProtectionPreset === 'sl_only' ? '#ffffff' : 'var(--muted)',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                    onClick={() => selectPreset('sl_only')}
+                  >
+                    SL Only
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'none'}
+                    style={{
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'none' ? 700 : 500,
+                      background: currentProtectionPreset === 'none' ? 'var(--panel-2)' : 'transparent',
+                      color: currentProtectionPreset === 'none' ? '#ffffff' : 'var(--text-dim)',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                    onClick={() => selectPreset('none')}
+                  >
+                    Clear All
                   </button>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                {/* Stop Loss */}
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="modal-sl" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Stop Loss Trigger
-                  </label>
-                  {slTpMode === 'price' ? (
+                {/* Stop Loss Card */}
+                <div style={{
+                  background: 'var(--panel-2)',
+                  border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                  borderRadius: 'var(--radius)',
+                  padding: 12,
+                  opacity: enableSl ? 1 : 0.6,
+                  transition: 'opacity 0.15s ease',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={enableSl}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnableSl(checked);
+                          if (checked && slTpMode === 'percent' && (!slPct || Number(slPct) <= 0)) {
+                            setSlPct('5');
+                          }
+                        }}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : 'var(--muted)' }}>
+                        Stop Loss
+                      </span>
+                      <span style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-3)',
+                        color: enableSl ? '#f87171' : 'var(--text-dim)',
+                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                        textTransform: 'uppercase',
+                      }}>
+                        {enableSl ? 'Active' : 'Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {!enableSl ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                      Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
+                    </div>
+                  ) : slTpMode === 'price' ? (
                     <>
                       <input
                         id="modal-sl"
                         inputMode="decimal"
                         value={sl}
                         onChange={(e) => setSl(e.target.value)}
-                        placeholder="leave empty to clear"
-                        style={{ marginTop: 6 }}
+                        placeholder="Trigger Price, e.g. 80000"
+                        style={{ marginTop: 4, width: '100%' }}
                       />
-                      {sl !== '' && hasRef && sideOk && (
+                      {sl !== '' && Number(sl) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Trigger price must be greater than 0.
+                        </div>
+                      )}
+                      {sl !== '' && Number(sl) > 0 && hasRef && sideOk && (
                         <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
                           ≈ {triggerToPct(refPrice, Number(sl), position.side as 'long' | 'short', 'sl').toFixed(2)}% loss from entry
                         </div>
@@ -1384,9 +1580,9 @@ export function PositionManageModal({
                         id="modal-sl"
                         inputMode="decimal"
                         value={slPct}
-                        placeholder="e.g. 5"
+                        placeholder="Distance %, e.g. 5"
                         onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
-                        style={{ marginTop: 6 }}
+                        style={{ marginTop: 4, width: '100%' }}
                       />
                       <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                         {SL_PCT_CHIPS.map((v) => (
@@ -1406,7 +1602,12 @@ export function PositionManageModal({
                           </button>
                         ))}
                       </div>
-                      {hasRef && sideOk && slPct !== '' && (
+                      {slPct !== '' && Number(slPct) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Distance % must be greater than 0%. Entering 0% would trigger an immediate exit at market price.
+                        </div>
+                      )}
+                      {hasRef && sideOk && slPct !== '' && Number(slPct) > 0 && (
                         <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
                           Target Price: {fmtPrice(String(pctToTrigger(refPrice, Number(slPct), position.side as 'long' | 'short', 'sl')))}
                         </div>
@@ -1414,36 +1615,83 @@ export function PositionManageModal({
                     </>
                   )}
 
-                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 12, gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      id="modal-trailing"
-                      checked={trailing}
-                      onChange={(e) => setTrailing(e.target.checked)}
-                      style={{ width: 14, height: 14, cursor: 'pointer' }}
-                    />
-                    <label htmlFor="modal-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
-                      Auto-Trailing SL (1% step)
-                    </label>
-                  </div>
+                  {enableSl && (
+                    <div style={{ display: 'flex', alignItems: 'center', marginTop: 10, gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        id="modal-trailing"
+                        checked={trailing}
+                        onChange={(e) => setTrailing(e.target.checked)}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <label htmlFor="modal-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+                        Auto-Trailing SL (1% step)
+                      </label>
+                    </div>
+                  )}
                 </div>
 
-                {/* Take Profit */}
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="modal-tp" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Take Profit Trigger
-                  </label>
-                  {slTpMode === 'price' ? (
+                {/* Take Profit Card */}
+                <div style={{
+                  background: 'var(--panel-2)',
+                  border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                  borderRadius: 'var(--radius)',
+                  padding: 12,
+                  opacity: enableTp ? 1 : 0.6,
+                  transition: 'opacity 0.15s ease',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={enableTp}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnableTp(checked);
+                          if (checked && slTpMode === 'percent' && (!tpPct || Number(tpPct) <= 0)) {
+                            setTpPct('10');
+                          }
+                        }}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : 'var(--muted)' }}>
+                        Take Profit
+                      </span>
+                      <span style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : 'var(--surface-3)',
+                        color: enableTp ? '#34d399' : 'var(--text-dim)',
+                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                        textTransform: 'uppercase',
+                      }}>
+                        {enableTp ? 'Active' : 'Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {!enableTp ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                      Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
+                    </div>
+                  ) : slTpMode === 'price' ? (
                     <>
                       <input
                         id="modal-tp"
                         inputMode="decimal"
                         value={tp}
                         onChange={(e) => setTp(e.target.value)}
-                        placeholder="leave empty to clear"
-                        style={{ marginTop: 6 }}
+                        placeholder="Target Price, e.g. 92000"
+                        style={{ marginTop: 4, width: '100%' }}
                       />
-                      {tp !== '' && hasRef && sideOk && (
+                      {tp !== '' && Number(tp) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Target price must be greater than 0.
+                        </div>
+                      )}
+                      {tp !== '' && Number(tp) > 0 && hasRef && sideOk && (
                         <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
                           ≈ {triggerToPct(refPrice, Number(tp), position.side as 'long' | 'short', 'tp').toFixed(2)}% gain from entry
                         </div>
@@ -1455,9 +1703,9 @@ export function PositionManageModal({
                         id="modal-tp"
                         inputMode="decimal"
                         value={tpPct}
-                        placeholder="e.g. 10"
+                        placeholder="Target %, e.g. 10"
                         onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
-                        style={{ marginTop: 6 }}
+                        style={{ marginTop: 4, width: '100%' }}
                       />
                       <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                         {TP_PCT_CHIPS.map((v) => (
@@ -1478,7 +1726,12 @@ export function PositionManageModal({
                           </button>
                         ))}
                       </div>
-                      {hasRef && sideOk && tpPct !== '' && (
+                      {tpPct !== '' && Number(tpPct) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Target % must be greater than 0%.
+                        </div>
+                      )}
+                      {hasRef && sideOk && tpPct !== '' && Number(tpPct) > 0 && (
                         <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
                           Target Price: {fmtPrice(String(pctToTrigger(refPrice, Number(tpPct), position.side as 'long' | 'short', 'tp')))}
                         </div>
@@ -1498,12 +1751,20 @@ export function PositionManageModal({
                   disabled={!canSaveProtection || isProtecting || isHalted}
                   onClick={() => onProtection({
                     id: position.venuePositionId,
-                    slp: effectiveSl || undefined,
-                    tpp: effectiveTp || undefined,
-                    trailing,
+                    slp: (enableSl && effectiveSl) ? effectiveSl : undefined,
+                    tpp: (enableTp && effectiveTp) ? effectiveTp : undefined,
+                    trailing: enableSl ? trailing : false,
                   })}
                 >
-                  {isProtecting ? 'Updating Protection…' : 'Save Protection Rules'}
+                  {isProtecting
+                    ? 'Updating Protection…'
+                    : (!enableSl && !enableTp)
+                      ? 'Select TP or SL Strategy'
+                      : (enableTp && !enableSl)
+                        ? 'Save Take Profit'
+                        : (enableSl && !enableTp)
+                          ? 'Save Stop Loss'
+                          : 'Save Protection Rules'}
                 </button>
               </div>
             </div>
@@ -1995,10 +2256,13 @@ function GroupPositionManageModal({
   const initTp = existingTpPos?.takeProfitTrigger ?? '';
   const initSlPct = (initSl && hasGroupRef && sideOk)
     ? triggerToPct(groupAvgEntry, Number(initSl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, '')
-    : '5';
+    : '';
   const initTpPct = (initTp && hasGroupRef && sideOk)
     ? triggerToPct(groupAvgEntry, Number(initTp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, '')
-    : '10';
+    : '';
+
+  const [enableSl, setEnableSl] = useState<boolean>(() => Boolean(initSl));
+  const [enableTp, setEnableTp] = useState<boolean>(() => Boolean(initTp));
 
   const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
   const [sl, setSl] = useState<string>(initSl);
@@ -2007,18 +2271,74 @@ function GroupPositionManageModal({
   const [tpPct, setTpPct] = useState<string>(initTpPct);
   const [trailing, setTrailing] = useState<boolean>(false);
 
-  const validNumber = /^\d+(\.\d+)?$/;
-  const slValid = slTpMode === 'price'
-    ? (sl === '' || validNumber.test(sl))
-    : (slPct === '' || (validNumber.test(slPct) && Number(slPct) <= 100));
-  const tpValid = slTpMode === 'price'
-    ? (tp === '' || validNumber.test(tp))
-    : (tpPct === '' || (validNumber.test(tpPct) && Number(tpPct) <= 100));
-  const canSaveProtection = slValid && tpValid && (
+  const currentProtectionPreset = (enableSl && enableTp)
+    ? 'both'
+    : (!enableSl && enableTp)
+      ? 'tp_only'
+      : (enableSl && !enableTp)
+        ? 'sl_only'
+        : 'none';
+
+  const selectGroupPreset = (preset: 'both' | 'tp_only' | 'sl_only' | 'none') => {
+    if (preset === 'both') {
+      setEnableSl(true);
+      setEnableTp(true);
+      if (slTpMode === 'percent') {
+        if (!slPct || Number(slPct) <= 0) setSlPct('5');
+        if (!tpPct || Number(tpPct) <= 0) setTpPct('10');
+      }
+    } else if (preset === 'tp_only') {
+      setEnableSl(false);
+      setEnableTp(true);
+      setSl('');
+      setSlPct('');
+      setTrailing(false);
+      if (slTpMode === 'percent' && (!tpPct || Number(tpPct) <= 0)) {
+        setTpPct('10');
+      }
+    } else if (preset === 'sl_only') {
+      setEnableSl(true);
+      setEnableTp(false);
+      setTp('');
+      setTpPct('');
+      if (slTpMode === 'percent' && (!slPct || Number(slPct) <= 0)) {
+        setSlPct('5');
+      }
+    } else {
+      setEnableSl(false);
+      setEnableTp(false);
+      setSl('');
+      setTp('');
+      setSlPct('');
+      setTpPct('');
+      setTrailing(false);
+    }
+  };
+
+  const validPositive = /^\d+(\.\d+)?$/;
+  const slValid = !enableSl || (
     slTpMode === 'price'
-      ? (sl.trim() !== '' || tp.trim() !== '')
-      : (slPct.trim() !== '' || tpPct.trim() !== '')
+      ? (sl.trim() !== '' && validPositive.test(sl) && Number(sl) > 0)
+      : (slPct.trim() !== '' && validPositive.test(slPct) && Number(slPct) > 0 && Number(slPct) <= 100)
   );
+  const tpValid = !enableTp || (
+    slTpMode === 'price'
+      ? (tp.trim() !== '' && validPositive.test(tp) && Number(tp) > 0)
+      : (tpPct.trim() !== '' && validPositive.test(tpPct) && Number(tpPct) > 0 && Number(tpPct) <= 100)
+  );
+
+  const isSlActive = enableSl && (
+    slTpMode === 'price'
+      ? (sl.trim() !== '' && Number(sl) > 0)
+      : (slPct.trim() !== '' && Number(slPct) > 0)
+  );
+  const isTpActive = enableTp && (
+    slTpMode === 'price'
+      ? (tp.trim() !== '' && Number(tp) > 0)
+      : (tpPct.trim() !== '' && Number(tpPct) > 0)
+  );
+
+  const canSaveProtection = (isSlActive || isTpActive) && slValid && tpValid;
 
   // Search inside modal
   const [modalSearch, setModalSearch] = useState('');
@@ -2284,17 +2604,28 @@ function GroupPositionManageModal({
         let effectiveSl: string | undefined = undefined;
         let effectiveTp: string | undefined = undefined;
 
-        if (slTpMode === 'percent') {
-          const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
-          if (slPct.trim() !== '' && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
-            effectiveSl = pctToTrigger(basePrice, Number(slPct), pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '');
+        if (enableSl) {
+          if (slTpMode === 'percent') {
+            const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
+            const numPct = Number(slPct);
+            if (numPct > 0 && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+              effectiveSl = pctToTrigger(basePrice, numPct, pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '');
+            }
+          } else if (sl.trim() !== '' && Number(sl) > 0) {
+            effectiveSl = sl.trim();
           }
-          if (tpPct.trim() !== '' && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
-            effectiveTp = pctToTrigger(basePrice, Number(tpPct), pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '');
+        }
+
+        if (enableTp) {
+          if (slTpMode === 'percent') {
+            const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
+            const numPct = Number(tpPct);
+            if (numPct > 0 && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+              effectiveTp = pctToTrigger(basePrice, numPct, pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '');
+            }
+          } else if (tp.trim() !== '' && Number(tp) > 0) {
+            effectiveTp = tp.trim();
           }
-        } else {
-          effectiveSl = sl.trim() !== '' ? sl.trim() : undefined;
-          effectiveTp = tp.trim() !== '' ? tp.trim() : undefined;
         }
 
         const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
@@ -2870,79 +3201,206 @@ function GroupPositionManageModal({
                 Set bracket Stop Loss and Take Profit rules for all {group.positions.length} accounts in this group trade.
               </p>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-                  Configure Stop Loss & Take Profit:
-                </span>
-                <div style={{ display: 'flex', background: 'var(--surface-3)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
+              {/* Strategy Presets Bar */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Protection Strategy
+                  </span>
+                  <div style={{ display: 'flex', background: 'var(--surface-3)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        padding: '2px 10px', fontSize: 11,
+                        background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
+                        color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
+                        fontWeight: slTpMode === 'percent' ? 700 : 400,
+                        border: 'none',
+                      }}
+                      onClick={() => {
+                        if (slTpMode !== 'percent') {
+                          if ((!slPct || slPct === '') && sl !== '' && hasGroupRef && sideOk) {
+                            setSlPct(triggerToPct(groupAvgEntry, Number(sl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
+                          }
+                          if ((!tpPct || tpPct === '') && tp !== '' && hasGroupRef && sideOk) {
+                            setTpPct(triggerToPct(groupAvgEntry, Number(tp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
+                          }
+                          setSlTpMode('percent');
+                        }
+                      }}
+                    >
+                      % Percent
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        padding: '2px 10px', fontSize: 11,
+                        background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
+                        color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
+                        fontWeight: slTpMode === 'price' ? 700 : 400,
+                        border: 'none',
+                      }}
+                      onClick={() => {
+                        if (slTpMode !== 'price') {
+                          if ((!sl || sl === '') && slPct !== '' && hasGroupRef && sideOk) {
+                            setSl(pctToTrigger(groupAvgEntry, Number(slPct), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
+                          }
+                          if ((!tp || tp === '') && tpPct !== '' && hasGroupRef && sideOk) {
+                            setTp(pctToTrigger(groupAvgEntry, Number(tpPct), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
+                          }
+                          setSlTpMode('price');
+                        }
+                      }}
+                    >
+                      Exact Price
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, background: 'var(--surface-3)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 3 }}>
                   <button
                     type="button"
                     className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'both'}
                     style={{
-                      padding: '2px 10px', fontSize: 11,
-                      background: slTpMode === 'percent' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'percent' ? '#000000' : 'var(--muted)',
-                      fontWeight: slTpMode === 'percent' ? 700 : 400,
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'both' ? 700 : 500,
+                      background: currentProtectionPreset === 'both' ? '#ffffff' : 'transparent',
+                      color: currentProtectionPreset === 'both' ? '#000000' : 'var(--muted)',
                       border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
                     }}
-                    onClick={() => {
-                      if (slTpMode !== 'percent') {
-                        if ((!slPct || slPct === '') && sl !== '' && hasGroupRef && sideOk) {
-                          setSlPct(triggerToPct(groupAvgEntry, Number(sl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
-                        }
-                        if ((!tpPct || tpPct === '') && tp !== '' && hasGroupRef && sideOk) {
-                          setTpPct(triggerToPct(groupAvgEntry, Number(tp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
-                        }
-                        setSlTpMode('percent');
-                      }
-                    }}
+                    onClick={() => selectGroupPreset('both')}
                   >
-                    % Percent
+                    Both SL &amp; TP
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'tp_only'}
                     style={{
-                      padding: '2px 10px', fontSize: 11,
-                      background: slTpMode === 'price' ? 'var(--accent)' : 'transparent',
-                      color: slTpMode === 'price' ? '#000000' : 'var(--muted)',
-                      fontWeight: slTpMode === 'price' ? 700 : 400,
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'tp_only' ? 700 : 500,
+                      background: currentProtectionPreset === 'tp_only' ? '#10b981' : 'transparent',
+                      color: currentProtectionPreset === 'tp_only' ? '#000000' : 'var(--muted)',
                       border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
                     }}
-                    onClick={() => {
-                      if (slTpMode !== 'price') {
-                        if ((!sl || sl === '') && slPct !== '' && hasGroupRef && sideOk) {
-                          setSl(pctToTrigger(groupAvgEntry, Number(slPct), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, ''));
-                        }
-                        if ((!tp || tp === '') && tpPct !== '' && hasGroupRef && sideOk) {
-                          setTp(pctToTrigger(groupAvgEntry, Number(tpPct), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, ''));
-                        }
-                        setSlTpMode('price');
-                      }
-                    }}
+                    onClick={() => selectGroupPreset('tp_only')}
                   >
-                    Exact Price
+                    TP Only
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'sl_only'}
+                    style={{
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'sl_only' ? 700 : 500,
+                      background: currentProtectionPreset === 'sl_only' ? '#ef4444' : 'transparent',
+                      color: currentProtectionPreset === 'sl_only' ? '#ffffff' : 'var(--muted)',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                    onClick={() => selectGroupPreset('sl_only')}
+                  >
+                    SL Only
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-pressed={currentProtectionPreset === 'none'}
+                    style={{
+                      padding: '4px 6px',
+                      fontSize: 11,
+                      fontWeight: currentProtectionPreset === 'none' ? 700 : 500,
+                      background: currentProtectionPreset === 'none' ? 'var(--panel-2)' : 'transparent',
+                      color: currentProtectionPreset === 'none' ? '#ffffff' : 'var(--text-dim)',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                    onClick={() => selectGroupPreset('none')}
+                  >
+                    Clear All
                   </button>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                {/* Stop Loss */}
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="grp-sl" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Stop Loss Trigger {slTpMode === 'percent' ? '(%)' : 'Price'}
-                  </label>
-                  {slTpMode === 'price' ? (
+                {/* Stop Loss Card */}
+                <div style={{
+                  background: 'var(--panel-2)',
+                  border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                  borderRadius: 'var(--radius)',
+                  padding: 12,
+                  opacity: enableSl ? 1 : 0.6,
+                  transition: 'opacity 0.15s ease',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={enableSl}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnableSl(checked);
+                          if (checked && slTpMode === 'percent' && (!slPct || Number(slPct) <= 0)) {
+                            setSlPct('5');
+                          }
+                        }}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : 'var(--muted)' }}>
+                        Stop Loss
+                      </span>
+                      <span style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-3)',
+                        color: enableSl ? '#f87171' : 'var(--text-dim)',
+                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                        textTransform: 'uppercase',
+                      }}>
+                        {enableSl ? 'Active' : 'Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {!enableSl ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                      Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
+                    </div>
+                  ) : slTpMode === 'price' ? (
                     <>
                       <input
                         id="grp-sl"
                         inputMode="decimal"
                         value={sl}
                         onChange={(e) => setSl(e.target.value)}
-                        placeholder="leave empty to clear"
-                        style={{ marginTop: 6 }}
+                        placeholder="Trigger Price, e.g. 80000"
+                        style={{ marginTop: 4, width: '100%' }}
                       />
-                      {sl !== '' && hasGroupRef && sideOk && (
+                      {sl !== '' && Number(sl) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Trigger price must be greater than 0.
+                        </div>
+                      )}
+                      {sl !== '' && Number(sl) > 0 && hasGroupRef && sideOk && (
                         <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
                           ≈ {triggerToPct(groupAvgEntry, Number(sl), group.side as 'long' | 'short', 'sl').toFixed(2)}% loss from avg entry
                         </div>
@@ -2954,9 +3412,9 @@ function GroupPositionManageModal({
                         id="grp-sl"
                         inputMode="decimal"
                         value={slPct}
-                        placeholder="e.g. 5"
+                        placeholder="Distance %, e.g. 5"
                         onChange={(e) => setSlPct(e.target.value.replace(/[^\d.]/g, ''))}
-                        style={{ marginTop: 6 }}
+                        style={{ marginTop: 4, width: '100%' }}
                       />
                       <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                         {SL_PCT_CHIPS.map((v) => (
@@ -2976,7 +3434,12 @@ function GroupPositionManageModal({
                           </button>
                         ))}
                       </div>
-                      {hasGroupRef && sideOk && slPct !== '' && (
+                      {slPct !== '' && Number(slPct) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Distance % must be greater than 0%. Entering 0% would trigger an immediate exit at market price.
+                        </div>
+                      )}
+                      {hasGroupRef && sideOk && slPct !== '' && Number(slPct) > 0 && (
                         <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
                           Target Price: {fmtPrice(String(pctToTrigger(groupAvgEntry, Number(slPct), group.side as 'long' | 'short', 'sl')))}
                         </div>
@@ -2984,36 +3447,83 @@ function GroupPositionManageModal({
                     </>
                   )}
 
-                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 12, gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      id="grp-trailing"
-                      checked={trailing}
-                      onChange={(e) => setTrailing(e.target.checked)}
-                      style={{ width: 14, height: 14, cursor: 'pointer' }}
-                    />
-                    <label htmlFor="grp-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
-                      Auto-Trailing SL (1% step)
-                    </label>
-                  </div>
+                  {enableSl && (
+                    <div style={{ display: 'flex', alignItems: 'center', marginTop: 10, gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        id="grp-trailing"
+                        checked={trailing}
+                        onChange={(e) => setTrailing(e.target.checked)}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <label htmlFor="grp-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
+                        Auto-Trailing SL (1% step)
+                      </label>
+                    </div>
+                  )}
                 </div>
 
-                {/* Take Profit */}
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="grp-tp" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    Take Profit Trigger {slTpMode === 'percent' ? '(%)' : 'Price'}
-                  </label>
-                  {slTpMode === 'price' ? (
+                {/* Take Profit Card */}
+                <div style={{
+                  background: 'var(--panel-2)',
+                  border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                  borderRadius: 'var(--radius)',
+                  padding: 12,
+                  opacity: enableTp ? 1 : 0.6,
+                  transition: 'opacity 0.15s ease',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={enableTp}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnableTp(checked);
+                          if (checked && slTpMode === 'percent' && (!tpPct || Number(tpPct) <= 0)) {
+                            setTpPct('10');
+                          }
+                        }}
+                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : 'var(--muted)' }}>
+                        Take Profit
+                      </span>
+                      <span style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : 'var(--surface-3)',
+                        color: enableTp ? '#34d399' : 'var(--text-dim)',
+                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                        textTransform: 'uppercase',
+                      }}>
+                        {enableTp ? 'Active' : 'Disabled'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {!enableTp ? (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                      Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
+                    </div>
+                  ) : slTpMode === 'price' ? (
                     <>
                       <input
                         id="grp-tp"
                         inputMode="decimal"
                         value={tp}
                         onChange={(e) => setTp(e.target.value)}
-                        placeholder="leave empty to clear"
-                        style={{ marginTop: 6 }}
+                        placeholder="Target Price, e.g. 92000"
+                        style={{ marginTop: 4, width: '100%' }}
                       />
-                      {tp !== '' && hasGroupRef && sideOk && (
+                      {tp !== '' && Number(tp) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Target price must be greater than 0.
+                        </div>
+                      )}
+                      {tp !== '' && Number(tp) > 0 && hasGroupRef && sideOk && (
                         <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
                           ≈ {triggerToPct(groupAvgEntry, Number(tp), group.side as 'long' | 'short', 'tp').toFixed(2)}% gain from avg entry
                         </div>
@@ -3025,9 +3535,9 @@ function GroupPositionManageModal({
                         id="grp-tp"
                         inputMode="decimal"
                         value={tpPct}
-                        placeholder="e.g. 10"
+                        placeholder="Target %, e.g. 10"
                         onChange={(e) => setTpPct(e.target.value.replace(/[^\d.]/g, ''))}
-                        style={{ marginTop: 6 }}
+                        style={{ marginTop: 4, width: '100%' }}
                       />
                       <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                         {TP_PCT_CHIPS.map((v) => (
@@ -3048,7 +3558,12 @@ function GroupPositionManageModal({
                           </button>
                         ))}
                       </div>
-                      {hasGroupRef && sideOk && tpPct !== '' && (
+                      {tpPct !== '' && Number(tpPct) <= 0 && (
+                        <div className="hint" style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>
+                          Target % must be greater than 0%.
+                        </div>
+                      )}
+                      {hasGroupRef && sideOk && tpPct !== '' && Number(tpPct) > 0 && (
                         <div className="hint" style={{ color: 'var(--ok)', fontSize: 11, marginTop: 4 }}>
                           Target Price: {fmtPrice(String(pctToTrigger(groupAvgEntry, Number(tpPct), group.side as 'long' | 'short', 'tp')))}
                         </div>
@@ -3068,7 +3583,15 @@ function GroupPositionManageModal({
                   disabled={isExecuting || isHalted || !canSaveProtection}
                   onClick={handleExecuteProtection}
                 >
-                  {isExecuting ? 'Updating Protection…' : `Apply Rules to All ${group.positions.length} Accounts`}
+                  {isExecuting
+                    ? 'Updating Protection…'
+                    : (!enableSl && !enableTp)
+                      ? 'Select TP or SL Strategy'
+                      : (enableTp && !enableSl)
+                        ? `Apply Take Profit to All ${group.positions.length} Accounts`
+                        : (enableSl && !enableTp)
+                          ? `Apply Stop Loss to All ${group.positions.length} Accounts`
+                          : `Apply Rules to All ${group.positions.length} Accounts`}
                 </button>
               </div>
             </div>
