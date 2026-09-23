@@ -38,6 +38,7 @@ import type { BodySigner } from './signing.js';
 const FUTURES_CREATE_PATH = '/exchange/v1/derivatives/futures/orders/create';
 const FUTURES_POSITIONS_PATH = '/exchange/v1/derivatives/futures/positions';
 const FUTURES_LEVERAGE_PATH = '/exchange/v1/derivatives/futures/positions/update_leverage';
+const FUTURES_TRANSACTIONS_PATH = '/exchange/v1/derivatives/futures/positions/transactions';
 
 /**
  * The client-side signing guard, in ms. Venue rejects at >10 s (research/03 F4);
@@ -575,6 +576,14 @@ export interface FuturesListedOrder {
   readonly orderType: string;
   readonly totalQuantity: string | null;
   readonly price: string | null;
+  readonly avgPrice?: string | null | undefined;
+  readonly stage?: string | null | undefined;
+  readonly filledQuantity?: string | null | undefined;
+  readonly remainingQuantity?: string | null | undefined;
+  readonly cancelledQuantity?: string | null | undefined;
+  readonly leverage?: number | null | undefined;
+  readonly marginCurrency?: FuturesMarginCurrency | null | undefined;
+  readonly settlementConversionPrice?: string | null | undefined;
   readonly statusRaw: string;
   readonly status: FuturesOrderState;
   readonly createdAtMs: number | null;
@@ -623,13 +632,40 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
       }
     }
   }
+
+  const totQty = strOrNull(row['total_quantity']);
+  const remQty = strOrNull(row['remaining_quantity']);
+  const canQty = strOrNull(row['cancelled_quantity']);
+  let filledQty: string | null = null;
+  if (totQty !== null) {
+    const totNum = Number(totQty);
+    const remNum = Number(remQty ?? 0);
+    const canNum = Number(canQty ?? 0);
+    const diff = totNum - remNum - canNum;
+    if (Number.isFinite(diff) && diff >= 0) {
+      filledQty = diff.toFixed(8).replace(/\.?0+$/, '');
+    }
+  }
+
+  const curRaw = strOrNull(row['margin_currency_short_name']);
+  const cur: FuturesMarginCurrency | null = curRaw === 'INR' ? 'INR' : curRaw === 'USDT' ? 'USDT' : null;
+  const levNum = row['leverage'] !== null && row['leverage'] !== undefined ? Number(row['leverage']) : null;
+
   return {
     venueOrderId: id,
     pair,
     side: strOrNull(row['side']) ?? '',
     orderType: fromVenueOrderType(strOrNull(row['order_type'])),
-    totalQuantity: strOrNull(row['total_quantity']),
+    totalQuantity: totQty,
     price: strOrNull(row['price']),
+    avgPrice: strOrNull(row['avg_price']),
+    stage: strOrNull(row['stage']),
+    filledQuantity: filledQty,
+    remainingQuantity: remQty,
+    cancelledQuantity: canQty,
+    leverage: Number.isFinite(levNum) ? levNum : null,
+    marginCurrency: cur,
+    settlementConversionPrice: strOrNull(row['settlement_currency_conversion_price']),
     statusRaw,
     status: canonicalFuturesOrderState(statusRaw),
     createdAtMs,
@@ -904,3 +940,118 @@ export async function exitFuturesPosition(
 ): Promise<FuturesExitOutcome> {
   return exitFuturesPositionSigned(plaintextSigner(apiKey, apiSecret), positionId, opts);
 }
+
+export interface FuturesListTransactionsRequest {
+  readonly stage?: 'all' | 'exit' | 'tpsl_exit' | 'liquidation' | 'default' | 'funding' | undefined;
+  readonly page?: number | undefined;
+  readonly size?: number | undefined;
+  readonly marginCurrencies?: readonly FuturesMarginCurrency[] | undefined;
+}
+
+export interface FuturesPositionTransaction {
+  readonly pair: string;
+  readonly stage: string;
+  readonly amount: number; // Realized PnL
+  readonly feeAmount: number;
+  readonly priceInInr: number | null;
+  readonly priceInUsdt: number | null;
+  readonly source: string | null;
+  readonly parentType: string | null;
+  readonly parentId: string | null; // venue order ID
+  readonly positionId: string | null;
+  readonly marginCurrency: FuturesMarginCurrency;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}
+
+export type FuturesListTransactionsOutcome =
+  | { readonly ok: true; readonly transactions: readonly FuturesPositionTransaction[] }
+  | { readonly ok: false; readonly failure: ClassifiedFailure };
+
+export async function listFuturesPositionsTransactionsSigned(
+  sign: BodySigner,
+  req: FuturesListTransactionsRequest = {},
+  opts: FuturesCallOptions = {},
+): Promise<FuturesListTransactionsOutcome> {
+  const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
+  const payload: Record<string, unknown> = {
+    stage: req.stage ?? 'all',
+    page: String(req.page ?? 1),
+    size: String(req.size ?? 50),
+    margin_currency_short_name: req.marginCurrencies ? [...req.marginCurrencies] : ['INR', 'USDT'],
+  };
+
+  const signed = await signBody(sign, payload);
+  let result: HttpResult;
+  try {
+    result = await send({
+      method: 'POST',
+      url: new URL(FUTURES_TRANSACTIONS_PATH, baseUrl),
+      body: signed.body,
+      headers: signed.headers,
+      deadlineMs: opts.deadlineMs,
+    });
+  } catch (err) {
+    if (err instanceof TransportError) return { ok: false, failure: classify({ transport: err.kind }) };
+    throw err;
+  }
+  if (result.status < 200 || result.status >= 300) {
+    return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
+  }
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(result.body); } catch { /* handled below */ }
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>)['data'])
+      ? (parsed as Record<string, unknown>)['data'] as unknown[]
+      : null);
+  if (rows === null) {
+    return {
+      ok: false,
+      failure: classify({ status: 200, message: 'transactions response was neither an array nor {data: [...]}' }),
+    };
+  }
+
+  const transactions: FuturesPositionTransaction[] = [];
+  for (const raw of rows) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const r = raw as Record<string, unknown>;
+    const pair = strOrNull(r['pair']);
+    if (pair === null) continue;
+    const amountVal = Number(r['amount'] ?? 0);
+    const feeVal = Number(r['fee_amount'] ?? 0);
+    const inrVal = r['price_in_inr'] !== undefined && r['price_in_inr'] !== null ? Number(r['price_in_inr']) : null;
+    const usdtVal = r['price_in_usdt'] !== undefined && r['price_in_usdt'] !== null ? Number(r['price_in_usdt']) : null;
+    const cur = strOrNull(r['margin_currency_short_name']) === 'USDT' ? 'USDT' : 'INR';
+    const createdVal = Number(r['created_at'] ?? 0);
+    const updatedVal = Number(r['updated_at'] ?? createdVal);
+
+    transactions.push({
+      pair,
+      stage: strOrNull(r['stage']) ?? 'unknown',
+      amount: amountVal,
+      feeAmount: feeVal,
+      priceInInr: inrVal,
+      priceInUsdt: usdtVal,
+      source: strOrNull(r['source']),
+      parentType: strOrNull(r['parent_type']),
+      parentId: strOrNull(r['parent_id']),
+      positionId: strOrNull(r['position_id']),
+      marginCurrency: cur,
+      createdAtMs: createdVal,
+      updatedAtMs: updatedVal,
+    });
+  }
+
+  return { ok: true, transactions };
+}
+
+export async function listFuturesPositionsTransactions(
+  apiKey: string,
+  apiSecret: string,
+  req: FuturesListTransactionsRequest = {},
+  opts: FuturesCallOptions = {},
+): Promise<FuturesListTransactionsOutcome> {
+  return listFuturesPositionsTransactionsSigned(plaintextSigner(apiKey, apiSecret), req, opts);
+}
+

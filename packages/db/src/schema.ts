@@ -615,6 +615,32 @@ export interface FuturesTrailingSlTable {
   last_evaluated_at: Timestamp;
 }
 
+export interface FuturesClosedTradeTable {
+  id: Generated<string>;
+  tenant_id: string;
+  account_id: string;
+  pair: string;
+  market: string;
+  side: 'long' | 'short';
+  quantity: string;
+  avg_entry_price: string;
+  avg_exit_price: string;
+  leverage: string | null;
+  realized_pnl_minor: Numeric;
+  margin_currency: 'INR' | 'USDT';
+  fee_minor: Numeric | null;
+  roe_pct: number | null;
+  duration_ms: number | null;
+  opened_at: Timestamp | null;
+  closed_at: Timestamp;
+  venue_position_id: string | null;
+  venue_order_id: string | null;
+  exit_stage: string | null;
+  hide_from_positions?: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface DB {
   session: SessionTable;
   tenant: TenantTable;
@@ -640,6 +666,7 @@ export interface DB {
   futures_position: FuturesPositionTable;
   futures_execution_lock: FuturesExecutionLockTable;
   futures_trailing_sl: FuturesTrailingSlTable;
+  futures_closed_trade: FuturesClosedTradeTable;
   password_reset_token: PasswordResetTokenTable;
   consultation_inquiry: ConsultationInquiryTable;
   platform_branding: PlatformBrandingTable;
@@ -673,6 +700,7 @@ export const TENANT_SCOPED_TABLES = [
   'futures_position',
   'futures_execution_lock',
   'futures_trailing_sl',
+  'futures_closed_trade',
 ] as const satisfies readonly (keyof DB)[];
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];

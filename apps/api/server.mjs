@@ -26,7 +26,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { createHttpServer, listAccounts, placeFuturesOrder, planAdjustment } from './dist/index.js';
-import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances, recordVenueBasis } from '../../packages/db/dist/index.js';
+import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances, recordVenueBasis, upsertFuturesClosedTrades } from '../../packages/db/dist/index.js';
 import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
 import { Signer } from '../signer/dist/index.js';
 import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor } from '../../packages/exchange/dist/index.js';
@@ -34,6 +34,7 @@ import {
   mapOrderBook, probeCredential, send,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
   attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned, updateFuturesLeverageSigned,
+  listFuturesPositionsTransactionsSigned,
 } from '../../packages/exchange-coindcx/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -340,6 +341,120 @@ const enginePorts = {};
 // need is permission to trade.
 
   /**
+   * Synchronize verified closed trades and realized PnL directly from CoinDCX.
+   */
+  const syncClosedTradesForAccount = async (tdb, tenantId, accountId, sign) => {
+    try {
+      const txRes = await listFuturesPositionsTransactionsSigned(
+        sign,
+        { stage: 'all', page: 1, size: 100 },
+        { baseUrl: VENUE_BASE },
+      );
+      if (!txRes.ok) return 0;
+
+      const exitTxs = txRes.transactions.filter(
+        (t) => t.stage === 'exit' || t.stage === 'tpsl_exit' || t.stage === 'liquidation',
+      );
+      if (exitTxs.length === 0) return 0;
+
+      const [buyOrdersRes, sellOrdersRes] = await Promise.all([
+        listFuturesOrdersSigned(sign, { side: 'buy', status: 'filled', page: 1, size: 100 }, { baseUrl: VENUE_BASE }),
+        listFuturesOrdersSigned(sign, { side: 'sell', status: 'filled', page: 1, size: 100 }, { baseUrl: VENUE_BASE }),
+      ]);
+
+      const orderMap = new Map();
+      if (buyOrdersRes.ok) {
+        for (const o of buyOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+      }
+      if (sellOrdersRes.ok) {
+        for (const o of sellOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+      }
+
+      const hiddenRows = await tdb.selectFrom('futures_position')
+        .select(['venue_position_id as venuePositionId'])
+        .where('hide_from_positions', '=', true)
+        .execute();
+      const hiddenSet = new Set(hiddenRows.map((r) => r.venuePositionId));
+
+      const tradeInputs = [];
+      for (const t of exitTxs) {
+        const order = t.parentId ? orderMap.get(t.parentId) : undefined;
+        const isSellExit = order ? order.side === 'sell' : true;
+        const side = isSellExit ? 'long' : 'short';
+        const dir = side === 'long' ? 1 : -1;
+
+        const exitPriceNum = order?.avgPrice ? Number(order.avgPrice) : (
+          order?.price ? Number(order.price) : 0
+        );
+        const qtyNum = order?.filledQuantity ? Number(order.filledQuantity) : (
+          order?.totalQuantity ? Number(order.totalQuantity) : 0
+        );
+        const levNum = order?.leverage ?? 1;
+
+        const isUsdtContract = t.pair.includes('USDT') || t.pair.endsWith('USDT');
+        const peg = (t.marginCurrency === 'INR' && isUsdtContract)
+          ? (order?.settlementConversionPrice ? Number(order.settlementConversionPrice) : 100)
+          : 1;
+
+        const pnlMajor = t.amount;
+        const pnlMinor = t.marginCurrency === 'USDT'
+          ? Math.round(pnlMajor * 100_000_000).toString()
+          : Math.round(pnlMajor * 100).toString();
+
+        const feeMinor = t.feeAmount > 0
+          ? (t.marginCurrency === 'USDT'
+              ? Math.round(t.feeAmount * 100_000_000).toString()
+              : Math.round(t.feeAmount * 100).toString())
+          : null;
+
+        let entryPriceNum = exitPriceNum;
+        if (qtyNum > 0 && peg > 0) {
+          const derivedEntry = exitPriceNum - (pnlMajor / (qtyNum * dir * peg));
+          if (Number.isFinite(derivedEntry) && derivedEntry > 0) {
+            entryPriceNum = derivedEntry;
+          }
+        }
+
+        let roePct = null;
+        if (entryPriceNum > 0 && exitPriceNum > 0) {
+          roePct = ((exitPriceNum - entryPriceNum) / entryPriceNum) * 100 * levNum * dir;
+        }
+
+        const closedAt = new Date(t.createdAtMs);
+        const openedAtMs = order?.createdAtMs ?? t.createdAtMs;
+        const durationMs = Math.max(0, closedAt.getTime() - openedAtMs);
+
+        tradeInputs.push({
+          accountId,
+          pair: t.pair,
+          market: t.pair,
+          side,
+          quantity: qtyNum > 0 ? qtyNum.toFixed(4).replace(/\.?0+$/, '') : '1',
+          avgEntryPrice: entryPriceNum > 0 ? entryPriceNum.toFixed(4).replace(/\.?0+$/, '') : '—',
+          avgExitPrice: exitPriceNum > 0 ? exitPriceNum.toFixed(4).replace(/\.?0+$/, '') : '—',
+          leverage: levNum > 1 ? `${levNum}x` : '1x',
+          realizedPnlMinor: pnlMinor,
+          marginCurrency: t.marginCurrency,
+          feeMinor,
+          roePct,
+          durationMs,
+          openedAt: new Date(openedAtMs),
+          closedAt,
+          venuePositionId: t.positionId,
+          venueOrderId: t.parentId,
+          exitStage: t.stage,
+          hideFromPositions: t.positionId ? hiddenSet.has(t.positionId) : false,
+        });
+      }
+
+      return await upsertFuturesClosedTrades(tdb, tradeInputs);
+    } catch (err) {
+      console.error(`[sync-closed-trades] error for account ${accountId}:`, err instanceof Error ? err.message : String(err));
+      return 0;
+    }
+  };
+
+  /**
    * Mirror the venue's positions for a set of accounts. Shared by the
    * post-fan-out hook and the manual refresh, so both write the same way.
    * Concurrently processes accounts in chunks to minimize latency across large groups.
@@ -365,7 +480,12 @@ const enginePorts = {};
             // REPLACE, not upsert: a position the venue no longer reports must stop
             // rendering as open. The read above covers both margin currencies, so it is
             // a complete picture and absent means closed.
-            return await replaceFuturesPositions(tdb, accountId, read.positions);
+            const written = await replaceFuturesPositions(tdb, accountId, read.positions);
+            // Sync verified closed trades and realized PnL directly from exchange transactions
+            syncClosedTradesForAccount(tdb, tenantId, accountId, sign, VENUE_BASE).catch((err) => {
+              console.error(`[sync-closed-trades] error syncing account ${accountId}:`, err instanceof Error ? err.message : String(err));
+            });
+            return written;
           } catch (e) {
             console.error(`[mirror] error mirroring account ${accountId}:`, e instanceof Error ? e.message : String(e));
             return 0;
@@ -1111,9 +1231,32 @@ const tslEngine = new TrailingSlEngine(
 );
 tslEngine.start();
 
-// Reaper on boot (phase-13 T13.7 / R4): before we accept traffic, release any
-// stale worker lock and re-queue it as a 'resolve' job — never a second 'place'.
-// A crash that left a worker half-way through a send must resolve, not re-send.
+// Periodic closed trade sync across accounts to keep realized PnL and trade history up to date
+const syncAllClosedTrades = async () => {
+  try {
+    const tenants = await db.selectFrom('tenant').select('id').execute();
+    for (const t of tenants) {
+      const tdb = forTenant(db, t.id);
+      const accounts = await listAccounts(tdb);
+      const activeAccounts = accounts.filter((a) => a.status === 'active');
+      for (const acc of activeAccounts) {
+        try {
+          const sign = await signFor(t.id, acc.id);
+          if (sign !== null) {
+            await syncClosedTradesForAccount(tdb, t.id, acc.id, sign, VENUE_BASE);
+          }
+        } catch { /* best-effort */ }
+      }
+    }
+  } catch (e) {
+    console.error('[sync-all-closed-trades] sweep failed:', e instanceof Error ? e.message : String(e));
+  }
+};
+
+setTimeout(() => {
+  syncAllClosedTrades().catch(() => {});
+  setInterval(syncAllClosedTrades, 60_000);
+}, 3000);
 
 // Reaper on boot (phase-13 T13.7 / R4): before we accept traffic, release any
 // stale worker lock and re-queue it as a 'resolve' job — never a second 'place'.

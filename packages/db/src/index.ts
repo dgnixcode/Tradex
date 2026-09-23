@@ -24,3 +24,4 @@ export * from './password-reset-repo.js';
 export * from './inquiry-repo.js';
 export * from './branding-repo.js';
 export * from './login-security-repo.js';
+export * from './futures-closed-trade-repo.js';

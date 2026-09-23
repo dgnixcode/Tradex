@@ -8,7 +8,7 @@
 // Complies with ARCHITECTURE §6a and checks/07 (lives in futures/ to handle futures mark metrics).
 
 import type { DB } from '@tradex/db';
-import { forTenant } from '@tradex/db';
+import { forTenant, listFuturesClosedTrades } from '@tradex/db';
 import type { Kysely } from 'kysely';
 import { listAccounts } from '../accounts-query.js';
 import { buildFuturesPositions } from './positions.js';
@@ -476,7 +476,6 @@ export async function buildTradingAnalytics(
     venuePositionId: string | null;
   }
 
-  const openQueueByAccountPair = new Map<string, OpenEntryItem[]>();
   const closedTradesList: ClosedTradeAnalytics[] = [];
   const realizedPnlByCur: Record<string, string> = {};
   const realizedPnlByAccount: Record<string, Record<string, string>> = {};
@@ -484,6 +483,68 @@ export async function buildTradingAnalytics(
   let winningClosedTrades = 0;
   let losingClosedTrades = 0;
 
+  // 1. Load verified closed trades directly from exchange settlement records (futures_closed_trade)
+  const persistedClosedTrades = await listFuturesClosedTrades(tdb, {
+    accountIds: Array.from(targetAccountIds),
+    fromMs: fromMs > 0 ? fromMs : undefined,
+    toMs: toMs > 0 && toMs < nowMs ? toMs : undefined,
+    hideHidden: true,
+  });
+
+  const seenExitOrderIds = new Set<string>();
+
+  for (const t of persistedClosedTrades) {
+    if (t.venueOrderId) seenExitOrderIds.add(t.venueOrderId);
+    const accName = accountsMap.get(t.accountId)?.name ?? 'Account';
+    const grpName = accountGroupMap.get(t.accountId) ?? null;
+    const isWin = BigInt(t.realizedPnlMinor) > 0n;
+    const isLoss = BigInt(t.realizedPnlMinor) < 0n;
+    if (isWin) winningClosedTrades += 1;
+    else if (isLoss) losingClosedTrades += 1;
+
+    closedTradesList.push({
+      id: t.id,
+      accountId: t.accountId,
+      accountName: accName,
+      groupName: grpName,
+      pair: t.pair,
+      market: t.market,
+      side: t.side,
+      quantity: t.quantity,
+      avgEntryPrice: t.avgEntryPrice,
+      avgExitPrice: t.avgExitPrice,
+      leverage: t.leverage,
+      realizedPnlMinor: t.realizedPnlMinor,
+      marginCurrency: t.marginCurrency,
+      roePct: t.roePct,
+      durationMs: t.durationMs ?? 0,
+      openedAtMs: t.openedAt ? t.openedAt.getTime() : t.closedAt.getTime(),
+      closedAtMs: t.closedAt.getTime(),
+    });
+
+    const cur = t.marginCurrency;
+    realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
+      ? t.realizedPnlMinor
+      : addMinorValues(realizedPnlByCur[cur]!, t.realizedPnlMinor);
+
+    const accPnlMap = realizedPnlByAccount[t.accountId] ?? {};
+    accPnlMap[cur] = accPnlMap[cur] === undefined
+      ? t.realizedPnlMinor
+      : addMinorValues(accPnlMap[cur]!, t.realizedPnlMinor);
+    realizedPnlByAccount[t.accountId] = accPnlMap;
+
+    const userGrpId = rawMemberships.find((m) => m.accountId === t.accountId)?.groupId;
+    if (userGrpId) {
+      const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
+      grpPnlMap[cur] = grpPnlMap[cur] === undefined
+        ? t.realizedPnlMinor
+        : addMinorValues(grpPnlMap[cur]!, t.realizedPnlMinor);
+      realizedPnlByGroup[userGrpId] = grpPnlMap;
+    }
+  }
+
+  // 2. Also match any additional child_orders that might not have exchange settlement records yet
+  const openQueueByAccountPair = new Map<string, OpenEntryItem[]>();
   for (const r of allChronologicalOrders) {
     const accId = String(r['accountId']);
     const accName = String(r['accountName'] ?? 'Account');
@@ -517,7 +578,6 @@ export async function buildTradingAnalytics(
     const key = `${accId}|${pair}`;
 
     if (!isExit) {
-      // Entry order
       const queue = openQueueByAccountPair.get(key) ?? [];
       queue.push({
         id: String(r['id']),
@@ -535,7 +595,12 @@ export async function buildTradingAnalytics(
       });
       openQueueByAccountPair.set(key, queue);
     } else {
-      // Exit order: match against open entry queue FIFO
+      // Exit order: skip if already covered by verified exchange closed trade
+      const exchOrdId = r['exchangeOrderId'] ? String(r['exchangeOrderId']) : null;
+      if (exchOrdId && seenExitOrderIds.has(exchOrdId)) {
+        continue;
+      }
+
       const queue = openQueueByAccountPair.get(key) ?? [];
       let remainingExitQty = qtyNum;
       while (queue.length > 0 && remainingExitQty > 0) {
@@ -548,11 +613,10 @@ export async function buildTradingAnalytics(
         const priceDiff = (exitPrice - entryPrice) * dir;
         const pnl = matchedQty * priceDiff;
 
-        // Scale to minor units
         const isUsdtContract = pair.includes('USDT') || pair.endsWith('USDT');
         let pnlMinorVal: string;
         if (entry.marginCurrency === 'INR' && isUsdtContract) {
-          const peg = 100; // standard frozen INR/USDT settlement conversion
+          const peg = 100;
           pnlMinorVal = Math.round(pnl * peg * 100).toString();
         } else if (entry.marginCurrency === 'USDT') {
           pnlMinorVal = Math.round(pnl * 100_000_000).toString();
@@ -585,20 +649,17 @@ export async function buildTradingAnalytics(
             closedAtMs,
           });
 
-          // Accumulate KPIs
           const cur = entry.marginCurrency;
           realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
             ? pnlMinorVal
             : addMinorValues(realizedPnlByCur[cur]!, pnlMinorVal);
 
-          // Per-account realized PnL
           const accPnlMap = realizedPnlByAccount[entry.accountId] ?? {};
           accPnlMap[cur] = accPnlMap[cur] === undefined
             ? pnlMinorVal
             : addMinorValues(accPnlMap[cur]!, pnlMinorVal);
           realizedPnlByAccount[entry.accountId] = accPnlMap;
 
-          // Per-group realized PnL
           const userGrpId = rawMemberships.find((m) => m.accountId === entry.accountId)?.groupId;
           if (userGrpId) {
             const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
@@ -621,67 +682,66 @@ export async function buildTradingAnalytics(
     }
   }
 
-  // Handle entries whose positions have closed at the exchange but had no direct exit order
-  // (e.g. SOLUSDT exited prior to order blotter logging)
-  const activePositionKeys = new Set(targetPositions.map((p) => `${p.accountId}|${normalizeFuturesPair(p.pair) || p.pair}`));
-  for (const [key, queue] of openQueueByAccountPair.entries()) {
-    if (!activePositionKeys.has(key)) {
-      while (queue.length > 0) {
-        const entry = queue.shift()!;
-        if (entry.qty <= 0.000001) continue;
-        const entryPrice = entry.price;
-        // Never use live real-time market tickers for closed trades (fixes fluctuating PnL/ROE on refresh).
-        // Closed trades without recorded fills fall back deterministically to entry price (breakeven PnL 0).
-        const exitPrice = entryPrice;
-        const isLong = entry.side === 'buy';
-        const pnlMinorVal = '0';
-        const roePct = entryPrice > 0 ? 0 : null;
-        const closedAtMs = entry.createdAtMs + 60_000; // estimated close time
+  // If no closed trades were recorded at all and entries closed without fills, retain synthetic zero-PnL fallback only when closedTradesList is empty
+  if (closedTradesList.length === 0) {
+    const activePositionKeys = new Set(targetPositions.map((p) => `${p.accountId}|${normalizeFuturesPair(p.pair) || p.pair}`));
+    for (const [key, queue] of openQueueByAccountPair.entries()) {
+      if (!activePositionKeys.has(key)) {
+        while (queue.length > 0) {
+          const entry = queue.shift()!;
+          if (entry.qty <= 0.000001) continue;
+          const entryPrice = entry.price;
+          const exitPrice = entryPrice;
+          const isLong = entry.side === 'buy';
+          const pnlMinorVal = '0';
+          const roePct = entryPrice > 0 ? 0 : null;
+          const closedAtMs = entry.createdAtMs + 60_000;
 
-        if (closedAtMs >= fromMs && closedAtMs <= toMs) {
-          const grpName = accountGroupMap.get(entry.accountId) ?? null;
-          closedTradesList.push({
-            id: `synth-${entry.id}`,
-            accountId: entry.accountId,
-            accountName: entry.accountName,
-            groupName: grpName,
-            pair: entry.pair,
-            market: entry.market,
-            side: isLong ? 'long' : 'short',
-            quantity: entry.qty.toFixed(4).replace(/\.?0+$/, ''),
-            avgEntryPrice: entryPrice > 0 ? entryPrice.toString() : '—',
-            avgExitPrice: exitPrice > 0 ? exitPrice.toString() : '—',
-            leverage: entry.leverage ? `${entry.leverage}x` : null,
-            realizedPnlMinor: pnlMinorVal,
-            marginCurrency: entry.marginCurrency,
-            roePct,
-            durationMs: Math.max(0, closedAtMs - entry.createdAtMs),
-            openedAtMs: entry.createdAtMs,
-            closedAtMs,
-          });
+          if (closedAtMs >= fromMs && closedAtMs <= toMs) {
+            const grpName = accountGroupMap.get(entry.accountId) ?? null;
+            closedTradesList.push({
+              id: `synth-${entry.id}`,
+              accountId: entry.accountId,
+              accountName: entry.accountName,
+              groupName: grpName,
+              pair: entry.pair,
+              market: entry.market,
+              side: isLong ? 'long' : 'short',
+              quantity: entry.qty.toFixed(4).replace(/\.?0+$/, ''),
+              avgEntryPrice: entryPrice > 0 ? entryPrice.toString() : '—',
+              avgExitPrice: exitPrice > 0 ? exitPrice.toString() : '—',
+              leverage: entry.leverage ? `${entry.leverage}x` : null,
+              realizedPnlMinor: pnlMinorVal,
+              marginCurrency: entry.marginCurrency,
+              roePct,
+              durationMs: Math.max(0, closedAtMs - entry.createdAtMs),
+              openedAtMs: entry.createdAtMs,
+              closedAtMs,
+            });
 
-          const cur = entry.marginCurrency;
-          realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
-            ? pnlMinorVal
-            : addMinorValues(realizedPnlByCur[cur]!, pnlMinorVal);
-
-          const accPnlMap = realizedPnlByAccount[entry.accountId] ?? {};
-          accPnlMap[cur] = accPnlMap[cur] === undefined
-            ? pnlMinorVal
-            : addMinorValues(accPnlMap[cur]!, pnlMinorVal);
-          realizedPnlByAccount[entry.accountId] = accPnlMap;
-
-          const userGrpId = rawMemberships.find((m) => m.accountId === entry.accountId)?.groupId;
-          if (userGrpId) {
-            const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
-            grpPnlMap[cur] = grpPnlMap[cur] === undefined
+            const cur = entry.marginCurrency;
+            realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
               ? pnlMinorVal
-              : addMinorValues(grpPnlMap[cur]!, pnlMinorVal);
-            realizedPnlByGroup[userGrpId] = grpPnlMap;
-          }
+              : addMinorValues(realizedPnlByCur[cur]!, pnlMinorVal);
 
-          if (Number(pnlMinorVal) > 0) winningClosedTrades += 1;
-          else if (Number(pnlMinorVal) < 0) losingClosedTrades += 1;
+            const accPnlMap = realizedPnlByAccount[entry.accountId] ?? {};
+            accPnlMap[cur] = accPnlMap[cur] === undefined
+              ? pnlMinorVal
+              : addMinorValues(accPnlMap[cur]!, pnlMinorVal);
+            realizedPnlByAccount[entry.accountId] = accPnlMap;
+
+            const userGrpId = rawMemberships.find((m) => m.accountId === entry.accountId)?.groupId;
+            if (userGrpId) {
+              const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
+              grpPnlMap[cur] = grpPnlMap[cur] === undefined
+                ? pnlMinorVal
+                : addMinorValues(grpPnlMap[cur]!, pnlMinorVal);
+              realizedPnlByGroup[userGrpId] = grpPnlMap;
+            }
+
+            if (Number(pnlMinorVal) > 0) winningClosedTrades += 1;
+            else if (Number(pnlMinorVal) < 0) losingClosedTrades += 1;
+          }
         }
       }
     }
