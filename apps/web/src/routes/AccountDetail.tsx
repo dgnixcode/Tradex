@@ -32,6 +32,7 @@ import {
   PositionManageModal,
   QuickExitModal,
   addMinors,
+  calcEstimatedTpSl,
   calcRoePct,
   fmtEntryTime,
   fmtMinor,
@@ -862,8 +863,7 @@ export function AccountDetail() {
                     <tbody>
                       {accountPositions.map((p) => {
                           const roe = calcRoePct(p);
-                          const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
-                          const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
+                          const tpSl = calcEstimatedTpSl(p);
                           const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
                           const entryTime = fmtEntryTime(p.entryTimeMs);
                           const liveItem = pricesData?.prices?.[p.pair];
@@ -988,12 +988,34 @@ export function AccountDetail() {
                                 )}
                               </td>
                               <td>
-                                {!hasSl && !hasTp ? (
+                                {!tpSl.hasSl && !tpSl.hasTp ? (
                                   <span className="muted" style={{ fontSize: 11.5 }}>none</span>
                                 ) : (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    {hasSl && <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
-                                    {hasTp && <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    {tpSl.hasTp && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                                        <span className="badge planned" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                                          TP {tpSl.tpPriceText}
+                                        </span>
+                                        {tpSl.tpEstPnlText && (
+                                          <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.tpEstPnlNum ?? 0) >= 0 ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
+                                            {tpSl.tpEstPnlText} {tpSl.tpEstRoeText}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {tpSl.hasSl && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                                        <span className="badge skipped" style={{ fontSize: 9.5, padding: '1px 5px', fontWeight: 700 }}>
+                                          SL {tpSl.slPriceText}
+                                        </span>
+                                        {tpSl.slEstPnlText && (
+                                          <span style={{ fontSize: 10.5, fontWeight: 600, color: (tpSl.slEstPnlNum ?? 0) <= 0 ? '#ef4444' : '#10b981', whiteSpace: 'nowrap' }}>
+                                            {tpSl.slEstPnlText} {tpSl.slEstRoeText}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </td>
@@ -1080,8 +1102,7 @@ export function AccountDetail() {
                 <div className="mobile-pos-cards">
                   {accountPositions.map((p) => {
                     const roe = calcRoePct(p);
-                    const hasSl = p.stopLossTrigger && p.stopLossTrigger !== '0' && Number(p.stopLossTrigger) > 0;
-                    const hasTp = p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0;
+                    const tpSl = calcEstimatedTpSl(p);
                     const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
                     const entryTime = fmtEntryTime(p.entryTimeMs);
                     const liveItem = pricesData?.prices?.[p.pair];
@@ -1197,12 +1218,30 @@ export function AccountDetail() {
                         <div className="pos-mobile-card-foot">
                           <div className="pos-mobile-prot">
                             <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 4 }}>Protection:</span>
-                            {!hasSl && !hasTp ? (
+                            {!tpSl.hasSl && !tpSl.hasTp ? (
                               <span className="muted" style={{ fontSize: 11 }}>None</span>
                             ) : (
-                              <div style={{ display: 'inline-flex', gap: 4 }}>
-                                {hasSl && <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px' }}>SL {fmtPrice(p.stopLossTrigger)}</span>}
-                                {hasTp && <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px' }}>TP {fmtPrice(p.takeProfitTrigger)}</span>}
+                              <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                {tpSl.hasTp && (
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <span className="badge planned" style={{ fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>TP {tpSl.tpPriceText}</span>
+                                    {tpSl.tpEstPnlText && (
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: (tpSl.tpEstPnlNum ?? 0) >= 0 ? '#10b981' : '#ef4444', whiteSpace: 'nowrap' }}>
+                                        {tpSl.tpEstPnlText} {tpSl.tpEstRoeText}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {tpSl.hasSl && (
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <span className="badge skipped" style={{ fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>SL {tpSl.slPriceText}</span>
+                                    {tpSl.slEstPnlText && (
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: (tpSl.slEstPnlNum ?? 0) <= 0 ? '#ef4444' : '#10b981', whiteSpace: 'nowrap' }}>
+                                        {tpSl.slEstPnlText} {tpSl.slEstRoeText}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
