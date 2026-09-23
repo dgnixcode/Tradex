@@ -3829,7 +3829,7 @@ body:has(.panel-dark)::before {
 .brand-official-logo .brand-logo-img {
   height: 52px;
   width: auto;
-  max-width: 260px;
+  max-width: 320px;
   object-fit: contain;
   display: block;
   image-rendering: -webkit-optimize-contrast;
@@ -3839,6 +3839,7 @@ body:has(.panel-dark)::before {
 
 .brand-lg .brand-official-logo .brand-logo-img {
   height: 60px;
+  max-width: 360px;
 }
 
 .brand-sm .brand-official-logo .brand-logo-img {
@@ -3852,6 +3853,7 @@ body:has(.panel-dark)::before {
 @media (max-width: 768px) {
   .mk-header .brand-official-logo .brand-logo-img {
     height: 42px;
+    max-width: 260px;
   }
 }
 
