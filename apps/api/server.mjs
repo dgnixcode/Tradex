@@ -267,9 +267,10 @@ const signerFor = (tenantId) => new Signer({ tdb: forTenant(db, tenantId), kms }
  * exactly one. The plaintext secret never reaches this process: the signer opens
  * the envelope, HMACs the bytes and returns `{apiKey, signature}`.
  */
-async function signFor(tenantId, accountId) {
+async function signFor(tenantId, accountId, customReason) {
   const credential = await findByAccount(forTenant(db, tenantId), accountId);
   if (credential === null) return null;
+  const reason = customReason ?? 'place or manage a futures order on behalf of the account owner';
 
   // READ OR SEND, the rule is the same: signing for the real exchange happens in
   // the signer process, never here. Enforced at the point of use rather than at
@@ -300,7 +301,7 @@ async function signFor(tenantId, accountId) {
           credentialId: credential.credentialId,
           payload: body,
           algorithm: 'hmac-sha256-hex',
-          reason: 'place or manage a futures order on behalf of the account owner',
+          reason,
           actorProcess: 'api',
         }),
       });
@@ -318,7 +319,7 @@ async function signFor(tenantId, accountId) {
       algorithm: 'hmac-sha256-hex',
       // Required, and audited before the signature is returned: an unaccountable
       // decrypt is indistinguishable from an exfiltration.
-      reason: 'place or manage a futures order on behalf of the account owner',
+      reason,
       actorProcess: 'api',
     });
     return { apiKey: out.apiKey, signature: out.signature };
@@ -468,7 +469,7 @@ const enginePorts = {};
       const counts = await Promise.all(
         chunk.map(async (accountId) => {
           try {
-            const sign = await signFor(tenantId, accountId);
+            const sign = await signFor(tenantId, accountId, 'read orders and position history on behalf of the account owner');
             if (sign === null) return 0;
             // BOTH margin currencies: the body must always carry both or INR-margined
             // positions are invisible (research/04 G8).
@@ -1241,7 +1242,7 @@ const syncAllClosedTrades = async () => {
       const activeAccounts = accounts.filter((a) => a.status === 'active');
       for (const acc of activeAccounts) {
         try {
-          const sign = await signFor(t.id, acc.id);
+          const sign = await signFor(t.id, acc.id, 'read orders and transactions history on behalf of the account owner');
           if (sign !== null) {
             await syncClosedTradesForAccount(tdb, t.id, acc.id, sign, VENUE_BASE);
           }
