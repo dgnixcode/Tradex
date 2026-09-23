@@ -849,14 +849,14 @@ export function AccountDetail() {
                       <tr>
                         <th>Contract</th>
                         <th>Side</th>
-                        <th style={{ textAlign: 'right' }}>Size</th>
-                        <th style={{ textAlign: 'right' }}>Avg Entry</th>
+                        <th style={{ textAlign: 'right' }}>Qty</th>
+                        <th style={{ textAlign: 'right' }}>Entry Price</th>
                         <th>Entry Time</th>
                         <th style={{ textAlign: 'right' }}>Live</th>
-                        <th style={{ textAlign: 'right' }}>Liq Price</th>
+                        <th style={{ textAlign: 'right' }}>Liquidation</th>
                         <th style={{ textAlign: 'right' }}>Margin</th>
-                        <th style={{ textAlign: 'right' }}>Unrealised PnL</th>
-                        <th>Protection</th>
+                        <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
+                        <th>TP/SL</th>
                         <th style={{ textAlign: 'center' }}>Action</th>
                       </tr>
                     </thead>
@@ -1178,7 +1178,7 @@ export function AccountDetail() {
                             </span>
                           </div>
                           <div className="pos-mobile-cell">
-                            <span className="pos-mobile-label">Size</span>
+                            <span className="pos-mobile-label">Qty</span>
                             <span className="pos-mobile-val mono">{p.quantity}</span>
                           </div>
                           <div className="pos-mobile-cell">
@@ -1203,7 +1203,7 @@ export function AccountDetail() {
                             )}
                           </div>
                           <div className="pos-mobile-cell">
-                            <span className="pos-mobile-label">Liq Price</span>
+                            <span className="pos-mobile-label">Liquidation</span>
                             <span className="pos-mobile-val mono" style={{ color: '#facc15', fontWeight: 700, fontSize: 14 }}>
                               {fmtPrice(p.liquidationPrice)}
                             </span>
@@ -1217,7 +1217,7 @@ export function AccountDetail() {
 
                         <div className="pos-mobile-card-foot">
                           <div className="pos-mobile-prot">
-                            <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 4 }}>Protection:</span>
+                            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginRight: 4 }}>TP/SL:</span>
                             {!tpSl.hasSl && !tpSl.hasTp ? (
                               <span className="muted" style={{ fontSize: 11 }}>None</span>
                             ) : (
@@ -1700,7 +1700,7 @@ export function AccountDetail() {
                             <tr>
                               <th>Asset / Pair</th>
                               <th>Side</th>
-                              <th style={{ textAlign: 'right' }}>Size</th>
+                              <th style={{ textAlign: 'right' }}>Qty</th>
                               <th style={{ textAlign: 'right' }}>Entry Price</th>
                               <th style={{ textAlign: 'right' }}>Live Price</th>
                               <th style={{ textAlign: 'right' }}>Locked Margin</th>
