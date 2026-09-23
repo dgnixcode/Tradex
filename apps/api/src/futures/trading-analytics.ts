@@ -426,56 +426,7 @@ export async function buildTradingAnalytics(
     };
   }).sort((a, b) => Number(b.lockedMarginMinor) - Number(a.lockedMarginMinor));
 
-  // 7. Closed Trades & Realized PnL Engine
-  // Query all chronological filled orders to reconstruct entries and exits
-  const allChronologicalOrders = targetAccountIds.size > 0
-    ? await tdb.selectFrom('child_order')
-        .innerJoin('exchange_account', 'exchange_account.id', 'child_order.account_id')
-        .leftJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
-        .select([
-          'child_order.id as id',
-          'child_order.account_id as accountId',
-          'exchange_account.name as accountName',
-          'child_order.pair as pair',
-          'child_order.market as market',
-          'child_order.state as state',
-          'child_order.final_quantity as finalQuantity',
-          'child_order.filled_quantity as filledQuantity',
-          'child_order.price_used as priceUsed',
-          'child_order.avg_fill_price as avgFillPrice',
-          'child_order.notional_minor as notionalMinor',
-          'child_order.quote_currency as quoteCurrency',
-          'child_order.created_at as createdAt',
-          'child_order.venue_position_id as venuePositionId',
-          'child_order.leg_kind as legKind',
-          'group_trade.side as tradeSide',
-          'group_trade.sizing_mode as sizingMode',
-          'group_trade.reduce_only as reduceOnly',
-          'group_trade.is_futures as isFutures',
-          'group_trade.margin_currency as marginCurrency',
-          'group_trade.leverage as leverage',
-        ] as unknown as never)
-        .where('child_order.account_id' as never, 'in', Array.from(targetAccountIds) as never)
-        .where('child_order.state' as never, '=', 'filled' as never)
-        .orderBy('child_order.created_at' as never, 'asc' as never)
-        .execute() as unknown as Array<Record<string, unknown>>
-    : [];
-
-  interface OpenEntryItem {
-    id: string;
-    accountId: string;
-    accountName: string;
-    pair: string;
-    market: string;
-    side: 'buy' | 'sell';
-    qty: number;
-    price: number;
-    createdAtMs: number;
-    marginCurrency: string;
-    leverage: number;
-    venuePositionId: string | null;
-  }
-
+  // 7. Closed Trades & Realized PnL Engine (strictly exchange-verified settlements)
   const closedTradesList: ClosedTradeAnalytics[] = [];
   const realizedPnlByCur: Record<string, string> = {};
   const realizedPnlByAccount: Record<string, Record<string, string>> = {};
@@ -483,7 +434,7 @@ export async function buildTradingAnalytics(
   let winningClosedTrades = 0;
   let losingClosedTrades = 0;
 
-  // 1. Load verified closed trades directly from exchange settlement records (futures_closed_trade)
+  // Load verified closed trades directly from exchange settlement records (futures_closed_trade)
   const persistedClosedTrades = await listFuturesClosedTrades(tdb, {
     accountIds: Array.from(targetAccountIds),
     fromMs: fromMs > 0 ? fromMs : undefined,
@@ -491,10 +442,7 @@ export async function buildTradingAnalytics(
     hideHidden: true,
   });
 
-  const seenExitOrderIds = new Set<string>();
-
   for (const t of persistedClosedTrades) {
-    if (t.venueOrderId) seenExitOrderIds.add(t.venueOrderId);
     const accName = accountsMap.get(t.accountId)?.name ?? 'Account';
     const grpName = accountGroupMap.get(t.accountId) ?? null;
     const isWin = BigInt(t.realizedPnlMinor) > 0n;
@@ -540,210 +488,6 @@ export async function buildTradingAnalytics(
         ? t.realizedPnlMinor
         : addMinorValues(grpPnlMap[cur]!, t.realizedPnlMinor);
       realizedPnlByGroup[userGrpId] = grpPnlMap;
-    }
-  }
-
-  // 2. Also match any additional child_orders that might not have exchange settlement records yet
-  const openQueueByAccountPair = new Map<string, OpenEntryItem[]>();
-  for (const r of allChronologicalOrders) {
-    const accId = String(r['accountId']);
-    const accName = String(r['accountName'] ?? 'Account');
-    const rawPair = (r['pair'] && String(r['pair']).trim() !== '')
-      ? String(r['pair']).trim()
-      : (r['market'] ? String(r['market']).trim() : '');
-    const pair = normalizeFuturesPair(rawPair) || rawPair;
-    const market = String(r['market'] || r['pair'] || pair);
-    const side = (String(r['tradeSide'] ?? 'buy').toLowerCase() === 'sell') ? 'sell' : 'buy';
-    const isExit = Boolean(
-      r['reduceOnly'] === true ||
-      r['sizingMode'] === 'sell_all' ||
-      r['sizingMode'] === 'pct_position' ||
-      r['legKind'] === 'stop_loss' ||
-      r['legKind'] === 'take_profit' ||
-      r['legKind'] === 'exit'
-    );
-    const qtyStr = (r['filledQuantity'] && r['filledQuantity'] !== '0')
-      ? String(r['filledQuantity'])
-      : (r['finalQuantity'] ? String(r['finalQuantity']) : '0');
-    const qtyNum = Number(qtyStr);
-    const priceStr = r['avgFillPrice'] ? String(r['avgFillPrice']) : (r['priceUsed'] ? String(r['priceUsed']) : '0');
-    const priceNum = Number(priceStr);
-    const createdAt = r['createdAt'] instanceof Date ? r['createdAt'].getTime() : new Date(String(r['createdAt'])).getTime();
-    const marginCurrency = (r['marginCurrency'] as string) || (r['quoteCurrency'] as string) || 'INR';
-    const leverage = r['leverage'] ? Number(r['leverage']) : 1;
-    const venuePosId = r['venuePositionId'] ? String(r['venuePositionId']) : null;
-    if (venuePosId !== null && hiddenVenuePosIds.has(venuePosId)) {
-      continue;
-    }
-    const key = `${accId}|${pair}`;
-
-    if (!isExit) {
-      const queue = openQueueByAccountPair.get(key) ?? [];
-      queue.push({
-        id: String(r['id']),
-        accountId: accId,
-        accountName: accName,
-        pair,
-        market,
-        side,
-        qty: qtyNum,
-        price: priceNum,
-        createdAtMs: createdAt,
-        marginCurrency,
-        leverage,
-        venuePositionId: venuePosId,
-      });
-      openQueueByAccountPair.set(key, queue);
-    } else {
-      // Exit order: skip if already covered by verified exchange closed trade
-      const exchOrdId = r['exchangeOrderId'] ? String(r['exchangeOrderId']) : null;
-      if (exchOrdId && seenExitOrderIds.has(exchOrdId)) {
-        continue;
-      }
-
-      const queue = openQueueByAccountPair.get(key) ?? [];
-      let remainingExitQty = qtyNum;
-      while (queue.length > 0 && remainingExitQty > 0) {
-        const entry = queue[0]!;
-        const matchedQty = Math.min(entry.qty, remainingExitQty);
-        const isLong = entry.side === 'buy';
-        const dir = isLong ? 1 : -1;
-        const entryPrice = entry.price;
-        const exitPrice = priceNum > 0 ? priceNum : entryPrice;
-        const priceDiff = (exitPrice - entryPrice) * dir;
-        const pnl = matchedQty * priceDiff;
-
-        const isUsdtContract = pair.includes('USDT') || pair.endsWith('USDT');
-        let pnlMinorVal: string;
-        if (entry.marginCurrency === 'INR' && isUsdtContract) {
-          const peg = 100;
-          pnlMinorVal = Math.round(pnl * peg * 100).toString();
-        } else if (entry.marginCurrency === 'USDT') {
-          pnlMinorVal = Math.round(pnl * 100_000_000).toString();
-        } else {
-          pnlMinorVal = Math.round(pnl * 100).toString();
-        }
-
-        const roePct = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 * entry.leverage * dir : null;
-        const closedAtMs = createdAt;
-
-        if (closedAtMs >= fromMs && closedAtMs <= toMs) {
-          const grpName = accountGroupMap.get(entry.accountId) ?? null;
-          closedTradesList.push({
-            id: `closed-${entry.id}-${r['id']}`,
-            accountId: entry.accountId,
-            accountName: entry.accountName,
-            groupName: grpName,
-            pair: entry.pair,
-            market: entry.market,
-            side: isLong ? 'long' : 'short',
-            quantity: matchedQty.toFixed(4).replace(/\.?0+$/, ''),
-            avgEntryPrice: entryPrice > 0 ? entryPrice.toString() : '—',
-            avgExitPrice: exitPrice > 0 ? exitPrice.toString() : '—',
-            leverage: entry.leverage ? `${entry.leverage}x` : null,
-            realizedPnlMinor: pnlMinorVal,
-            marginCurrency: entry.marginCurrency,
-            roePct,
-            durationMs: Math.max(0, closedAtMs - entry.createdAtMs),
-            openedAtMs: entry.createdAtMs,
-            closedAtMs,
-          });
-
-          const cur = entry.marginCurrency;
-          realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
-            ? pnlMinorVal
-            : addMinorValues(realizedPnlByCur[cur]!, pnlMinorVal);
-
-          const accPnlMap = realizedPnlByAccount[entry.accountId] ?? {};
-          accPnlMap[cur] = accPnlMap[cur] === undefined
-            ? pnlMinorVal
-            : addMinorValues(accPnlMap[cur]!, pnlMinorVal);
-          realizedPnlByAccount[entry.accountId] = accPnlMap;
-
-          const userGrpId = rawMemberships.find((m) => m.accountId === entry.accountId)?.groupId;
-          if (userGrpId) {
-            const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
-            grpPnlMap[cur] = grpPnlMap[cur] === undefined
-              ? pnlMinorVal
-              : addMinorValues(grpPnlMap[cur]!, pnlMinorVal);
-            realizedPnlByGroup[userGrpId] = grpPnlMap;
-          }
-
-          if (Number(pnlMinorVal) > 0) winningClosedTrades += 1;
-          else if (Number(pnlMinorVal) < 0) losingClosedTrades += 1;
-        }
-
-        entry.qty -= matchedQty;
-        remainingExitQty -= matchedQty;
-        if (entry.qty <= 0.000001) {
-          queue.shift();
-        }
-      }
-    }
-  }
-
-  // If no closed trades were recorded at all and entries closed without fills, retain synthetic zero-PnL fallback only when closedTradesList is empty
-  if (closedTradesList.length === 0) {
-    const activePositionKeys = new Set(targetPositions.map((p) => `${p.accountId}|${normalizeFuturesPair(p.pair) || p.pair}`));
-    for (const [key, queue] of openQueueByAccountPair.entries()) {
-      if (!activePositionKeys.has(key)) {
-        while (queue.length > 0) {
-          const entry = queue.shift()!;
-          if (entry.qty <= 0.000001) continue;
-          const entryPrice = entry.price;
-          const exitPrice = entryPrice;
-          const isLong = entry.side === 'buy';
-          const pnlMinorVal = '0';
-          const roePct = entryPrice > 0 ? 0 : null;
-          const closedAtMs = entry.createdAtMs + 60_000;
-
-          if (closedAtMs >= fromMs && closedAtMs <= toMs) {
-            const grpName = accountGroupMap.get(entry.accountId) ?? null;
-            closedTradesList.push({
-              id: `synth-${entry.id}`,
-              accountId: entry.accountId,
-              accountName: entry.accountName,
-              groupName: grpName,
-              pair: entry.pair,
-              market: entry.market,
-              side: isLong ? 'long' : 'short',
-              quantity: entry.qty.toFixed(4).replace(/\.?0+$/, ''),
-              avgEntryPrice: entryPrice > 0 ? entryPrice.toString() : '—',
-              avgExitPrice: exitPrice > 0 ? exitPrice.toString() : '—',
-              leverage: entry.leverage ? `${entry.leverage}x` : null,
-              realizedPnlMinor: pnlMinorVal,
-              marginCurrency: entry.marginCurrency,
-              roePct,
-              durationMs: Math.max(0, closedAtMs - entry.createdAtMs),
-              openedAtMs: entry.createdAtMs,
-              closedAtMs,
-            });
-
-            const cur = entry.marginCurrency;
-            realizedPnlByCur[cur] = realizedPnlByCur[cur] === undefined
-              ? pnlMinorVal
-              : addMinorValues(realizedPnlByCur[cur]!, pnlMinorVal);
-
-            const accPnlMap = realizedPnlByAccount[entry.accountId] ?? {};
-            accPnlMap[cur] = accPnlMap[cur] === undefined
-              ? pnlMinorVal
-              : addMinorValues(accPnlMap[cur]!, pnlMinorVal);
-            realizedPnlByAccount[entry.accountId] = accPnlMap;
-
-            const userGrpId = rawMemberships.find((m) => m.accountId === entry.accountId)?.groupId;
-            if (userGrpId) {
-              const grpPnlMap = realizedPnlByGroup[userGrpId] ?? {};
-              grpPnlMap[cur] = grpPnlMap[cur] === undefined
-                ? pnlMinorVal
-                : addMinorValues(grpPnlMap[cur]!, pnlMinorVal);
-              realizedPnlByGroup[userGrpId] = grpPnlMap;
-            }
-
-            if (Number(pnlMinorVal) > 0) winningClosedTrades += 1;
-            else if (Number(pnlMinorVal) < 0) losingClosedTrades += 1;
-          }
-        }
-      }
     }
   }
 
