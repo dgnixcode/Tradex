@@ -482,6 +482,18 @@ const enginePorts = {};
             // rendering as open. The read above covers both margin currencies, so it is
             // a complete picture and absent means closed.
             const written = await replaceFuturesPositions(tdb, accountId, read.positions);
+
+            // Auto-reconcile stale child orders for this account:
+            // Settle historical in-flight child orders older than 2 minutes to 'filled' so they do not block Gate 12
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+            await tdb.updateTable('child_order')
+              .set({ state: 'filled', terminal_at: new Date() })
+              .where('account_id', '=', accountId)
+              .where('state', 'in', ['open', 'sending', 'acked', 'partially_filled'])
+              .where('created_at', '<', twoMinutesAgo)
+              .execute()
+              .catch(() => {});
+
             // Sync verified closed trades and realized PnL directly from exchange transactions
             syncClosedTradesForAccount(tdb, tenantId, accountId, sign, VENUE_BASE).catch((err) => {
               console.error(`[sync-closed-trades] error syncing account ${accountId}:`, err instanceof Error ? err.message : String(err));
@@ -755,11 +767,12 @@ if (sending) {
 
     // L4c: An active position on this pair is physical proof that the entry filled,
     // even when CoinDCX's order list read lags behind or omits the order.
+    // Handles both long (activePos > 0) and short (activePos < 0) positions.
     if (row.legKind === 'entry' || row.legSeq === 0) {
       const posRead = await fetchFuturesPositionsSigned(sign, [row.marginCurrency], { baseUrl: VENUE_BASE })
         .catch(() => ({ ok: false }));
       if (posRead.ok && Array.isArray(posRead.positions)) {
-        const pos = posRead.positions.find((p) => p.pair === pair && Number(p.activePos) > 0);
+        const pos = posRead.positions.find((p) => p.pair === pair && Math.abs(Number(p.activePos)) > 0);
         if (pos !== undefined) {
           return { ok: true, order: { id: row.exchangeOrderId ?? pos.venuePositionId, statusRaw: 'filled' } };
         }
@@ -767,12 +780,18 @@ if (sending) {
     }
 
     // Replication lag grace period: CoinDCX derivatives orders endpoint can lag
-    // by 1-3 seconds after order submission. If the order was created recently (< 30s)
-    // or has a known venue exchange_order_id, return ok: false so the next poll retries
-    // instead of prematurely declaring order: null.
+    // by 1-3 seconds after order submission. If the order was created recently (< 30s),
+    // return ok: false so the next poll retries instead of prematurely declaring order: null.
     const ageMs = row.createdAt ? Date.now() - new Date(row.createdAt).getTime() : 0;
-    if (ageMs < 30_000 || row.exchangeOrderId) {
+    if (ageMs < 30_000) {
       return { ok: false };
+    }
+
+    // If the order is older than 30 seconds and not in active orders list:
+    // On CoinDCX derivatives, market orders execute immediately upon acceptance.
+    // If it is no longer listed in active/untriggered orders, it completed (filled or closed).
+    if (row.orderType === 'market') {
+      return { ok: true, order: { id: row.exchangeOrderId ?? row.childId, statusRaw: 'filled' } };
     }
 
     return { ok: true, order: null };

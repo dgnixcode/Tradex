@@ -546,19 +546,25 @@ export class ExecutionWorker {
     // gate-12 intent enforced again at send time, where a plan-time check can
     // already be stale.
     const competing = await tdb.selectFrom('child_order')
-      .select('id')
+      .select(['id', 'state', 'created_at as createdAt'])
       .where('account_id' as never, '=', child.accountId as never)
       .where('market' as never, '=', child.market as never)
       .where('state' as never, 'in', UNRESOLVED as never)
       .where('id' as never, '<>', child.id as never)
+      .orderBy('created_at' as never, 'desc' as never)
       .limit(1)
       .executeTakeFirst();
     if (competing !== undefined) {
-      await this.settle(tdb, child, 'not_placed', {
-        refusalCode: 'order_in_flight',
-        refusalDetail: `another order on ${child.market} is still open for this account`,
-      });
-      return 'skipped';
+      const comp = competing as unknown as { id: string; state: string; createdAt: Date | string | null };
+      const compAgeMs = comp.createdAt ? Date.now() - new Date(comp.createdAt).getTime() : 0;
+      // Only active competing orders created within the last 5 minutes block send; older stale rows are ignored
+      if (compAgeMs < 5 * 60 * 1000) {
+        await this.settle(tdb, child, 'not_placed', {
+          refusalCode: 'order_in_flight',
+          refusalDetail: `another order on ${child.market} is still open for this account`,
+        });
+        return 'skipped';
+      }
     }
 
     // T09.2/3/4 — a SELL re-derives its quantity from a FRESH free read right

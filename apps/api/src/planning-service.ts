@@ -540,6 +540,8 @@ export class PlanningService {
           effectiveAllocatedMinor = usdtFree;
         } else if (member.allocatedCurrency === 'USDT') {
           effectiveAllocatedMinor = member.allocatedCapitalMinor;
+        } else {
+          effectiveAllocatedMinor = '0';
         }
       }
     } else if (quote === 'USDT' && member.allocatedCurrency === 'INR' && ctx.usdtInrMid !== null) {

@@ -12,7 +12,7 @@
 // months later be explained, and what makes the confirmation screen able to show
 // why the largest account in a group got a different quantity from the smallest.
 
-import { div, mul, scaledFromMinor } from '@tradex/money';
+import { cmp, div, mul, scaledFromMinor } from '@tradex/money';
 import type { Scale, Scaled } from '@tradex/money';
 import type { MarketRules } from '@tradex/exchange';
 import { nat, GUARD_SCALE, quoteScaleOf, toStr } from './decimal.js';
@@ -163,7 +163,17 @@ export function size(input: SizeInput): Sized | Refusal {
     rawQty = q;
   }
 
-  const finalQuantity = floorQuantity(rawQty, rules);
+  let finalQuantity = floorQuantity(rawQty, rules);
+  if (
+    input.isFutures === true &&
+    cmp(rawQty, { v: 0n, scale: rawQty.scale }) > 0 &&
+    cmp(finalQuantity, { v: 0n, scale: finalQuantity.scale }) <= 0
+  ) {
+    const stepQty = nat(rules.quantityStep);
+    if (cmp(stepQty, { v: 0n, scale: stepQty.scale }) > 0) {
+      finalQuantity = floorQuantity(stepQty, rules);
+    }
+  }
 
   const legal = legalise({
     rules,

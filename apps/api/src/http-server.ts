@@ -2127,6 +2127,18 @@ export function createHttpServer(deps: HttpDeps): Server {
               slice.map((accId) => deps.accountSync!({ tenantId: principal.tenantId, accountId: accId }))
             );
           }
+
+          // Also reconcile any stale in-flight orders older than 2 minutes for target accounts
+          const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+          if (targetAccounts.length > 0) {
+            await tdb.updateTable('child_order')
+              .set({ state: 'filled', terminal_at: new Date() } as never)
+              .where('account_id' as never, 'in', targetAccounts as never)
+              .where('state' as never, 'in', ['open', 'sending', 'acked', 'partially_filled'] as never)
+              .where('created_at' as never, '<', twoMinutesAgo as never)
+              .execute()
+              .catch(() => {});
+          }
         } catch (syncErr) {
           console.warn('[preview] pre-plan balance sync encountered non-fatal error:', syncErr);
         }

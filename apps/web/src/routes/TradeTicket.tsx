@@ -993,6 +993,27 @@ export function TradeTicket() {
     [groups.data, groupId],
   );
 
+  // Auto-align margin currency to available balance if current currency is completely unfunded
+  useEffect(() => {
+    if (targetType === 'account' && selectedAccount) {
+      const inrBal = Number(selectedAccount.balancesByCurrency?.['INR'] || (selectedAccount.allocatedCurrency === 'INR' ? selectedAccount.allocatedCapitalMinor : '0'));
+      const usdtBal = Number(selectedAccount.balancesByCurrency?.['USDT'] || (selectedAccount.allocatedCurrency === 'USDT' ? selectedAccount.allocatedCapitalMinor : '0'));
+      if (marginCurrency === 'USDT' && usdtBal === 0 && inrBal > 0) {
+        setMarginCurrency('INR');
+      } else if (marginCurrency === 'INR' && inrBal === 0 && usdtBal > 0) {
+        setMarginCurrency('USDT');
+      }
+    } else if (targetType === 'group' && selectedGroup) {
+      const inrBal = Number(selectedGroup.allocatedByCurrency?.['INR'] ?? '0');
+      const usdtBal = Number(selectedGroup.allocatedByCurrency?.['USDT'] ?? '0');
+      if (marginCurrency === 'USDT' && usdtBal === 0 && inrBal > 0) {
+        setMarginCurrency('INR');
+      } else if (marginCurrency === 'INR' && inrBal === 0 && usdtBal > 0) {
+        setMarginCurrency('USDT');
+      }
+    }
+  }, [targetType, selectedAccount, selectedGroup, marginCurrency]);
+
   const availableCapitalMinor = useMemo(() => {
     if (targetType === 'account') {
       if (!selectedAccount) return '0';

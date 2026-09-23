@@ -212,6 +212,16 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
     return skip('ORDER_TYPE_NOT_ALLOWED', `A ${intent.orderType} order is not allowed on ${resolved.rules.venueSymbol}.`);
   }
 
+  // 6 — futures margin sufficiency check. An account with 0 free margin cannot open a position.
+  if (
+    state.isFutures &&
+    !(intent.mode === 'pct_position' || intent.mode === 'sell_all') &&
+    (state.freeQuoteMinor === '0' || state.freeQuoteMinor === undefined)
+  ) {
+    return skip('INSUFFICIENT_BALANCE',
+      `This account has 0 ${resolved.rules.market.quote} free margin in its wallet to fund this futures order.`);
+  }
+
   // 6-9 — sizing and legalisation. size() applies the effective minimum, the
   // min-notional floor, the by-order-type maximum and the balance/holding
   // sufficiency check, returning the first failure with its numbers.

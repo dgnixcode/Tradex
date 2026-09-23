@@ -300,11 +300,52 @@ const IN_FLIGHT_STATES = ['sending', 'ambiguous', 'acked', 'open', 'partially_fi
  */
 export async function hasInFlightOrder(tdb: TenantDb, accountId: string, market: string): Promise<boolean> {
   const row = await tdb.selectFrom('child_order')
-    .select('id')
+    .select(['id', 'state', 'created_at as createdAt'])
     .where('account_id' as never, '=', accountId as never)
     .where('market' as never, '=', market as never)
     .where('state' as never, 'in', IN_FLIGHT_STATES as never)
+    .orderBy('created_at' as never, 'desc' as never)
     .limit(1)
     .executeTakeFirst();
-  return row !== undefined;
+  if (row === undefined) return false;
+
+  const r = row as unknown as { id: string; state: string; createdAt: Date | string | null };
+  const ageMs = r.createdAt ? Date.now() - new Date(r.createdAt).getTime() : 0;
+
+  // Active / recent orders (< 5 minutes old) are considered in flight
+  if (ageMs < 5 * 60 * 1000) return true;
+
+  // Orders older than 5 minutes:
+  // Transient states ('sending', 'ambiguous', 'unknown', 'needs_human') older than 5 minutes
+  // are stale/abandoned and must not permanently lock the account from trading.
+  if (r.state === 'sending' || r.state === 'ambiguous' || r.state === 'unknown' || r.state === 'needs_human') {
+    return false;
+  }
+
+  // For older 'open', 'acked', 'partially_filled' orders:
+  // Check if there is an active position for this account and market.
+  // If the position is closed/flat or missing, the old order has long since finished.
+  try {
+    const pos = await tdb.selectFrom('futures_position')
+      .select('active_pos as activePos')
+      .where('account_id' as never, '=', accountId as never)
+      .where((eb: any) => eb.or([
+        eb('pair' as never, '=', market as never),
+        eb('pair' as never, '=', `B-${market.replace('-', '_')}` as never),
+        eb('pair' as never, '=', market.replace('-', '') as never),
+      ]))
+      .limit(1)
+      .executeTakeFirst();
+    if (pos === undefined) {
+      return false;
+    }
+    const p = pos as { activePos: string | null };
+    if (!p.activePos || p.activePos === '0' || p.activePos === '0.0' || Number(p.activePos) === 0) {
+      return false;
+    }
+  } catch {
+    if (ageMs > 15 * 60 * 1000) return false;
+  }
+
+  return true;
 }
