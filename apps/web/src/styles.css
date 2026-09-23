@@ -1775,7 +1775,7 @@ body:has(.panel-dark)::before {
 
 .panel-dark .app-layout {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 76px 1fr;
   height: 100vh;
   min-height: 100vh;
   background: #000000;
@@ -1784,8 +1784,8 @@ body:has(.panel-dark)::before {
 
 /* Thin Sidebar */
 .panel-dark .app-sidebar {
-  width: 72px;
-  padding: 10px 6px 14px;
+  width: 76px;
+  padding: 10px 5px 14px;
   background: #080a0f;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
@@ -1803,10 +1803,47 @@ body:has(.panel-dark)::before {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 4px 0 12px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 2px 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   width: 100%;
+  box-sizing: border-box;
+}
+
+.sidebar-brand-wrapper .brand,
+.sidebar-brand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 4px 0;
+  text-decoration: none;
+}
+
+.sidebar-brand-wrapper .brand-official-emblem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar-brand-wrapper .brand-official-emblem .brand-emblem-img {
+  width: 66px;
+  max-width: 100%;
+  height: auto;
+  max-height: 44px;
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
+  box-shadow: none;
+  filter: drop-shadow(0 2px 8px rgba(0, 100, 255, 0.4));
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+}
+
+.sidebar-brand-wrapper:hover .brand-emblem-img,
+.sidebar-brand-wrapper .brand:hover .brand-emblem-img {
+  transform: scale(1.08);
+  filter: drop-shadow(0 4px 14px rgba(0, 140, 255, 0.65));
 }
 
 .thin-nav {
@@ -1831,7 +1868,7 @@ body:has(.panel-dark)::before {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  width: 58px;
+  width: 62px;
   height: 48px;
   border-radius: 9px;
   color: #94a3b8;
@@ -4001,18 +4038,19 @@ body:has(.panel-dark)::before {
 }
 
 .brand-official-emblem .brand-emblem-img {
-  width: 38px;
+  width: auto;
   height: 38px;
-  border-radius: 9px;
+  max-width: 82px;
   object-fit: contain;
   display: block;
   image-rendering: -webkit-optimize-contrast;
-  box-shadow: 0 2px 10px rgba(0, 82, 204, 0.25);
-  transition: transform 0.18s ease;
+  filter: drop-shadow(0 2px 8px rgba(0, 82, 204, 0.35));
+  transition: transform 0.18s ease, filter 0.18s ease;
 }
 
 .brand-official-emblem:hover .brand-emblem-img {
   transform: scale(1.08);
+  filter: drop-shadow(0 4px 14px rgba(0, 82, 204, 0.6));
 }
 
 .brand-official-logo .brand-logo-img {

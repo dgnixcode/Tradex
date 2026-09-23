@@ -176,7 +176,7 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
 
         {/* Desktop Brand Icon (> 860px) */}
         <div className="sidebar-brand-wrapper desktop-only">
-          <Brand to="/app" onClick={onClose} showName={false} size="sm" />
+          <Brand to="/app" onClick={onClose} showName={false} size="md" className="sidebar-brand-btn" />
         </div>
 
         {/* Navigation Items */}
