@@ -756,9 +756,10 @@ export function TradeTicket() {
   const [side, setSide] = useState<Side>(() => draft.side || 'buy');
   const [orderType, setOrderType] = useState<OrderType>(() => draft.orderType || 'market');
   const [limitPrice, setLimitPrice] = useState<string>(() => draft.limitPrice || '');
-  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'chart' | 'watchlist'>(() => {
+  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'chart' | 'watchlist' | null>(() => {
     try {
       const saved = localStorage.getItem('tradex_active_tab');
+      if (saved === 'closed') return null;
       return (saved === 'chart' || saved === 'watchlist') ? saved : 'trade';
     } catch {
       return 'trade';
@@ -889,9 +890,13 @@ export function TradeTicket() {
   }, [marginCurrency]);
 
   useEffect(() => {
-    if (rightPanelTab) {
-      try { localStorage.setItem('tradex_active_tab', rightPanelTab); } catch {}
-    }
+    try {
+      if (rightPanelTab) {
+        localStorage.setItem('tradex_active_tab', rightPanelTab);
+      } else {
+        localStorage.setItem('tradex_active_tab', 'closed');
+      }
+    } catch {}
   }, [rightPanelTab]);
 
   useEffect(() => {
@@ -1247,10 +1252,12 @@ export function TradeTicket() {
     preview.mutate(req);
   };
 
+  const isPanelOpen = rightPanelTab === 'trade' || rightPanelTab === 'watchlist';
+
   return (
-    <div className="trading-terminal-layout">
+    <div className={`trading-terminal-layout ${!isPanelOpen ? 'panel-closed' : ''}`}>
       {/* Left Column: Full-View TradingView Advanced Live Chart */}
-      <div className={`trading-chart-col ${rightPanelTab === 'chart' ? 'mobile-chart-active' : 'mobile-chart-hidden'}`}>
+      <div className={`trading-chart-col ${rightPanelTab === 'chart' || !isPanelOpen ? 'mobile-chart-active' : 'mobile-chart-hidden'}`}>
         <TradingViewChart
           asset={asset || 'BTC'}
           quoteCurrency={quoteCurrency}
@@ -1270,31 +1277,37 @@ export function TradeTicket() {
         </div>
       </div>
 
-      {/* Right Column: Switcher Tabs + Panel (Trade Order vs Chart vs Watchlist) */}
-      <div className={`trading-right-panel ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}>
-        {/* Switcher Bar */}
-        <div className="panel-tab-switcher">
+      {/* Right Column: Collapsible Drawer Panel (Trade Order vs Watchlist) */}
+      <div
+        className={`trading-right-panel ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}
+        style={{ display: isPanelOpen ? 'flex' : 'none' }}
+      >
+        {/* Panel Header Strip */}
+        <div className="panel-header-strip">
+          <div className="panel-header-title">
+            {rightPanelTab === 'trade' ? (
+              <>
+                <span className="panel-header-text">Order Ticket</span>
+                <span className="panel-header-pill">{asset}/{quoteCurrency}</span>
+              </>
+            ) : (
+              <>
+                <span className="panel-header-text">Market Watchlist</span>
+                <span className="panel-header-pill">{quoteCurrency}</span>
+              </>
+            )}
+          </div>
           <button
             type="button"
-            className={`panel-tab-btn ${rightPanelTab === 'trade' ? 'active' : ''}`}
-            onClick={() => setRightPanelTab('trade')}
+            className="panel-close-btn"
+            onClick={() => setRightPanelTab(null)}
+            title="Close panel (Full width chart)"
+            aria-label="Close panel"
           >
-            <span>Order</span>
-            <span className="panel-tab-asset-pill">{asset}/{quoteCurrency}</span>
-          </button>
-          <button
-            type="button"
-            className={`panel-tab-btn mobile-only-tab ${rightPanelTab === 'chart' ? 'active' : ''}`}
-            onClick={() => setRightPanelTab('chart')}
-          >
-            <span>Chart</span>
-          </button>
-          <button
-            type="button"
-            className={`panel-tab-btn ${rightPanelTab === 'watchlist' ? 'active' : ''}`}
-            onClick={() => setRightPanelTab('watchlist')}
-          >
-            <span>Watchlist</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
@@ -2497,6 +2510,62 @@ export function TradeTicket() {
           />
         </div>
       </div>
+
+      {/* Far Right Column: 1-Side Vertical Panel Rail */}
+      <aside className="trading-vertical-rail" aria-label="Terminal side controls">
+        <button
+          type="button"
+          className={`rail-tab-btn ${rightPanelTab === 'trade' ? 'active' : ''}`}
+          onClick={() => setRightPanelTab((prev) => (prev === 'trade' ? null : 'trade'))}
+          title={rightPanelTab === 'trade' ? 'Close Order Ticket (Full width chart)' : 'Open Order Ticket'}
+          aria-label="Order Ticket"
+        >
+          <span className="rail-tab-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          </span>
+          <span className="rail-tab-label">Order</span>
+        </button>
+
+        <button
+          type="button"
+          className={`rail-tab-btn ${rightPanelTab === 'watchlist' ? 'active' : ''}`}
+          onClick={() => setRightPanelTab((prev) => (prev === 'watchlist' ? null : 'watchlist'))}
+          title={rightPanelTab === 'watchlist' ? 'Close Watchlist (Full width chart)' : 'Open Watchlist'}
+          aria-label="Watchlist"
+        >
+          <span className="rail-tab-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
+              <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
+              <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
+            </svg>
+          </span>
+          <span className="rail-tab-label">Watch</span>
+        </button>
+
+        {isPanelOpen && (
+          <button
+            type="button"
+            className="rail-collapse-btn"
+            onClick={() => setRightPanelTab(null)}
+            title="Collapse side panel (Full width chart)"
+            aria-label="Collapse panel"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        )}
+      </aside>
 
       <TradeProtectionModal
         isOpen={showProtectionModal}
