@@ -56,6 +56,73 @@ function priceToPercent(refPrice: number, triggerPrice: number, side: Side, leg:
   return Math.abs(pct);
 }
 
+interface ProtectionEstimate {
+  readonly triggerPrice: number;
+  readonly roePct: number;
+  readonly roeText: string;
+  readonly pnlNum: number | null;
+  readonly pnlText: string | null;
+}
+
+/**
+ * Calculates estimated profit or loss amount and ROE % for a protection trigger level.
+ */
+function calcProtectionEstimate({
+  refPrice,
+  triggerPrice,
+  side,
+  leverage,
+  quantity,
+  marginCurrency,
+  usdtInrRate,
+}: {
+  readonly refPrice: number;
+  readonly triggerPrice: number;
+  readonly side: Side;
+  readonly leverage?: string | number | undefined;
+  readonly quantity?: number | undefined;
+  readonly marginCurrency?: MarginCurrency | undefined;
+  readonly usdtInrRate?: number | null | undefined;
+}): ProtectionEstimate | null {
+  if (!Number.isFinite(refPrice) || refPrice <= 0) return null;
+  if (!Number.isFinite(triggerPrice) || triggerPrice <= 0) return null;
+
+  const isLong = side === 'buy';
+  const isShort = side === 'sell';
+  const lev = Number(leverage) > 0 ? Number(leverage) : 1;
+  const dir = isShort ? -1 : 1;
+
+  const priceDiff = isLong ? (triggerPrice - refPrice) : (refPrice - triggerPrice);
+  const roePct = ((triggerPrice - refPrice) / refPrice) * 100 * lev * dir;
+  const roeSign = roePct > 0 ? '+' : '';
+  const roeText = `${roeSign}${roePct.toFixed(1)}% ROE`;
+
+  let pnlNum: number | null = null;
+  let pnlText: string | null = null;
+
+  if (quantity && Number.isFinite(quantity) && quantity > 0) {
+    const fxPeg = marginCurrency === 'INR'
+      ? (usdtInrRate && usdtInrRate > 0 ? usdtInrRate : 100)
+      : 1;
+    const estPnl = priceDiff * quantity * fxPeg;
+    pnlNum = estPnl;
+    const sign = estPnl > 0 ? '+' : estPnl < 0 ? '−' : '';
+    const absVal = Math.abs(estPnl).toLocaleString(marginCurrency === 'INR' ? 'en-IN' : 'en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    pnlText = marginCurrency === 'INR' ? `${sign}₹${absVal}` : `${sign}${absVal} USDT`;
+  }
+
+  return {
+    triggerPrice,
+    roePct,
+    roeText,
+    pnlNum,
+    pnlText,
+  };
+}
+
 /**
  * A segmented choice — buttons instead of a dropdown.
  *
@@ -174,6 +241,10 @@ interface TradeProtectionModalProps {
   readonly trailingStepPercent: string;
   readonly setTrailingStepPercent: (s: string) => void;
   readonly onClearAll: () => void;
+  readonly leverage?: string | undefined;
+  readonly effectiveQty?: number | undefined;
+  readonly marginCurrency?: MarginCurrency | undefined;
+  readonly usdtInrRate?: number | null | undefined;
 }
 
 function TradeProtectionModal({
@@ -207,8 +278,67 @@ function TradeProtectionModal({
   trailingStepPercent,
   setTrailingStepPercent,
   onClearAll,
+  leverage,
+  effectiveQty,
+  marginCurrency,
+  usdtInrRate,
 }: TradeProtectionModalProps) {
   if (!isOpen) return null;
+
+  // Compute estimated profit for Take Profit
+  const tpTriggerPrice = useMemo(() => {
+    if (!enableTp || !hasRef) return null;
+    if (slTpMode === 'price') {
+      const p = Number(takeProfitPrice);
+      return Number.isFinite(p) && p > 0 ? p : null;
+    }
+    const pct = Number(tpPercent);
+    if (!Number.isFinite(pct) || pct <= 0) return null;
+    return percentToPrice(slTpRefNum, pct, side, 'tp');
+  }, [enableTp, hasRef, slTpMode, takeProfitPrice, tpPercent, slTpRefNum, side]);
+
+  const tpEstimate = useMemo(() => {
+    if (!tpTriggerPrice) return null;
+    return calcProtectionEstimate({
+      refPrice: slTpRefNum,
+      triggerPrice: tpTriggerPrice,
+      side,
+      leverage,
+      quantity: effectiveQty,
+      marginCurrency,
+      usdtInrRate,
+    });
+  }, [tpTriggerPrice, slTpRefNum, side, leverage, effectiveQty, marginCurrency, usdtInrRate]);
+
+  // Compute estimated loss for Stop Loss
+  const slTriggerPrice = useMemo(() => {
+    if (!enableSl || !hasRef) return null;
+    if (trailingStopLoss) {
+      const d = Number(trailingDistancePercent);
+      if (!Number.isFinite(d) || d <= 0) return null;
+      return percentToPrice(slTpRefNum, d, side, 'sl');
+    }
+    if (slTpMode === 'price') {
+      const p = Number(stopLossPrice);
+      return Number.isFinite(p) && p > 0 ? p : null;
+    }
+    const pct = Number(slPercent);
+    if (!Number.isFinite(pct) || pct <= 0) return null;
+    return percentToPrice(slTpRefNum, pct, side, 'sl');
+  }, [enableSl, hasRef, trailingStopLoss, trailingDistancePercent, slTpMode, stopLossPrice, slPercent, slTpRefNum, side]);
+
+  const slEstimate = useMemo(() => {
+    if (!slTriggerPrice) return null;
+    return calcProtectionEstimate({
+      refPrice: slTpRefNum,
+      triggerPrice: slTriggerPrice,
+      side,
+      leverage,
+      quantity: effectiveQty,
+      marginCurrency,
+      usdtInrRate,
+    });
+  }, [slTriggerPrice, slTpRefNum, side, leverage, effectiveQty, marginCurrency, usdtInrRate]);
 
   const currentPreset = (enableSl && enableTp)
     ? 'both'
@@ -264,6 +394,8 @@ function TradeProtectionModal({
             </h3>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
               {asset}/{quoteCurrency} • <span style={{ color: side === 'buy' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{side === 'buy' ? 'Long' : 'Short'}</span> • {orderType === 'limit' ? 'Limit' : 'Market'} • Ref Price: <strong style={{ color: '#ffffff' }}>{slTpRefPrice || '---'}</strong>
+              {leverage ? ` • ${leverage}×` : ''}
+              {effectiveQty && effectiveQty > 0 ? ` • Size: ~${effectiveQty >= 1 ? effectiveQty.toFixed(2) : effectiveQty.toFixed(4)} ${asset}` : ''}
             </div>
           </div>
           <button type="button" className="position-modal-close" onClick={onClose} aria-label="Close">
@@ -556,6 +688,27 @@ function TradeProtectionModal({
                 )}
               </div>
             )}
+
+            {enableSl && slEstimate && (
+              <div style={{
+                marginTop: 8,
+                padding: '6px 10px',
+                borderRadius: 6,
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 11.5,
+              }}>
+                <span style={{ color: '#f87171', fontWeight: 600 }}>
+                  {trailingStopLoss ? 'Est. Loss (Initial)' : 'Est. Loss'}
+                </span>
+                <span style={{ color: '#f87171', fontWeight: 700 }}>
+                  {slEstimate.pnlText ? `${slEstimate.pnlText} (${slEstimate.roeText})` : slEstimate.roeText}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Take Profit Card */}
@@ -678,7 +831,65 @@ function TradeProtectionModal({
                 )}
               </div>
             )}
+
+            {enableTp && tpEstimate && (
+              <div style={{
+                marginTop: 8,
+                padding: '6px 10px',
+                borderRadius: 6,
+                background: 'rgba(52, 211, 153, 0.08)',
+                border: '1px solid rgba(52, 211, 153, 0.25)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 11.5,
+              }}>
+                <span style={{ color: '#34d399', fontWeight: 600 }}>Est. Profit</span>
+                <span style={{ color: '#34d399', fontWeight: 700 }}>
+                  {tpEstimate.pnlText ? `${tpEstimate.pnlText} (${tpEstimate.roeText})` : tpEstimate.roeText}
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Estimated Outcome Summary */}
+          {((enableTp && tpEstimate) || (enableSl && slEstimate)) && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: (enableTp && tpEstimate && enableSl && slEstimate) ? '1fr 1fr' : '1fr',
+              gap: 8,
+              padding: '10px 12px',
+              background: '#090a0d',
+              border: '1px solid #1f232b',
+              borderRadius: 8,
+            }}>
+              {enableTp && tpEstimate && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Est. Profit (Take Profit)
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#34d399', marginTop: 2 }}>
+                    {tpEstimate.pnlText ? `${tpEstimate.pnlText} (${tpEstimate.roeText})` : tpEstimate.roeText}
+                  </div>
+                </div>
+              )}
+              {enableSl && slEstimate && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Est. Loss {trailingStopLoss ? '(Initial TSL)' : '(Stop Loss)'}
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f87171', marginTop: 2 }}>
+                    {slEstimate.pnlText ? `${slEstimate.pnlText} (${slEstimate.roeText})` : slEstimate.roeText}
+                  </div>
+                </div>
+              )}
+              {(!effectiveQty || effectiveQty <= 0) && (
+                <div style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#6b7280', borderTop: '1px solid #16181f', paddingTop: 6, marginTop: 2 }}>
+                  * ROE is calculated with {leverage || '1'}× leverage. Enter order size on the trade ticket to see estimated currency amount.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Footer actions */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
@@ -1202,6 +1413,70 @@ export function TradeTicket() {
         ? percentToPrice(slTpRefNum, Number(tpPercent), side, 'tp').toFixed(8).replace(/\.?0+$/, '')
         : (takeProfitPrice !== '' && Number(takeProfitPrice) > 0 ? takeProfitPrice : ''))
     : '';
+
+  // Base quantity of the order, used for estimated PnL calculation across single account and group orders.
+  const effectiveBaseQty: number = useMemo(() => {
+    if (sizingMode === 'quantity') {
+      const q = Number(quantity);
+      return Number.isFinite(q) && q > 0 ? q : 0;
+    }
+    if (sizingMode === 'percent' && percentValid && leverageValid && sizingRefPrice !== '') {
+      const p = Number(sizingRefPrice);
+      if (!Number.isFinite(p) || p <= 0) return 0;
+      const scale = marginCurrency === 'INR' ? 2 : 8;
+      const allocatedMajor = Number(availableCapitalMinor) / Math.pow(10, scale);
+      if (!Number.isFinite(allocatedMajor) || allocatedMajor <= 0) return 0;
+      let margin = allocatedMajor * (Number(percent) / 100);
+      if (marginCurrency === 'INR' && usdtInrRate && usdtInrRate > 0) {
+        margin = margin / usdtInrRate;
+      }
+      const notional = margin * Number(leverage);
+      const q = notional / p;
+      return Number.isFinite(q) && q > 0 ? q : 0;
+    }
+    return 0;
+  }, [
+    sizingMode,
+    quantity,
+    percentValid,
+    leverageValid,
+    sizingRefPrice,
+    marginCurrency,
+    availableCapitalMinor,
+    percent,
+    leverage,
+    usdtInrRate,
+  ]);
+
+  const ticketTpEstimate = useMemo(() => {
+    if (!enableTp || !hasRef || !effectiveTpPrice || Number(effectiveTpPrice) <= 0) return null;
+    return calcProtectionEstimate({
+      refPrice: slTpRefNum,
+      triggerPrice: Number(effectiveTpPrice),
+      side,
+      leverage,
+      quantity: effectiveBaseQty,
+      marginCurrency,
+      usdtInrRate,
+    });
+  }, [enableTp, hasRef, effectiveTpPrice, slTpRefNum, side, leverage, effectiveBaseQty, marginCurrency, usdtInrRate]);
+
+  const ticketSlEstimate = useMemo(() => {
+    if (!enableSl || !hasRef) return null;
+    const trigger = trailingStopLoss
+      ? (Number(trailingDistancePercent) > 0 ? percentToPrice(slTpRefNum, Number(trailingDistancePercent), side, 'sl') : null)
+      : (effectiveSlPrice && Number(effectiveSlPrice) > 0 ? Number(effectiveSlPrice) : null);
+    if (!trigger) return null;
+    return calcProtectionEstimate({
+      refPrice: slTpRefNum,
+      triggerPrice: trigger,
+      side,
+      leverage,
+      quantity: effectiveBaseQty,
+      marginCurrency,
+      usdtInrRate,
+    });
+  }, [enableSl, hasRef, trailingStopLoss, trailingDistancePercent, slTpRefNum, side, effectiveSlPrice, leverage, effectiveBaseQty, marginCurrency, usdtInrRate]);
 
   const sizeValid = sizingMode === 'percent' ? percentValid : quantityValid;
 
@@ -2426,17 +2701,22 @@ export function TradeTicket() {
                   {hasSl && hasTp ? 'TP & SL:' : hasTp ? 'Take Profit Only:' : 'Stop Loss Only:'}
                 </span>
                 {trailingStopLoss ? (
-                  <span style={{ color: '#f87171', fontWeight: 600 }}>TSL: {trailingDistancePercent}%</span>
+                  <span style={{ color: '#f87171', fontWeight: 600 }}>
+                    TSL: {trailingDistancePercent}%
+                    {ticketSlEstimate && ` (${ticketSlEstimate.pnlText ? `${ticketSlEstimate.pnlText} • ` : ''}${ticketSlEstimate.roeText})`}
+                  </span>
                 ) : (
                   hasSl && (
                     <span style={{ color: '#f87171', fontWeight: 600 }}>
                       SL: {slTpMode === 'percent' ? `${slPercent}% (≈ ${effectiveSlPrice})` : stopLossPrice}
+                      {ticketSlEstimate && ` (${ticketSlEstimate.pnlText ? `${ticketSlEstimate.pnlText} • ` : ''}${ticketSlEstimate.roeText})`}
                     </span>
                   )
                 )}
                 {hasTp && (
                   <span style={{ color: '#34d399', fontWeight: 600 }}>
                     TP: {slTpMode === 'percent' ? `${tpPercent}% (≈ ${effectiveTpPrice})` : takeProfitPrice}
+                    {ticketTpEstimate && ` (${ticketTpEstimate.pnlText ? `${ticketTpEstimate.pnlText} • ` : ''}${ticketTpEstimate.roeText})`}
                   </span>
                 )}
                 {!hasSl && hasTp && (
@@ -2619,6 +2899,10 @@ export function TradeTicket() {
         trailingStepPercent={trailingStepPercent}
         setTrailingStepPercent={setTrailingStepPercent}
         onClearAll={clearAllProtection}
+        leverage={leverage}
+        effectiveQty={effectiveBaseQty}
+        marginCurrency={marginCurrency}
+        usdtInrRate={usdtInrRate}
       />
     </div>
   );
