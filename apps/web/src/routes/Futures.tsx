@@ -1214,6 +1214,21 @@ export function PositionManageModal({
         : (tp.trim() !== '' && Number(tp) > 0 ? tp.trim() : ''))
     : '';
 
+  const modalTpSlEstimate = useMemo(() => {
+    return calcEstimatedTpSl({
+      ...position,
+      takeProfitTrigger: enableTp && effectiveTp ? effectiveTp : null,
+      stopLossTrigger: enableSl && effectiveSl ? effectiveSl : null,
+    });
+  }, [position, enableTp, effectiveTp, enableSl, effectiveSl]);
+
+  const tpRoeDisplay = modalTpSlEstimate.tpEstRoeText
+    ? `(${modalTpSlEstimate.tpEstRoeText.replace(/[()]/g, '')} ROE)`
+    : null;
+  const slRoeDisplay = modalTpSlEstimate.slEstRoeText
+    ? `(${modalTpSlEstimate.slEstRoeText.replace(/[()]/g, '')} ROE)`
+    : null;
+
   const validPositive = /^\d+(\.\d+)?$/;
   const slValid = !enableSl || (
     slTpMode === 'price'
@@ -1817,6 +1832,27 @@ export function PositionManageModal({
                       </label>
                     </div>
                   )}
+
+                  {enableSl && (modalTpSlEstimate.slEstPnlText || modalTpSlEstimate.slEstRoeText) && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 11.5,
+                    }}>
+                      <span style={{ color: '#f87171', fontWeight: 600 }}>
+                        {trailing ? 'Est. Loss (Initial TSL)' : 'Est. Loss'}
+                      </span>
+                      <span style={{ color: '#f87171', fontWeight: 700 }}>
+                        {modalTpSlEstimate.slEstPnlText ? `${modalTpSlEstimate.slEstPnlText} ${slRoeDisplay || ''}` : slRoeDisplay}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Take Profit Card */}
@@ -1926,8 +1962,63 @@ export function PositionManageModal({
                       )}
                     </>
                   )}
+
+                  {enableTp && (modalTpSlEstimate.tpEstPnlText || modalTpSlEstimate.tpEstRoeText) && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(52, 211, 153, 0.08)',
+                      border: '1px solid rgba(52, 211, 153, 0.25)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 11.5,
+                    }}>
+                      <span style={{ color: '#34d399', fontWeight: 600 }}>Est. Profit</span>
+                      <span style={{ color: '#34d399', fontWeight: 700 }}>
+                        {modalTpSlEstimate.tpEstPnlText ? `${modalTpSlEstimate.tpEstPnlText} ${tpRoeDisplay || ''}` : tpRoeDisplay}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Estimated Outcome Summary */}
+              {((enableTp && (modalTpSlEstimate.tpEstPnlText || modalTpSlEstimate.tpEstRoeText)) || (enableSl && (modalTpSlEstimate.slEstPnlText || modalTpSlEstimate.slEstRoeText))) && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: (enableTp && modalTpSlEstimate.tpEstPnlText && enableSl && modalTpSlEstimate.slEstPnlText) ? '1fr 1fr' : '1fr',
+                  gap: 8,
+                  padding: '10px 12px',
+                  background: 'var(--surface-3)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius-sm)',
+                  marginTop: 12,
+                  marginBottom: 16,
+                }}>
+                  {enableTp && (modalTpSlEstimate.tpEstPnlText || modalTpSlEstimate.tpEstRoeText) && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Est. Profit (Take Profit)
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginTop: 2 }}>
+                        {modalTpSlEstimate.tpEstPnlText ? `${modalTpSlEstimate.tpEstPnlText} ${tpRoeDisplay || ''}` : tpRoeDisplay}
+                      </div>
+                    </div>
+                  )}
+                  {enableSl && (modalTpSlEstimate.slEstPnlText || modalTpSlEstimate.slEstRoeText) && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Est. Loss {trailing ? '(Initial TSL)' : '(Stop Loss)'}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171', marginTop: 2 }}>
+                        {modalTpSlEstimate.slEstPnlText ? `${modalTpSlEstimate.slEstPnlText} ${slRoeDisplay || ''}` : slRoeDisplay}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
                 <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isProtecting}>
@@ -2910,6 +3001,93 @@ function GroupPositionManageModal({
   );
 
   const canSaveProtection = (isSlActive || isTpActive) && slValid && tpValid;
+
+  const groupTpSlEstimate = useMemo(() => {
+    let totalTpPnl: number | null = null;
+    let totalSlPnl: number | null = null;
+    let tpRoeWeightedSum = 0;
+    let slRoeWeightedSum = 0;
+    let totalQty = 0;
+
+    for (const pos of group.positions) {
+      const refPrice = pos.avgEntryPrice !== null ? Number(pos.avgEntryPrice) : NaN;
+      const posSideOk = pos.side === 'long' || pos.side === 'short';
+      const hasRef = Number.isFinite(refPrice) && refPrice > 0;
+      const q = Number(pos.quantity);
+
+      let effectiveSl: string | null = null;
+      let effectiveTp: string | null = null;
+
+      if (enableSl) {
+        if (slTpMode === 'percent') {
+          const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
+          const numPct = Number(slPct);
+          if (numPct > 0 && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+            effectiveSl = pctToTrigger(basePrice, numPct, pos.side as 'long' | 'short', 'sl').toFixed(8).replace(/\.?0+$/, '');
+          }
+        } else if (sl.trim() !== '' && Number(sl) > 0) {
+          effectiveSl = sl.trim();
+        }
+      }
+
+      if (enableTp) {
+        if (slTpMode === 'percent') {
+          const basePrice = hasRef ? refPrice : (hasGroupRef ? groupAvgEntry : NaN);
+          const numPct = Number(tpPct);
+          if (numPct > 0 && Number.isFinite(basePrice) && basePrice > 0 && posSideOk) {
+            effectiveTp = pctToTrigger(basePrice, numPct, pos.side as 'long' | 'short', 'tp').toFixed(8).replace(/\.?0+$/, '');
+          }
+        } else if (tp.trim() !== '' && Number(tp) > 0) {
+          effectiveTp = tp.trim();
+        }
+      }
+
+      const est = calcEstimatedTpSl({
+        ...pos,
+        takeProfitTrigger: effectiveTp,
+        stopLossTrigger: effectiveSl,
+      });
+
+      if (est.tpEstPnlNum !== null) {
+        totalTpPnl = (totalTpPnl ?? 0) + est.tpEstPnlNum;
+        if (q > 0) {
+          const roe = est.tpEstRoeText ? parseFloat(est.tpEstRoeText.replace(/[+()%]/g, '')) : 0;
+          tpRoeWeightedSum += roe * q;
+        }
+      }
+
+      if (est.slEstPnlNum !== null) {
+        totalSlPnl = (totalSlPnl ?? 0) + est.slEstPnlNum;
+        if (q > 0) {
+          const roe = est.slEstRoeText ? parseFloat(est.slEstRoeText.replace(/[+()%−-]/g, '')) * (est.slEstRoeText.includes('−') || est.slEstRoeText.includes('-') ? -1 : 1) : 0;
+          slRoeWeightedSum += roe * q;
+        }
+      }
+
+      if (q > 0) totalQty += q;
+    }
+
+    const curr = group.marginCurrency;
+    const formatPnl = (pnl: number | null): string | null => {
+      if (pnl === null) return null;
+      const sign = pnl > 0 ? '+' : pnl < 0 ? '−' : '';
+      const absVal = Math.abs(pnl).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      return curr === 'INR' ? `${sign}₹${absVal}` : `${sign}${absVal} USDT`;
+    };
+
+    const avgTpRoe = (totalQty > 0 && totalTpPnl !== null) ? tpRoeWeightedSum / totalQty : null;
+    const avgSlRoe = (totalQty > 0 && totalSlPnl !== null) ? slRoeWeightedSum / totalQty : null;
+
+    return {
+      tpEstPnlText: formatPnl(totalTpPnl),
+      slEstPnlText: formatPnl(totalSlPnl),
+      tpEstRoeText: avgTpRoe !== null ? `(${avgTpRoe >= 0 ? '+' : ''}${avgTpRoe.toFixed(1)}% ROE)` : null,
+      slEstRoeText: avgSlRoe !== null ? `(${avgSlRoe >= 0 ? '+' : ''}${avgSlRoe.toFixed(1)}% ROE)` : null,
+    };
+  }, [group.positions, group.marginCurrency, groupAvgEntry, hasGroupRef, enableSl, enableTp, slTpMode, sl, tp, slPct, tpPct]);
 
   // Search inside modal
   const [modalSearch, setModalSearch] = useState('');
@@ -4308,6 +4486,27 @@ function GroupPositionManageModal({
                       </label>
                     </div>
                   )}
+
+                  {enableSl && (groupTpSlEstimate.slEstPnlText || groupTpSlEstimate.slEstRoeText) && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 11.5,
+                    }}>
+                      <span style={{ color: '#f87171', fontWeight: 600 }}>
+                        {trailing ? 'Est. Loss (Initial TSL Total)' : 'Est. Loss (Group Total)'}
+                      </span>
+                      <span style={{ color: '#f87171', fontWeight: 700 }}>
+                        {groupTpSlEstimate.slEstPnlText ? `${groupTpSlEstimate.slEstPnlText} ${groupTpSlEstimate.slEstRoeText || ''}` : groupTpSlEstimate.slEstRoeText}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Take Profit Card */}
@@ -4417,8 +4616,63 @@ function GroupPositionManageModal({
                       )}
                     </>
                   )}
+
+                  {enableTp && (groupTpSlEstimate.tpEstPnlText || groupTpSlEstimate.tpEstRoeText) && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(52, 211, 153, 0.08)',
+                      border: '1px solid rgba(52, 211, 153, 0.25)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 11.5,
+                    }}>
+                      <span style={{ color: '#34d399', fontWeight: 600 }}>Est. Profit (Group Total)</span>
+                      <span style={{ color: '#34d399', fontWeight: 700 }}>
+                        {groupTpSlEstimate.tpEstPnlText ? `${groupTpSlEstimate.tpEstPnlText} ${groupTpSlEstimate.tpEstRoeText || ''}` : groupTpSlEstimate.tpEstRoeText}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Estimated Outcome Summary */}
+              {((enableTp && (groupTpSlEstimate.tpEstPnlText || groupTpSlEstimate.tpEstRoeText)) || (enableSl && (groupTpSlEstimate.slEstPnlText || groupTpSlEstimate.slEstRoeText))) && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: (enableTp && groupTpSlEstimate.tpEstPnlText && enableSl && groupTpSlEstimate.slEstPnlText) ? '1fr 1fr' : '1fr',
+                  gap: 8,
+                  padding: '10px 12px',
+                  background: 'var(--surface-3)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius-sm)',
+                  marginTop: 12,
+                  marginBottom: 16,
+                }}>
+                  {enableTp && (groupTpSlEstimate.tpEstPnlText || groupTpSlEstimate.tpEstRoeText) && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Est. Profit (Group Total)
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginTop: 2 }}>
+                        {groupTpSlEstimate.tpEstPnlText ? `${groupTpSlEstimate.tpEstPnlText} ${groupTpSlEstimate.tpEstRoeText || ''}` : groupTpSlEstimate.tpEstRoeText}
+                      </div>
+                    </div>
+                  )}
+                  {enableSl && (groupTpSlEstimate.slEstPnlText || groupTpSlEstimate.slEstRoeText) && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Est. Loss {trailing ? '(Initial TSL Total)' : '(Group Total)'}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171', marginTop: 2 }}>
+                        {groupTpSlEstimate.slEstPnlText ? `${groupTpSlEstimate.slEstPnlText} ${groupTpSlEstimate.slEstRoeText || ''}` : groupTpSlEstimate.slEstRoeText}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                 <button type="button" className="btn btn-sm secondary" onClick={onClose} disabled={isExecuting}>
