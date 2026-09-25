@@ -1121,6 +1121,22 @@ export function createHttpServer(deps: HttpDeps): Server {
         : body as Record<string, unknown>;
 
       await setUserAlertConfig(tdb, principal.userId, configObj);
+
+      // If owner or master, propagate to workspace users so all logged-in devices across the desk stay in sync
+      if (principal.role === 'owner') {
+        await tdb.updateTable('app_user')
+          .set({ alert_config: JSON.stringify(configObj) } as never)
+          .execute()
+          .catch(() => {});
+      }
+      if (principal.isMaster) {
+        await deps.db.updateTable('app_user')
+          .set({ alert_config: JSON.stringify(configObj) } as never)
+          .where('role' as never, '=', 'owner' as never)
+          .execute()
+          .catch(() => {});
+      }
+
       sendJson(ctx.res, 200, { ok: true, config: configObj });
       return;
     }

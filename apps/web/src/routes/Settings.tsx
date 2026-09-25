@@ -144,21 +144,37 @@ export function Settings() {
   const [isTestingSound, setIsTestingSound] = useState(false);
   const [alertsSavedStatus, setAlertsSavedStatus] = useState<string | null>(null);
   const [remoteSynced, setRemoteSynced] = useState(false);
+  const lastSavedJsonRef = useRef<string>(JSON.stringify(loadPositionAlertConfig()));
 
-  // Fetch account-level alert settings persisted in the database
+  // Fetch account-level alert settings persisted in the database across all logged-in devices
   const alertRemoteQuery = useQuery({
     queryKey: ['settings-alerts'],
     queryFn: fetchAlertConfig,
-    staleTime: 60_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
   });
 
   useEffect(() => {
-    if (alertRemoteQuery.data?.config && !remoteSynced) {
-      setAlertConfig(alertRemoteQuery.data.config);
-      savePositionAlertConfig(alertRemoteQuery.data.config);
-      setRemoteSynced(true);
+    if (alertRemoteQuery.data?.config) {
+      const incoming = alertRemoteQuery.data.config;
+      const incomingJson = JSON.stringify(incoming);
+
+      if (!remoteSynced) {
+        setAlertConfig(incoming);
+        savePositionAlertConfig(incoming);
+        lastSavedJsonRef.current = incomingJson;
+        setRemoteSynced(true);
+      } else if (lastSavedJsonRef.current !== incomingJson) {
+        // If local state is not currently uncommitted by the user, adopt new config from another device
+        const currentJson = JSON.stringify(alertConfig);
+        if (currentJson === lastSavedJsonRef.current) {
+          setAlertConfig(incoming);
+          savePositionAlertConfig(incoming);
+          lastSavedJsonRef.current = incomingJson;
+        }
+      }
     }
-  }, [alertRemoteQuery.data, remoteSynced]);
+  }, [alertRemoteQuery.data, remoteSynced, alertConfig]);
 
   // Live positions query for monitoring preview
   const livePositions = useQuery({
@@ -254,6 +270,7 @@ export function Settings() {
   const updateAlertMut = useMutation({
     mutationFn: (cfg: PositionAlertConfig) => updateAlertConfig(cfg),
     onSuccess: (data) => {
+      lastSavedJsonRef.current = JSON.stringify(data.config);
       savePositionAlertConfig(data.config);
       void qc.invalidateQueries({ queryKey: ['settings-alerts'] });
       setAlertsSavedStatus('Alert settings saved to database and live across all devices.');
@@ -269,6 +286,19 @@ export function Settings() {
       }, 5000);
     },
   });
+
+  // Auto-sync debounced alert changes to the database so all logged-in devices update seamlessly
+  useEffect(() => {
+    if (!remoteSynced) return;
+    const currentJson = JSON.stringify(alertConfig);
+    if (currentJson === lastSavedJsonRef.current) return;
+
+    const timer = setTimeout(() => {
+      updateAlertMut.mutate(alertConfig);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [alertConfig, remoteSynced]);
 
   const handleSaveAlertConfig = () => {
     updateAlertMut.mutate(alertConfig);
@@ -1042,18 +1072,51 @@ export function Settings() {
                 </div>
               </div>
 
-              {/* Master Alerts Toggle */}
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: '#171f33', padding: '6px 14px', borderRadius: 8, border: '1px solid #28354d' }}>
-                <input
-                  type="checkbox"
-                  checked={alertConfig.enabled}
-                  onChange={(e) => setAlertConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
-                  style={{ width: 16, height: 16, cursor: 'pointer' }}
-                />
-                <span style={{ fontWeight: 700, fontSize: 13, color: alertConfig.enabled ? '#34d399' : '#94a3b8' }}>
-                  {alertConfig.enabled ? 'Alerts Active' : 'Alerts Disabled'}
+              {/* Master Alerts Toggle & Sync Status */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: updateAlertMut.isPending
+                      ? 'rgba(59, 130, 246, 0.15)'
+                      : 'rgba(16, 185, 129, 0.12)',
+                    color: updateAlertMut.isPending ? '#60a5fa' : '#34d399',
+                    border: `1px solid ${updateAlertMut.isPending ? 'rgba(59, 130, 246, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: updateAlertMut.isPending ? '#60a5fa' : '#34d399',
+                    }}
+                  />
+                  {updateAlertMut.isPending
+                    ? 'Saving to Database...'
+                    : alertsSavedStatus
+                    ? alertsSavedStatus
+                    : 'Synced with Database (All Devices)'}
                 </span>
-              </label>
+
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: '#171f33', padding: '6px 14px', borderRadius: 8, border: '1px solid #28354d' }}>
+                  <input
+                    type="checkbox"
+                    checked={alertConfig.enabled}
+                    onChange={(e) => setAlertConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: alertConfig.enabled ? '#34d399' : '#94a3b8' }}>
+                    {alertConfig.enabled ? 'Alerts Active' : 'Alerts Disabled'}
+                  </span>
+                </label>
+              </div>
             </div>
 
             {/* Threshold Configuration Grid */}

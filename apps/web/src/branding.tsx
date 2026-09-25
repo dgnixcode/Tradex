@@ -33,7 +33,7 @@ export const DEFAULT_BRAND_NAME = 'Aza WealthKare';
 export const DEFAULT_EMAIL = 'support@azawealthkare.com';
 export const DEFAULT_PHONE = '+91 98765 43210';
 export const DEFAULT_WHATSAPP = '+91 98765 43210';
-export const DEFAULT_ADDRESS = 'Level 14, Tower B, Financial District, Bandra Kurla Complex (BKC), Mumbai, Maharashtra 400051';
+export const DEFAULT_ADDRESS = 'Unit No-217 second Floor Tower 3 RPS 12TH Avenue Sector  27C, Main Mathura Road  Faridabad 121003';
 export const DEFAULT_HOURS = 'Monday – Saturday: 9:00 AM – 8:00 PM IST';
 
 export function determineLogoType(logo: string | null): 'image' | 'icon' | 'default' {

@@ -10,7 +10,7 @@ CREATE TABLE platform_branding (
   email      text NOT NULL DEFAULT 'support@azawealthkare.com',
   phone      text NOT NULL DEFAULT '+91 98765 43210',
   whatsapp   text NOT NULL DEFAULT '+91 98765 43210',
-  address    text NOT NULL DEFAULT 'Level 14, Tower B, Financial District, Bandra Kurla Complex (BKC), Mumbai, Maharashtra 400051',
+  address    text NOT NULL DEFAULT 'Unit No-217 second Floor Tower 3 RPS 12TH Avenue Sector  27C, Main Mathura Road  Faridabad 121003',
   hours      text NOT NULL DEFAULT 'Monday – Saturday: 9:00 AM – 8:00 PM IST',
   updated_at timestamptz NOT NULL DEFAULT now(),
   updated_by text
@@ -24,7 +24,7 @@ VALUES (
   'support@azawealthkare.com',
   '+91 98765 43210',
   '+91 98765 43210',
-  'Level 14, Tower B, Financial District, Bandra Kurla Complex (BKC), Mumbai, Maharashtra 400051',
+  'Unit No-217 second Floor Tower 3 RPS 12TH Avenue Sector  27C, Main Mathura Road  Faridabad 121003',
   'Monday – Saturday: 9:00 AM – 8:00 PM IST'
 )
 ON CONFLICT (id) DO NOTHING;

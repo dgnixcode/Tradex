@@ -56,8 +56,20 @@ export async function getUserAlertConfig(
   const row = await tdb.byId('app_user', userId)
     .select(['alert_config'] as unknown as never)
     .executeTakeFirst();
-  if (!row) return null;
-  const raw = (row as { alert_config: unknown }).alert_config;
+  let raw = row ? (row as { alert_config: unknown }).alert_config : null;
+
+  // Fallback to workspace owner's alert_config if this user/device has no custom config yet
+  if (!raw) {
+    const ownerRow = await tdb.selectFrom('app_user')
+      .select(['alert_config'] as unknown as never)
+      .where('role' as never, '=', 'owner' as never)
+      .where('alert_config' as never, 'is not' as never, null as never)
+      .executeTakeFirst();
+    if (ownerRow) {
+      raw = (ownerRow as { alert_config: unknown }).alert_config;
+    }
+  }
+
   if (!raw) return null;
   if (typeof raw === 'string') {
     try {

@@ -31,17 +31,19 @@ export function GlobalPositionAlerts() {
   const [dismissedVisually, setDismissedVisually] = useState(false);
   const [, setSoundTick] = useState(0);
 
-  // Sync account-level alert settings persisted in the database across devices
+  // Sync account-level alert settings persisted in the database across all logged-in devices
   const remoteAlertQuery = useQuery({
     queryKey: ['settings-alerts'],
     queryFn: fetchAlertConfig,
-    staleTime: 60_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
   });
 
   useEffect(() => {
     if (remoteAlertQuery.data?.config) {
-      setConfig(remoteAlertQuery.data.config);
-      savePositionAlertConfig(remoteAlertQuery.data.config);
+      const incoming = remoteAlertQuery.data.config;
+      setConfig(incoming);
+      savePositionAlertConfig(incoming);
     }
   }, [remoteAlertQuery.data]);
 
@@ -56,7 +58,7 @@ export function GlobalPositionAlerts() {
     };
   }, []);
 
-  // Listen for config changes from Settings page
+  // Listen for config changes from Settings page and other tabs
   useEffect(() => {
     const handleConfigChange = (e: Event) => {
       const customEvent = e as CustomEvent<PositionAlertConfig>;
@@ -66,9 +68,21 @@ export function GlobalPositionAlerts() {
         setConfig(loadPositionAlertConfig());
       }
     };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'tradex_position_alerts_config' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as PositionAlertConfig;
+          setConfig(parsed);
+        } catch {
+          // ignore corrupted json
+        }
+      }
+    };
     window.addEventListener('tradex-alert-config-changed', handleConfigChange);
+    window.addEventListener('storage', handleStorageChange);
     return () => {
       window.removeEventListener('tradex-alert-config-changed', handleConfigChange);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
