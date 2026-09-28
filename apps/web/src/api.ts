@@ -1027,7 +1027,13 @@ export const exitFuturesPosition = (venuePositionId: string, marginCurrency: 'IN
  */
 export const setFuturesProtection = (
   venuePositionId: string,
-  body: { readonly stopLossPrice?: string; readonly takeProfitPrice?: string; readonly moveExisting?: boolean },
+  body: {
+    readonly stopLossPrice?: string;
+    readonly takeProfitPrice?: string;
+    readonly moveExisting?: boolean;
+    readonly removeStopLoss?: boolean;
+    readonly removeTakeProfit?: boolean;
+  },
 ): Promise<{
   readonly stopLoss?: { readonly ok: boolean; readonly reason?: string } | undefined;
   readonly takeProfit?: { readonly ok: boolean; readonly reason?: string } | undefined;

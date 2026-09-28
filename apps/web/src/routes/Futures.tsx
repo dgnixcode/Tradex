@@ -1052,7 +1052,14 @@ export interface PositionManageModalProps {
   readonly onClose: () => void;
   readonly onExit: (id: string, marginCurrency: 'INR' | 'USDT') => void;
   readonly onAdjust: (id: string, direction: 'reduce' | 'increase', percentBp?: number, quantity?: string) => void;
-  readonly onProtection: (args: { id: string; slp?: string | undefined; tpp?: string | undefined; trailing?: boolean | undefined }) => void;
+  readonly onProtection: (args: {
+    id: string;
+    slp?: string | undefined;
+    tpp?: string | undefined;
+    trailing?: boolean | undefined;
+    removeSl?: boolean | undefined;
+    removeTp?: boolean | undefined;
+  }) => void;
   readonly isExiting: boolean;
   readonly isAdjusting: boolean;
   readonly isProtecting: boolean;
@@ -1134,8 +1141,10 @@ export function PositionManageModal({
   // Protection state
   const initSl = position.stopLossTrigger && position.stopLossTrigger !== '0' && Number(position.stopLossTrigger) > 0 ? position.stopLossTrigger : '';
   const initTp = position.takeProfitTrigger && position.takeProfitTrigger !== '0' && Number(position.takeProfitTrigger) > 0 ? position.takeProfitTrigger : '';
-  const [enableSl, setEnableSl] = useState<boolean>(() => Boolean(initSl));
-  const [enableTp, setEnableTp] = useState<boolean>(() => Boolean(initTp));
+  const hasExistingSl = Boolean(initSl);
+  const hasExistingTp = Boolean(initTp);
+  const [enableSl, setEnableSl] = useState<boolean>(() => hasExistingSl);
+  const [enableTp, setEnableTp] = useState<boolean>(() => hasExistingTp);
   const [sl, setSl] = useState(initSl);
   const [tp, setTp] = useState(initTp);
   const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
@@ -1251,7 +1260,12 @@ export function PositionManageModal({
       ? (tp.trim() !== '' && Number(tp) > 0)
       : (tpPct.trim() !== '' && Number(tpPct) > 0)
   );
-  const canSaveProtection = (isSlActive || isTpActive) && slValid && tpValid;
+  const isRemovingSl = hasExistingSl && !enableSl;
+  const isRemovingTp = hasExistingTp && !enableTp;
+  const isSettingSl = enableSl && isSlActive;
+  const isSettingTp = enableTp && isTpActive;
+  const hasProtectionChanges = isSettingSl || isSettingTp || isRemovingSl || isRemovingTp;
+  const canSaveProtection = hasProtectionChanges && (!enableSl || slValid) && (!enableTp || tpValid);
 
   const sideBadgeColor = position.side === 'long' ? 'var(--ok)' : 'var(--danger)';
   const totalQty = Number(position.quantity);
@@ -1734,7 +1748,7 @@ export function PositionManageModal({
                         }}
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : 'var(--muted)' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : isRemovingSl ? '#ef4444' : 'var(--muted)' }}>
                         Stop Loss
                       </span>
                       <span style={{
@@ -1742,20 +1756,65 @@ export function PositionManageModal({
                         fontWeight: 700,
                         padding: '1px 6px',
                         borderRadius: 4,
-                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-3)',
-                        color: enableSl ? '#f87171' : 'var(--text-dim)',
-                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : isRemovingSl ? 'rgba(239, 68, 68, 0.2)' : 'var(--surface-3)',
+                        color: enableSl ? '#f87171' : isRemovingSl ? '#ef4444' : 'var(--text-dim)',
+                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : isRemovingSl ? 'rgba(239, 68, 68, 0.4)' : 'var(--line)'}`,
                         textTransform: 'uppercase',
                       }}>
-                        {enableSl ? 'Active' : 'Disabled'}
+                        {enableSl ? 'Active' : isRemovingSl ? 'Will Remove' : 'Disabled'}
                       </span>
                     </label>
+                    {enableSl && hasExistingSl && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Remove existing Stop Loss order"
+                        onClick={() => setEnableSl(false)}
+                      >
+                        Remove SL
+                      </button>
+                    )}
                   </div>
 
                   {!enableSl ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
-                      Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
-                    </div>
+                    isRemovingSl ? (
+                      <div style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 10px',
+                        margin: '6px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}>
+                        <span style={{ fontSize: 11.5, color: '#f87171', fontWeight: 600 }}>
+                          Existing Stop Loss ({fmtPrice(initSl)}) will be removed.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{ padding: '2px 8px', fontSize: 10.5 }}
+                          onClick={() => setEnableSl(true)}
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                        Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
+                      </div>
+                    )
                   ) : slTpMode === 'price' ? (
                     <>
                       <input
@@ -1878,7 +1937,7 @@ export function PositionManageModal({
                         }}
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : 'var(--muted)' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : isRemovingTp ? '#ef4444' : 'var(--muted)' }}>
                         Take Profit
                       </span>
                       <span style={{
@@ -1886,20 +1945,65 @@ export function PositionManageModal({
                         fontWeight: 700,
                         padding: '1px 6px',
                         borderRadius: 4,
-                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : 'var(--surface-3)',
-                        color: enableTp ? '#34d399' : 'var(--text-dim)',
-                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : isRemovingTp ? 'rgba(239, 68, 68, 0.2)' : 'var(--surface-3)',
+                        color: enableTp ? '#34d399' : isRemovingTp ? '#ef4444' : 'var(--text-dim)',
+                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : isRemovingTp ? 'rgba(239, 68, 68, 0.4)' : 'var(--line)'}`,
                         textTransform: 'uppercase',
                       }}>
-                        {enableTp ? 'Active' : 'Disabled'}
+                        {enableTp ? 'Active' : isRemovingTp ? 'Will Remove' : 'Disabled'}
                       </span>
                     </label>
+                    {enableTp && hasExistingTp && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Remove existing Take Profit order"
+                        onClick={() => setEnableTp(false)}
+                      >
+                        Remove TP
+                      </button>
+                    )}
                   </div>
 
                   {!enableTp ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
-                      Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
-                    </div>
+                    isRemovingTp ? (
+                      <div style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 10px',
+                        margin: '6px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}>
+                        <span style={{ fontSize: 11.5, color: '#f87171', fontWeight: 600 }}>
+                          Existing Take Profit ({fmtPrice(initTp)}) will be removed.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{ padding: '2px 8px', fontSize: 10.5 }}
+                          onClick={() => setEnableTp(true)}
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                        Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
+                      </div>
+                    )
                   ) : slTpMode === 'price' ? (
                     <>
                       <input
@@ -2028,22 +2132,39 @@ export function PositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   disabled={!canSaveProtection || isProtecting || isHalted}
+                  style={(isRemovingSl && isRemovingTp) || (isRemovingSl && !enableTp && !hasExistingTp) || (isRemovingTp && !enableSl && !hasExistingSl) ? {
+                    background: '#ef4444',
+                    borderColor: '#dc2626',
+                    color: '#ffffff',
+                  } : undefined}
                   onClick={() => onProtection({
                     id: position.venuePositionId,
                     slp: (enableSl && effectiveSl) ? effectiveSl : undefined,
                     tpp: (enableTp && effectiveTp) ? effectiveTp : undefined,
                     trailing: enableSl ? trailing : false,
+                    removeSl: isRemovingSl,
+                    removeTp: isRemovingTp,
                   })}
                 >
                   {isProtecting
                     ? 'Updating Protection…'
-                    : (!enableSl && !enableTp)
-                      ? 'Select TP or SL Strategy'
-                      : (enableTp && !enableSl)
-                        ? 'Save Take Profit'
-                        : (enableSl && !enableTp)
-                          ? 'Save Stop Loss'
-                          : 'Save Protection Rules'}
+                    : (isRemovingSl && isRemovingTp)
+                      ? 'Remove All Protection (Cancel SL & TP)'
+                      : (isRemovingSl && !enableTp && !hasExistingTp)
+                        ? 'Remove Stop Loss'
+                        : (isRemovingTp && !enableSl && !hasExistingSl)
+                          ? 'Remove Take Profit'
+                          : (isRemovingSl && enableTp)
+                            ? 'Remove SL & Save Take Profit'
+                            : (isRemovingTp && enableSl)
+                              ? 'Remove TP & Save Stop Loss'
+                              : (!enableSl && !enableTp)
+                                ? 'Select TP or SL Strategy'
+                                : (enableTp && !enableSl)
+                                  ? 'Save Take Profit'
+                                  : (enableSl && !enableTp)
+                                    ? 'Save Stop Loss'
+                                    : 'Save Protection Rules'}
                 </button>
               </div>
             </div>
@@ -2916,6 +3037,8 @@ function GroupPositionManageModal({
   const existingTpPos = group.positions.find((p) => p.takeProfitTrigger && p.takeProfitTrigger !== '0' && Number(p.takeProfitTrigger) > 0);
   const initSl = existingSlPos?.stopLossTrigger ?? '';
   const initTp = existingTpPos?.takeProfitTrigger ?? '';
+  const hasExistingSl = Boolean(existingSlPos);
+  const hasExistingTp = Boolean(existingTpPos);
   const initSlPct = (initSl && hasGroupRef && sideOk)
     ? triggerToPct(groupAvgEntry, Number(initSl), group.side as 'long' | 'short', 'sl').toFixed(2).replace(/\.?0+$/, '')
     : '';
@@ -2923,8 +3046,8 @@ function GroupPositionManageModal({
     ? triggerToPct(groupAvgEntry, Number(initTp), group.side as 'long' | 'short', 'tp').toFixed(2).replace(/\.?0+$/, '')
     : '';
 
-  const [enableSl, setEnableSl] = useState<boolean>(() => Boolean(initSl));
-  const [enableTp, setEnableTp] = useState<boolean>(() => Boolean(initTp));
+  const [enableSl, setEnableSl] = useState<boolean>(() => hasExistingSl);
+  const [enableTp, setEnableTp] = useState<boolean>(() => hasExistingTp);
 
   const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
   const [sl, setSl] = useState<string>(initSl);
@@ -2999,8 +3122,12 @@ function GroupPositionManageModal({
       ? (tp.trim() !== '' && Number(tp) > 0)
       : (tpPct.trim() !== '' && Number(tpPct) > 0)
   );
-
-  const canSaveProtection = (isSlActive || isTpActive) && slValid && tpValid;
+  const isRemovingSl = hasExistingSl && !enableSl;
+  const isRemovingTp = hasExistingTp && !enableTp;
+  const isSettingSl = enableSl && isSlActive;
+  const isSettingTp = enableTp && isTpActive;
+  const hasProtectionChanges = isSettingSl || isSettingTp || isRemovingSl || isRemovingTp;
+  const canSaveProtection = hasProtectionChanges && (!enableSl || slValid) && (!enableTp || tpValid);
 
   const groupTpSlEstimate = useMemo(() => {
     let totalTpPnl: number | null = null;
@@ -3489,18 +3616,28 @@ function GroupPositionManageModal({
           }
         }
 
-        const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
+        const body: {
+          stopLossPrice?: string;
+          takeProfitPrice?: string;
+          moveExisting: boolean;
+          removeStopLoss?: boolean;
+          removeTakeProfit?: boolean;
+        } = { moveExisting: true };
         if (effectiveSl) body.stopLossPrice = effectiveSl;
         if (effectiveTp) body.takeProfitPrice = effectiveTp;
+        if (isRemovingSl) body.removeStopLoss = true;
+        if (isRemovingTp) body.removeTakeProfit = true;
 
         await setFuturesProtection(pos.venuePositionId, body);
-        if (trailing && effectiveSl) {
+        if (trailing && effectiveSl && !isRemovingSl) {
           await setTrailingProtection(pos.venuePositionId, {
             enable: true,
             currentSlPrice: effectiveSl,
             stepBp: '100',
             distanceBp: '100',
           });
+        } else if (!trailing || isRemovingSl) {
+          await setTrailingProtection(pos.venuePositionId, { enable: false });
         }
         succeeded++;
       } catch {
@@ -4388,7 +4525,7 @@ function GroupPositionManageModal({
                         }}
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : 'var(--muted)' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableSl ? '#f87171' : isRemovingSl ? '#ef4444' : 'var(--muted)' }}>
                         Stop Loss
                       </span>
                       <span style={{
@@ -4396,20 +4533,65 @@ function GroupPositionManageModal({
                         fontWeight: 700,
                         padding: '1px 6px',
                         borderRadius: 4,
-                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : 'var(--surface-3)',
-                        color: enableSl ? '#f87171' : 'var(--text-dim)',
-                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : 'var(--line)'}`,
+                        background: enableSl ? 'rgba(239, 68, 68, 0.15)' : isRemovingSl ? 'rgba(239, 68, 68, 0.2)' : 'var(--surface-3)',
+                        color: enableSl ? '#f87171' : isRemovingSl ? '#ef4444' : 'var(--text-dim)',
+                        border: `1px solid ${enableSl ? 'rgba(239, 68, 68, 0.3)' : isRemovingSl ? 'rgba(239, 68, 68, 0.4)' : 'var(--line)'}`,
                         textTransform: 'uppercase',
                       }}>
-                        {enableSl ? 'Active' : 'Disabled'}
+                        {enableSl ? 'Active' : isRemovingSl ? 'Will Remove' : 'Disabled'}
                       </span>
                     </label>
+                    {enableSl && hasExistingSl && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Remove existing Stop Loss orders from all accounts in group"
+                        onClick={() => setEnableSl(false)}
+                      >
+                        Remove SL
+                      </button>
+                    )}
                   </div>
 
                   {!enableSl ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
-                      Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
-                    </div>
+                    isRemovingSl ? (
+                      <div style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 10px',
+                        margin: '6px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}>
+                        <span style={{ fontSize: 11.5, color: '#f87171', fontWeight: 600 }}>
+                          Existing Stop Loss will be removed from all accounts in this group.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{ padding: '2px 8px', fontSize: 10.5 }}
+                          onClick={() => setEnableSl(true)}
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                        Stop Loss is disabled. No stop-loss order will be placed. Check the box above or select SL Only / Both to enable.
+                      </div>
+                    )
                   ) : slTpMode === 'price' ? (
                     <>
                       <input
@@ -4532,7 +4714,7 @@ function GroupPositionManageModal({
                         }}
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : 'var(--muted)' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: enableTp ? '#34d399' : isRemovingTp ? '#ef4444' : 'var(--muted)' }}>
                         Take Profit
                       </span>
                       <span style={{
@@ -4540,20 +4722,65 @@ function GroupPositionManageModal({
                         fontWeight: 700,
                         padding: '1px 6px',
                         borderRadius: 4,
-                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : 'var(--surface-3)',
-                        color: enableTp ? '#34d399' : 'var(--text-dim)',
-                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : 'var(--line)'}`,
+                        background: enableTp ? 'rgba(52, 211, 153, 0.15)' : isRemovingTp ? 'rgba(239, 68, 68, 0.2)' : 'var(--surface-3)',
+                        color: enableTp ? '#34d399' : isRemovingTp ? '#ef4444' : 'var(--text-dim)',
+                        border: `1px solid ${enableTp ? 'rgba(52, 211, 153, 0.3)' : isRemovingTp ? 'rgba(239, 68, 68, 0.4)' : 'var(--line)'}`,
                         textTransform: 'uppercase',
                       }}>
-                        {enableTp ? 'Active' : 'Disabled'}
+                        {enableTp ? 'Active' : isRemovingTp ? 'Will Remove' : 'Disabled'}
                       </span>
                     </label>
+                    {enableTp && hasExistingTp && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          padding: '2px 8px',
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Remove existing Take Profit orders from all accounts in group"
+                        onClick={() => setEnableTp(false)}
+                      >
+                        Remove TP
+                      </button>
+                    )}
                   </div>
 
                   {!enableTp ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
-                      Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
-                    </div>
+                    isRemovingTp ? (
+                      <div style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 10px',
+                        margin: '6px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}>
+                        <span style={{ fontSize: 11.5, color: '#f87171', fontWeight: 600 }}>
+                          Existing Take Profit will be removed from all accounts in this group.
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm secondary"
+                          style={{ padding: '2px 8px', fontSize: 10.5 }}
+                          onClick={() => setEnableTp(true)}
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', padding: '6px 0', fontStyle: 'italic' }}>
+                        Take Profit is disabled. No take-profit order will be placed. Check the box above or select TP Only / Both to enable.
+                      </div>
+                    )
                   ) : slTpMode === 'price' ? (
                     <>
                       <input
@@ -4682,17 +4909,32 @@ function GroupPositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   disabled={isExecuting || isHalted || !canSaveProtection}
+                  style={(isRemovingSl && isRemovingTp) || (isRemovingSl && !enableTp && !hasExistingTp) || (isRemovingTp && !enableSl && !hasExistingSl) ? {
+                    background: '#ef4444',
+                    borderColor: '#dc2626',
+                    color: '#ffffff',
+                  } : undefined}
                   onClick={handleExecuteProtection}
                 >
                   {isExecuting
                     ? 'Updating Protection…'
-                    : (!enableSl && !enableTp)
-                      ? 'Select TP or SL Strategy'
-                      : (enableTp && !enableSl)
-                        ? `Apply Take Profit to All ${group.positions.length} Accounts`
-                        : (enableSl && !enableTp)
-                          ? `Apply Stop Loss to All ${group.positions.length} Accounts`
-                          : `Apply Rules to All ${group.positions.length} Accounts`}
+                    : (isRemovingSl && isRemovingTp)
+                      ? `Remove All Protection for ${group.positions.length} Accounts`
+                      : (isRemovingSl && !enableTp && !hasExistingTp)
+                        ? `Remove Stop Loss from All ${group.positions.length} Accounts`
+                        : (isRemovingTp && !enableSl && !hasExistingSl)
+                          ? `Remove Take Profit from All ${group.positions.length} Accounts`
+                          : (isRemovingSl && enableTp)
+                            ? `Remove SL & Apply TP to All ${group.positions.length} Accounts`
+                            : (isRemovingTp && enableSl)
+                              ? `Remove TP & Apply SL to All ${group.positions.length} Accounts`
+                              : (!enableSl && !enableTp)
+                                ? 'Select TP or SL Strategy'
+                                : (enableTp && !enableSl)
+                                  ? `Apply Take Profit to All ${group.positions.length} Accounts`
+                                  : (enableSl && !enableTp)
+                                    ? `Apply Stop Loss to All ${group.positions.length} Accounts`
+                                    : `Apply Rules to All ${group.positions.length} Accounts`}
                 </button>
               </div>
             </div>
@@ -5651,21 +5893,36 @@ export function Futures() {
   });
 
   const protMut = useMutation({
-    mutationFn: async (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined; readonly trailing?: boolean | undefined }) => {
-      const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
+    mutationFn: async (args: {
+      readonly id: string;
+      readonly slp?: string | undefined;
+      readonly tpp?: string | undefined;
+      readonly trailing?: boolean | undefined;
+      readonly removeSl?: boolean | undefined;
+      readonly removeTp?: boolean | undefined;
+    }) => {
+      const body: {
+        stopLossPrice?: string;
+        takeProfitPrice?: string;
+        moveExisting: boolean;
+        removeStopLoss?: boolean;
+        removeTakeProfit?: boolean;
+      } = { moveExisting: true };
       if (args.slp !== undefined && args.slp !== '') body.stopLossPrice = args.slp;
       if (args.tpp !== undefined && args.tpp !== '') body.takeProfitPrice = args.tpp;
+      if (args.removeSl) body.removeStopLoss = true;
+      if (args.removeTp) body.removeTakeProfit = true;
 
       const out = await setFuturesProtection(args.id, body);
 
-      if (args.trailing && args.slp) {
+      if (args.trailing && args.slp && !args.removeSl) {
         await setTrailingProtection(args.id, {
           enable: true,
           currentSlPrice: args.slp,
           stepBp: '100',
           distanceBp: '100',
         });
-      } else if (!args.trailing) {
+      } else if (!args.trailing || args.removeSl) {
         await setTrailingProtection(args.id, { enable: false });
       }
       return out;

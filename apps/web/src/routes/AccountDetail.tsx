@@ -300,21 +300,36 @@ export function AccountDetail() {
   });
 
   const protMut = useMutation({
-    mutationFn: async (args: { readonly id: string; readonly slp?: string | undefined; readonly tpp?: string | undefined; readonly trailing?: boolean | undefined }) => {
-      const body: { stopLossPrice?: string; takeProfitPrice?: string; moveExisting: boolean } = { moveExisting: true };
+    mutationFn: async (args: {
+      readonly id: string;
+      readonly slp?: string | undefined;
+      readonly tpp?: string | undefined;
+      readonly trailing?: boolean | undefined;
+      readonly removeSl?: boolean | undefined;
+      readonly removeTp?: boolean | undefined;
+    }) => {
+      const body: {
+        stopLossPrice?: string;
+        takeProfitPrice?: string;
+        moveExisting: boolean;
+        removeStopLoss?: boolean;
+        removeTakeProfit?: boolean;
+      } = { moveExisting: true };
       if (args.slp !== undefined && args.slp !== '') body.stopLossPrice = args.slp;
       if (args.tpp !== undefined && args.tpp !== '') body.takeProfitPrice = args.tpp;
+      if (args.removeSl) body.removeStopLoss = true;
+      if (args.removeTp) body.removeTakeProfit = true;
 
       const out = await setFuturesProtection(args.id, body);
 
-      if (args.trailing && args.slp) {
+      if (args.trailing && args.slp && !args.removeSl) {
         await setTrailingProtection(args.id, {
           enable: true,
           currentSlPrice: args.slp,
           stepBp: '100',
           distanceBp: '100',
         });
-      } else if (!args.trailing) {
+      } else if (!args.trailing || args.removeSl) {
         await setTrailingProtection(args.id, { enable: false });
       }
       return out;

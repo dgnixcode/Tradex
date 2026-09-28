@@ -943,7 +943,9 @@ if (sending) {
     setProtection: async (args) => {
       const sign = await signFor(args.actor.tenantId, args.actor.accountId);
       if (sign === null) return { stopLoss: { ok: false, reason: 'no credential for this account' } };
-      if (args.moveExisting === true) {
+      const shouldCancelSl = args.removeStopLoss === true || (args.moveExisting === true && args.stopLossPrice !== undefined);
+      const shouldCancelTp = args.removeTakeProfit === true || (args.moveExisting === true && args.takeProfitPrice !== undefined);
+      if (shouldCancelSl || shouldCancelTp || args.moveExisting === true) {
         const pos = await db.selectFrom('futures_position')
           .select(['pair', 'margin_currency as marginCurrency'])
           .where('venue_position_id', '=', args.venuePositionId)
@@ -959,16 +961,39 @@ if (sending) {
             if (active.ok) {
               for (const order of active.orders) {
                 if (order.pair !== pos.pair) continue;
-                if (args.stopLossPrice !== undefined && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
+                if ((shouldCancelSl || (args.stopLossPrice !== undefined && args.moveExisting === true)) && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
                   await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
                 }
-                if (args.takeProfitPrice !== undefined && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
+                if ((shouldCancelTp || (args.takeProfitPrice !== undefined && args.moveExisting === true)) && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
                   await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
                 }
               }
             }
           }
         }
+      }
+      if (args.removeStopLoss === true) {
+        try {
+          const { clearTrailingSl } = await import('@tradex/db');
+          await clearTrailingSl(forTenant(db, args.actor.tenantId), args.actor.accountId, args.venuePositionId);
+        } catch {
+          // Ignore if clearTrailingSl is unavailable
+        }
+      }
+      if (args.stopLossPrice === undefined && args.takeProfitPrice === undefined) {
+        const updates = {};
+        if (args.removeStopLoss === true) updates.stop_loss_trigger = null;
+        if (args.removeTakeProfit === true) updates.take_profit_trigger = null;
+        if (Object.keys(updates).length > 0) {
+          await db.updateTable('futures_position')
+            .set(updates)
+            .where('venue_position_id', '=', args.venuePositionId)
+            .execute();
+        }
+        return {
+          ...(args.removeStopLoss ? { stopLoss: { ok: true } } : {}),
+          ...(args.removeTakeProfit ? { takeProfit: { ok: true } } : {}),
+        };
       }
       const out = await attachStopAndTakeSigned(sign, {
         positionId: args.venuePositionId,
@@ -979,6 +1004,17 @@ if (sending) {
       }, { baseUrl: VENUE_BASE });
       if (!out.ok) {
         return { stopLoss: { ok: false, reason: out.failure.detail ?? 'the venue refused the attach' } };
+      }
+      if (args.removeStopLoss === true || args.removeTakeProfit === true) {
+        const updates = {};
+        if (args.removeStopLoss === true) updates.stop_loss_trigger = null;
+        if (args.removeTakeProfit === true) updates.take_profit_trigger = null;
+        if (Object.keys(updates).length > 0) {
+          await db.updateTable('futures_position')
+            .set(updates)
+            .where('venue_position_id', '=', args.venuePositionId)
+            .execute();
+        }
       }
       return out;
     },

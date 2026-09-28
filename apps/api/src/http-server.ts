@@ -110,6 +110,8 @@ export interface FuturesTpSlPort {
     readonly takeProfitPrice?: string | undefined;
     readonly moveExisting?: boolean | undefined;
     readonly triggerRef?: FuturesTriggerRef | undefined;
+    readonly removeStopLoss?: boolean | undefined;
+    readonly removeTakeProfit?: boolean | undefined;
   }) => Promise<{
     readonly stopLoss?: { readonly ok: boolean; readonly reason?: string | undefined } | undefined;
     readonly takeProfit?: { readonly ok: boolean; readonly reason?: string | undefined } | undefined;
@@ -1459,15 +1461,23 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (deps.futuresTpSl === undefined) {
         throw new HttpError(503, 'futures execution is not configured in this build');
       }
-      const body = (ctx.body ?? {}) as { stopLossPrice?: unknown; takeProfitPrice?: unknown; moveExisting?: unknown };
+      const body = (ctx.body ?? {}) as {
+        stopLossPrice?: unknown;
+        takeProfitPrice?: unknown;
+        moveExisting?: unknown;
+        removeStopLoss?: unknown;
+        removeTakeProfit?: unknown;
+      };
       const sl = body.stopLossPrice;
       const tp = body.takeProfitPrice;
+      const removeSl = body.removeStopLoss === true;
+      const removeTp = body.removeTakeProfit === true;
       if ((sl !== undefined && (typeof sl !== 'string' || Number(sl) <= 0 || !Number.isFinite(Number(sl)))) ||
           (tp !== undefined && (typeof tp !== 'string' || Number(tp) <= 0 || !Number.isFinite(Number(tp))))) {
         throw new HttpError(400, 'stopLossPrice and takeProfitPrice must be positive decimal strings');
       }
-      if (sl === undefined && tp === undefined) {
-        throw new HttpError(400, 'at least one of stopLossPrice or takeProfitPrice is required');
+      if (sl === undefined && tp === undefined && !removeSl && !removeTp) {
+        throw new HttpError(400, 'at least one of stopLossPrice, takeProfitPrice, removeStopLoss, or removeTakeProfit is required');
       }
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futTpslMatch[1] as string);
       if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
@@ -1478,6 +1488,8 @@ export function createHttpServer(deps: HttpDeps): Server {
           ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
           ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
           ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
+          ...(removeSl ? { removeStopLoss: true } : {}),
+          ...(removeTp ? { removeTakeProfit: true } : {}),
         });
         sendJson(ctx.res, 200, out);
       } catch (e) {
