@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchAlertConfig, fetchFuturesPositions } from '../api.ts';
@@ -11,6 +11,8 @@ import {
 import { buildGroups, calcGroupRoePct } from '../routes/Futures.tsx';
 
 interface BreachedGroup {
+  readonly breachKey: string;
+  readonly kind: 'roe' | 'price';
   readonly groupKey: string;
   readonly asset: string;
   readonly pair: string;
@@ -25,7 +27,8 @@ interface BreachedGroup {
 
 export function GlobalPositionAlerts() {
   const [config, setConfig] = useState<PositionAlertConfig>(() => loadPositionAlertConfig());
-  const [acknowledgedKeys, setAcknowledgedKeys] = useState<Set<string>>(() => new Set());
+  const acknowledgedKeysRef = useRef<Set<string>>(new Set());
+  const [, setAcknowledgedTick] = useState(0);
   const [activeBreaches, setActiveBreaches] = useState<readonly BreachedGroup[]>([]);
   const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
   const [dismissedVisually, setDismissedVisually] = useState(false);
@@ -140,6 +143,8 @@ export function GlobalPositionAlerts() {
         const breachKey = `${g.key}:down`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
+          breachKey,
+          kind: 'roe',
           groupKey: g.key,
           asset: g.asset,
           pair: g.pair,
@@ -157,6 +162,8 @@ export function GlobalPositionAlerts() {
         const breachKey = `${g.key}:up`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
+          breachKey,
+          kind: 'roe',
           groupKey: g.key,
           asset: g.asset,
           pair: g.pair,
@@ -174,6 +181,8 @@ export function GlobalPositionAlerts() {
         const breachKey = `${g.key}:price-below`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
+          breachKey,
+          kind: 'price',
           groupKey: g.key,
           asset: g.asset,
           pair: g.pair,
@@ -191,6 +200,8 @@ export function GlobalPositionAlerts() {
         const breachKey = `${g.key}:price-above`;
         currentActiveKeys.add(breachKey);
         newBreaches.push({
+          breachKey,
+          kind: 'price',
           groupKey: g.key,
           asset: g.asset,
           pair: g.pair,
@@ -206,21 +217,15 @@ export function GlobalPositionAlerts() {
     }
 
     // Recovered groups: remove from acknowledged set so they can trigger again if re-breached
-    setAcknowledgedKeys((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const k of prev) {
-        if (!currentActiveKeys.has(k)) {
-          next.delete(k);
-          changed = true;
-        }
+    for (const k of Array.from(acknowledgedKeysRef.current)) {
+      if (!currentActiveKeys.has(k)) {
+        acknowledgedKeysRef.current.delete(k);
       }
-      return changed ? next : prev;
-    });
+    }
 
     // Check if any breach is unacknowledged
     const unacknowledged = newBreaches.filter(
-      (b) => !acknowledgedKeys.has(`${b.groupKey}:${b.direction}`)
+      (b) => !acknowledgedKeysRef.current.has(b.breachKey) && !acknowledgedKeysRef.current.has(`${b.groupKey}:${b.direction}`)
     );
 
     setActiveBreaches(newBreaches);
@@ -242,7 +247,6 @@ export function GlobalPositionAlerts() {
   }, [
     config,
     positionsQuery.data?.views,
-    acknowledgedKeys,
   ]);
 
   // Clean up sound on unmount
@@ -252,19 +256,24 @@ export function GlobalPositionAlerts() {
     };
   }, []);
 
-  const handleStopAlert = (e?: React.MouseEvent) => {
+  const handleStopAlert = (e?: React.SyntheticEvent) => {
     if (e) {
       e.stopPropagation();
+      e.preventDefault();
     }
+    // 1. Immediately halt audio synthesizer/HTML5 siren audio
     alertSound.stopAlertLoop();
     setIsAlarmPlaying(false);
-    setAcknowledgedKeys((prev) => {
-      const next = new Set(prev);
-      for (const b of activeBreaches) {
-        next.add(`${b.groupKey}:${b.direction}`);
-      }
-      return next;
-    });
+    setDismissedVisually(true);
+
+    // 2. Mark all currently active breaches as acknowledged
+    for (const b of activeBreaches) {
+      acknowledgedKeysRef.current.add(b.breachKey);
+      acknowledgedKeysRef.current.add(`${b.groupKey}:${b.direction}`);
+      acknowledgedKeysRef.current.add(`${b.groupKey}:price-below`);
+      acknowledgedKeysRef.current.add(`${b.groupKey}:price-above`);
+    }
+    setAcknowledgedTick((t) => t + 1);
   };
 
   if (!config.enabled || activeBreaches.length === 0 || (dismissedVisually && !isAlarmPlaying)) {
@@ -272,6 +281,7 @@ export function GlobalPositionAlerts() {
   }
 
   const hasDownBreach = activeBreaches.some((b) => b.direction === 'down');
+  const hasPriceBreach = activeBreaches.some((b) => b.kind === 'price');
   const isSoundActive = alertSound.isActivelySounding();
 
   return (
@@ -279,8 +289,14 @@ export function GlobalPositionAlerts() {
       className={`global-position-alert-top-banner ${hasDownBreach ? 'alert-danger' : 'alert-success'}`}
       role="alert"
       aria-live="assertive"
-      onClick={() => {
-        alertSound.unlockAndPlay();
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (target && target.closest && target.closest('.alert-banner-actions, button, a')) {
+          return;
+        }
+        if (isAlarmPlaying) {
+          alertSound.unlockAndPlay();
+        }
       }}
     >
       <div className="alert-top-banner-inner">
@@ -295,7 +311,9 @@ export function GlobalPositionAlerts() {
           </div>
           <div className="alert-banner-title-area">
             <span className="alert-banner-badge">
-              {hasDownBreach ? 'POSITION DROP ALERT' : 'POSITION PROFIT TARGET'}
+              {hasPriceBreach
+                ? (hasDownBreach ? 'PRICE TARGET ALERT (FLOOR)' : 'PRICE TARGET ALERT (CEILING)')
+                : (hasDownBreach ? 'POSITION DROP ALERT' : 'POSITION PROFIT TARGET')}
             </span>
             {isAlarmPlaying && (
               <span
@@ -321,7 +339,7 @@ export function GlobalPositionAlerts() {
             const isDown = b.direction === 'down';
             return (
               <div
-                key={`${b.groupKey}:${b.direction}`}
+                key={b.breachKey}
                 className={`alert-coin-chip ${isDown ? 'chip-down' : 'chip-up'}`}
                 title={b.triggerReason}
               >
@@ -332,10 +350,17 @@ export function GlobalPositionAlerts() {
                 {b.groupNames.length > 0 && (
                   <span className="alert-chip-group">({b.groupNames.join(', ')})</span>
                 )}
-                <span className="alert-chip-roe">
-                  {isDown ? '↓ ' : '↑ '}
-                  {b.roePct >= 0 ? `+${b.roePct.toFixed(2)}%` : `${b.roePct.toFixed(2)}%`}
-                </span>
+                {b.kind === 'price' && b.markPrice ? (
+                  <span className="alert-chip-roe">
+                    {isDown ? '↓ ' : '↑ '}
+                    ${b.markPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                  </span>
+                ) : (
+                  <span className="alert-chip-roe">
+                    {isDown ? '↓ ' : '↑ '}
+                    {b.roePct >= 0 ? `+${b.roePct.toFixed(2)}%` : `${b.roePct.toFixed(2)}%`}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -348,6 +373,8 @@ export function GlobalPositionAlerts() {
               type="button"
               className="alert-stop-sound-btn"
               onClick={(e) => handleStopAlert(e)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               title="Stop sounding siren alert immediately"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -364,31 +391,26 @@ export function GlobalPositionAlerts() {
             className="alert-view-positions-btn"
             onClick={(e) => {
               e.stopPropagation();
-              if (isAlarmPlaying) {
-                handleStopAlert(e);
-              }
+              handleStopAlert(e);
             }}
           >
             <span>View Positions →</span>
           </Link>
 
-          {!isAlarmPlaying && (
-            <button
-              type="button"
-              className="alert-dismiss-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDismissedVisually(true);
-              }}
-              title="Dismiss notification"
-              aria-label="Dismiss notification"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
+          <button
+            type="button"
+            className="alert-dismiss-btn"
+            onClick={(e) => handleStopAlert(e)}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="Dismiss notification"
+            aria-label="Dismiss notification"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>

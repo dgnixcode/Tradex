@@ -129,6 +129,7 @@ class AlertSoundEngine {
   private sirenBuffer: AudioBuffer | null = null;
   private bufferPromise: Promise<AudioBuffer | null> | null = null;
   private activeSource: AudioBufferSourceNode | null = null;
+  private activeOscillators: OscillatorNode[] = [];
   private unlockListenerBound = false;
   private activeUnlockHandler: ((e: Event) => void) | null = null;
 
@@ -161,7 +162,7 @@ class AlertSoundEngine {
     const unlock = (e: Event) => {
       // If user clicked stop or dismiss buttons, do not force-start audio
       const target = e.target as HTMLElement | null;
-      if (target && target.closest && target.closest('.alert-stop-sound-btn, .alert-dismiss-btn')) {
+      if (target && target.closest && target.closest('.alert-stop-sound-btn, .alert-dismiss-btn, .alert-banner-actions')) {
         return;
       }
 
@@ -394,6 +395,13 @@ class AlertSoundEngine {
     this.playSynthesizedChime(soundType, clampedVolume);
   }
 
+  private registerOscillator(osc: OscillatorNode): void {
+    this.activeOscillators.push(osc);
+    osc.addEventListener('ended', () => {
+      this.activeOscillators = this.activeOscillators.filter((o) => o !== osc);
+    }, { once: true });
+  }
+
   private playSynthesizedChime(soundType: 'harmonic' | 'bell' | 'pulse', volume: number): void {
     try {
       const ctx = this.getContext();
@@ -411,6 +419,7 @@ class AlertSoundEngine {
         ];
         for (const n of notes) {
           const osc = ctx.createOscillator();
+          this.registerOscillator(osc);
           const noteGain = ctx.createGain();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(n.freq, now + n.time);
@@ -430,6 +439,7 @@ class AlertSoundEngine {
         const frequencies = [698.46, 1046.5, 1396.91];
         frequencies.forEach((freq, idx) => {
           const osc = ctx.createOscillator();
+          this.registerOscillator(osc);
           const noteGain = ctx.createGain();
           osc.type = idx === 0 ? 'sine' : 'triangle';
           osc.frequency.setValueAtTime(freq, now);
@@ -448,6 +458,7 @@ class AlertSoundEngine {
         // Pulse tone: Modern dual rhythmic alert
         [0, 0.16].forEach((offset) => {
           const osc = ctx.createOscillator();
+          this.registerOscillator(osc);
           const noteGain = ctx.createGain();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(987.77, now + offset);
@@ -499,6 +510,15 @@ class AlertSoundEngine {
       clearInterval(this.loopTimer);
       this.loopTimer = null;
     }
+    for (const osc of this.activeOscillators) {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch {
+        // Ignore
+      }
+    }
+    this.activeOscillators = [];
     this.stopSirenAudio();
     this.unbindAutoplayUnlock();
   }
