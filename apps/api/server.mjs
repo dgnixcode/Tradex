@@ -346,29 +346,67 @@ const enginePorts = {};
    */
   const syncClosedTradesForAccount = async (tdb, tenantId, accountId, sign) => {
     try {
-      const txRes = await listFuturesPositionsTransactionsSigned(
-        sign,
-        { stage: 'all', page: 1, size: 100 },
-        { baseUrl: VENUE_BASE },
-      );
-      if (!txRes.ok) return 0;
+      // 1. Fetch transactions across stages:
+      // - 'exit': positions closed via CoinDCX Market Close Position
+      // - 'tpsl_exit': positions closed via CoinDCX Take Profit / Stop Loss triggers
+      // - 'default': trades executed directly on CoinDCX (filter for amount !== 0 to capture exit/reduce orders)
+      // - 'all': catches liquidations and any other unmapped closing stages
+      const rawTxMap = new Map();
+      const stagesToFetch = ['exit', 'tpsl_exit', 'default', 'all'];
 
-      const exitTxs = txRes.transactions.filter(
-        (t) => t.stage === 'exit' || t.stage === 'tpsl_exit' || t.stage === 'liquidation',
-      );
-      if (exitTxs.length === 0) return 0;
-
-      const [buyOrdersRes, sellOrdersRes] = await Promise.all([
-        listFuturesOrdersSigned(sign, { side: 'buy', status: 'filled', page: 1, size: 100 }, { baseUrl: VENUE_BASE }),
-        listFuturesOrdersSigned(sign, { side: 'sell', status: 'filled', page: 1, size: 100 }, { baseUrl: VENUE_BASE }),
-      ]);
-
-      const orderMap = new Map();
-      if (buyOrdersRes.ok) {
-        for (const o of buyOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+      for (const stg of stagesToFetch) {
+        for (const page of [1, 2]) {
+          const res = await listFuturesPositionsTransactionsSigned(
+            sign,
+            { stage: stg, page, size: 100 },
+            { baseUrl: VENUE_BASE },
+          );
+          if (!res.ok || res.transactions.length === 0) break;
+          for (const t of res.transactions) {
+            const isExit =
+              t.stage === 'exit' ||
+              t.stage === 'tpsl_exit' ||
+              t.stage === 'liquidation' ||
+              (t.stage === 'default' && t.amount !== 0);
+            if (isExit) {
+              const txKey = `${t.parentId ?? ''}_${t.positionId ?? ''}_${t.createdAtMs}_${t.amount}`;
+              rawTxMap.set(txKey, t);
+            }
+          }
+          if (res.transactions.length < 100) break;
+        }
       }
-      if (sellOrdersRes.ok) {
-        for (const o of sellOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+
+      if (rawTxMap.size === 0) return 0;
+
+      // 2. Group by (parentId, positionId) to aggregate multi-fill orders
+      const groupedOrders = new Map();
+      for (const t of rawTxMap.values()) {
+        const groupKey = `${t.parentId ?? ''}_${t.positionId ?? ''}`;
+        const existing = groupedOrders.get(groupKey);
+        if (!existing) {
+          groupedOrders.set(groupKey, { ...t });
+        } else {
+          groupedOrders.set(groupKey, {
+            ...existing,
+            amount: existing.amount + t.amount,
+            feeAmount: existing.feeAmount + t.feeAmount,
+            createdAtMs: Math.max(existing.createdAtMs, t.createdAtMs),
+            updatedAtMs: Math.max(existing.updatedAtMs, t.updatedAtMs),
+          });
+        }
+      }
+
+      // 3. Fetch filled orders for order details (avgPrice, quantity, side, leverage)
+      const orderMap = new Map();
+      for (const page of [1, 2]) {
+        const [buyOrdersRes, sellOrdersRes] = await Promise.all([
+          listFuturesOrdersSigned(sign, { side: 'buy', status: 'filled', page, size: 100 }, { baseUrl: VENUE_BASE }),
+          listFuturesOrdersSigned(sign, { side: 'sell', status: 'filled', page, size: 100 }, { baseUrl: VENUE_BASE }),
+        ]);
+        if (buyOrdersRes.ok) for (const o of buyOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+        if (sellOrdersRes.ok) for (const o of sellOrdersRes.orders) orderMap.set(o.venueOrderId, o);
+        if ((!buyOrdersRes.ok || buyOrdersRes.orders.length < 100) && (!sellOrdersRes.ok || sellOrdersRes.orders.length < 100)) break;
       }
 
       const hiddenRows = await tdb.selectFrom('futures_position')
@@ -377,8 +415,9 @@ const enginePorts = {};
         .execute();
       const hiddenSet = new Set(hiddenRows.map((r) => r.venuePositionId));
 
+      const allowedStages = new Set(['exit', 'tpsl_exit', 'liquidation', 'default']);
       const tradeInputs = [];
-      for (const t of exitTxs) {
+      for (const t of groupedOrders.values()) {
         const order = t.parentId ? orderMap.get(t.parentId) : undefined;
         const isSellExit = order ? order.side === 'sell' : true;
         const side = isSellExit ? 'long' : 'short';
@@ -424,6 +463,7 @@ const enginePorts = {};
         const closedAt = new Date(t.createdAtMs);
         const openedAtMs = order?.createdAtMs ?? t.createdAtMs;
         const durationMs = Math.max(0, closedAt.getTime() - openedAtMs);
+        const exitStage = allowedStages.has(t.stage) ? t.stage : 'default';
 
         tradeInputs.push({
           accountId,
@@ -443,7 +483,7 @@ const enginePorts = {};
           closedAt,
           venuePositionId: t.positionId,
           venueOrderId: t.parentId,
-          exitStage: t.stage,
+          exitStage,
           hideFromPositions: t.positionId ? hiddenSet.has(t.positionId) : false,
         });
       }
@@ -1288,24 +1328,35 @@ const tslEngine = new TrailingSlEngine(
 tslEngine.start();
 
 // Periodic closed trade sync across accounts to keep realized PnL and trade history up to date
+let isSyncingClosedTrades = false;
 const syncAllClosedTrades = async () => {
+  if (isSyncingClosedTrades) return;
+  isSyncingClosedTrades = true;
   try {
     const tenants = await db.selectFrom('tenant').select('id').execute();
     for (const t of tenants) {
       const tdb = forTenant(db, t.id);
       const accounts = await listAccounts(tdb);
       const activeAccounts = accounts.filter((a) => a.status === 'active');
-      for (const acc of activeAccounts) {
-        try {
-          const sign = await signFor(t.id, acc.id, 'read orders and transactions history on behalf of the account owner');
-          if (sign !== null) {
-            await syncClosedTradesForAccount(tdb, t.id, acc.id, sign, VENUE_BASE);
-          }
-        } catch { /* best-effort */ }
+      const CHUNK_SIZE = 4;
+      for (let i = 0; i < activeAccounts.length; i += CHUNK_SIZE) {
+        const chunk = activeAccounts.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (acc) => {
+            try {
+              const sign = await signFor(t.id, acc.id, 'read orders and transactions history on behalf of the account owner');
+              if (sign !== null) {
+                await syncClosedTradesForAccount(tdb, t.id, acc.id, sign);
+              }
+            } catch { /* best-effort */ }
+          }),
+        );
       }
     }
   } catch (e) {
     console.error('[sync-all-closed-trades] sweep failed:', e instanceof Error ? e.message : String(e));
+  } finally {
+    isSyncingClosedTrades = false;
   }
 };
 
