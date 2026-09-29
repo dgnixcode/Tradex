@@ -409,12 +409,6 @@ const enginePorts = {};
         if ((!buyOrdersRes.ok || buyOrdersRes.orders.length < 100) && (!sellOrdersRes.ok || sellOrdersRes.orders.length < 100)) break;
       }
 
-      const hiddenRows = await tdb.selectFrom('futures_position')
-        .select(['venue_position_id as venuePositionId'])
-        .where('hide_from_positions', '=', true)
-        .execute();
-      const hiddenSet = new Set(hiddenRows.map((r) => r.venuePositionId));
-
       const allowedStages = new Set(['exit', 'tpsl_exit', 'liquidation', 'default']);
       const tradeInputs = [];
       for (const t of groupedOrders.values()) {
@@ -484,7 +478,7 @@ const enginePorts = {};
           venuePositionId: t.positionId,
           venueOrderId: t.parentId,
           exitStage,
-          hideFromPositions: t.positionId ? hiddenSet.has(t.positionId) : false,
+          hideFromPositions: false,
         });
       }
 

@@ -439,7 +439,7 @@ export async function buildTradingAnalytics(
     accountIds: Array.from(targetAccountIds),
     fromMs: fromMs > 0 ? fromMs : undefined,
     toMs: toMs > 0 && toMs < nowMs ? toMs : undefined,
-    hideHidden: true,
+    hideHidden: false,
   });
 
   for (const t of persistedClosedTrades) {
