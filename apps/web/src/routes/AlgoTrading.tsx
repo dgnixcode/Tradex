@@ -92,6 +92,9 @@ function formatLookbackLabel(tf: string, item: LookbackPresetItem): string {
   }
 
   const estBars = Math.round(item.months * 30.4 * barsPerDay);
+  if (estBars > 100_000) {
+    return `${item.label} (up to 100k ${tf} bars max)`;
+  }
   const barStr = estBars >= 1000 ? `${(estBars / 1000).toFixed(estBars >= 10000 ? 0 : 1)}k` : String(estBars);
   return `${item.label} (~${barStr} ${tf} bars)`;
 }
@@ -460,13 +463,13 @@ export function AlgoTrading() {
       case '100': limitVal = 100; break;
       case '300': limitVal = 300; break;
       case '1000': limitVal = 1000; break;
-      case '1m': limitVal = 100_000; lookbackMonthsVal = 1; break;
-      case '3m': limitVal = 300_000; lookbackMonthsVal = 3; break;
-      case '6m': limitVal = 600_000; lookbackMonthsVal = 6; break;
-      case '1y': limitVal = 1_200_000; lookbackMonthsVal = 12; break;
-      case '2y': limitVal = 2_000_000; lookbackMonthsVal = 24; break;
-      case '3y': limitVal = 2_800_000; lookbackMonthsVal = 36; break;
-      case '4y': limitVal = 3_500_000; lookbackMonthsVal = 48; break;
+      case '1m': limitVal = 50_000; lookbackMonthsVal = 1; break;
+      case '3m': limitVal = 80_000; lookbackMonthsVal = 3; break;
+      case '6m': limitVal = 100_000; lookbackMonthsVal = 6; break;
+      case '1y': limitVal = 100_000; lookbackMonthsVal = 12; break;
+      case '2y': limitVal = 100_000; lookbackMonthsVal = 24; break;
+      case '3y': limitVal = 100_000; lookbackMonthsVal = 36; break;
+      case '4y': limitVal = 100_000; lookbackMonthsVal = 48; break;
       default: limitVal = backtestCandleLimit; break;
     }
 

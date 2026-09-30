@@ -577,8 +577,10 @@ export async function loadHistoricalCandles(
 
     if (diskCandles.length >= 25) {
       diskCandles.sort((a, b) => a.time - b.time);
-      if (!options.lookbackMonths && options.limit && diskCandles.length > options.limit) {
-        return diskCandles.slice(diskCandles.length - options.limit);
+      const MAX_CANDLES = 100_000;
+      const effectiveLimit = options.limit ? Math.min(options.limit, MAX_CANDLES) : MAX_CANDLES;
+      if (diskCandles.length > effectiveLimit) {
+        return diskCandles.slice(diskCandles.length - effectiveLimit);
       }
       return diskCandles;
     }
@@ -624,21 +626,23 @@ export async function loadHistoricalCandles(
     }
   }
 
-  // Sort and deduplicate by timestamp
+  // Sort and deduplicate sequentially by timestamp (avoids allocating millions of Set entries)
   allCandles.sort((a, b) => a.time - b.time);
 
   const deduped: CandleData[] = [];
-  const seenTimes = new Set<number>();
-  for (const c of allCandles) {
-    if (!seenTimes.has(c.time)) {
-      seenTimes.add(c.time);
+  for (let i = 0; i < allCandles.length; i++) {
+    const c = allCandles[i]!;
+    if (deduped.length === 0 || c.time > deduped[deduped.length - 1]!.time) {
       deduped.push(c);
     }
   }
 
-  // If lookbackMonths is not set, apply limit; otherwise return the complete requested history
-  if (!options.lookbackMonths && options.limit && deduped.length > options.limit) {
-    return deduped.slice(deduped.length - options.limit);
+  // Safety guardrail: cap at 100,000 candles to guarantee low memory usage (~10MB RAM)
+  const MAX_CANDLES = 100_000;
+  const effectiveLimit = options.limit ? Math.min(options.limit, MAX_CANDLES) : MAX_CANDLES;
+
+  if (deduped.length > effectiveLimit) {
+    return deduped.slice(deduped.length - effectiveLimit);
   }
 
   return deduped;

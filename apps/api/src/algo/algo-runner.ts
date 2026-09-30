@@ -215,3 +215,62 @@ export async function executeStrategyScript(
     };
   }
 }
+
+/**
+ * Compiles a strategy script once for high-performance backtesting across thousands of candles.
+ * Eliminates repeated VM context creation and AST parsing per candle.
+ */
+export function compileStrategyForBacktest(scriptSource: string): (ctx: AlgoContext) => Promise<unknown> {
+  let cleanedCode = scriptSource.trim();
+  if (cleanedCode.includes('export default')) {
+    cleanedCode = cleanedCode.replace(/export\s+default\s+/, '__entrypoint = ');
+  } else if (cleanedCode.includes('module.exports =')) {
+    cleanedCode = cleanedCode.replace(/module\.exports\s*=\s*/, '__entrypoint = ');
+  } else if (cleanedCode.includes('exports.default =')) {
+    cleanedCode = cleanedCode.replace(/exports\.default\s*=\s*/, '__entrypoint = ');
+  }
+
+  cleanedCode = cleanedCode.replace(/export\s+(async\s+function|function|const|let|var|class)\s+/g, '$1 ');
+
+  const sandbox = {
+    Math,
+    Date,
+    JSON,
+    parseInt,
+    parseFloat,
+    isNaN,
+    isFinite,
+    Array,
+    Object,
+    String,
+    Number,
+    Boolean,
+    Map,
+    Set,
+    Promise,
+    console: {
+      log: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    },
+  };
+
+  const vmContext = vm.createContext(sandbox);
+
+  const wrapper = `
+    (function() {
+      let __entrypoint = null;
+      ${cleanedCode};
+      if (typeof __entrypoint === 'function') return __entrypoint;
+      if (typeof run === 'function') return run;
+      if (typeof onTick === 'function') return onTick;
+      if (typeof execute === 'function') return execute;
+      throw new Error('Strategy script must define or export default an async function run(context)');
+    })()
+  `;
+
+  const script = new vm.Script(wrapper, { filename: 'strategy-backtest.js' });
+  const fn = script.runInContext(vmContext) as (ctx: AlgoContext) => Promise<unknown>;
+  return fn;
+}

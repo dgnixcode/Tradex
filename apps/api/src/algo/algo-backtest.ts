@@ -7,7 +7,7 @@ import * as indicators from './algo-indicators.js';
 import type { CandleData } from './algo-indicators.js';
 import { fetchHistoricalCandles } from './algo-sdk.js';
 import type { AlgoPosition, AlgoTradeOptions } from './algo-sdk.js';
-import { executeStrategyScript } from './algo-runner.js';
+import { compileStrategyForBacktest } from './algo-runner.js';
 import { loadHistoricalCandles } from './binance-history.js';
 
 export interface BacktestTrade {
@@ -140,6 +140,9 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
     );
   }
 
+  // Compile strategy script once to eliminate per-candle VM compilation overhead
+  const strategyRunner = compileStrategyForBacktest(options.script);
+
   const sim: SimState = {
     equity: initialCapital,
     currentPos: null,
@@ -158,7 +161,6 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
 
   for (let i = minWarmup; i < candles.length; i++) {
     const candle = candles[i]!;
-    const candleSlice = candles.slice(0, i + 1);
 
     // 1. Check TP/SL triggers against high/low of current candle
     if (sim.currentPos) {
@@ -237,7 +239,11 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
     const simulatedContext = {
       market: {
         getPrice: async () => candle.close,
-        getCandles: async () => candleSlice,
+        getCandles: async (limit?: number) => {
+          const count = limit ? Math.min(limit, 1000) : 300;
+          const startIdx = Math.max(0, i + 1 - count);
+          return candles.slice(startIdx, i + 1);
+        },
       },
       positions: {
         get: async (p: string) => {
@@ -477,10 +483,16 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
       params,
     };
 
-    // 3. Execute strategy script for current candle
-    await executeStrategyScript(options.script, simulatedContext, 3000);
+    // 3. Execute compiled strategy function for current candle
+    try {
+      await strategyRunner(simulatedContext as unknown as import('./algo-sdk.js').AlgoContext);
+    } catch (err) {
+      if (logs.length < 50) {
+        logs.push(`[${new Date(candle.time).toISOString()}] Tick error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
-    // 4. Record equity curve snapshot
+    // 4. Record equity curve snapshot (downsampled to max ~500 points + trade execution bars)
     let currentMarkEquity = sim.equity;
     if (sim.currentPos) {
       const pos = sim.currentPos;
@@ -494,12 +506,16 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
     const dd = peakEquity > 0 ? ((peakEquity - currentMarkEquity) / peakEquity) * 100 : 0;
     if (dd > maxDrawdown) maxDrawdown = dd;
 
-    equityCurve.push({
-      time: candle.time,
-      price: candle.close,
-      equity: Number(currentMarkEquity.toFixed(2)),
-      drawdownPct: Number(dd.toFixed(2)),
-    });
+    const sampleStep = Math.max(1, Math.floor(candles.length / 500));
+    const isTradeBar = trades.length > 0 && trades[trades.length - 1]!.exitTime === candle.time;
+    if (i === minWarmup || i === candles.length - 1 || i % sampleStep === 0 || isTradeBar) {
+      equityCurve.push({
+        time: candle.time,
+        price: candle.close,
+        equity: Number(currentMarkEquity.toFixed(2)),
+        drawdownPct: Number(dd.toFixed(2)),
+      });
+    }
   }
 
   // Close any trailing position at final candle close

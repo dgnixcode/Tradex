@@ -317,6 +317,58 @@ describe('Binance Historical Candle Engine', () => {
     expect(candles[0]!.close).toBe(42503.5);
     expect(candles[0]!.volume).toBe(8459.477);
   });
+
+  it('runs high-throughput simulation over 5,000 candles rapidly without memory leak', async () => {
+    const candles: CandleData[] = [];
+    const baseTime = Date.now() - 5000 * 300_000;
+    let price = 50000;
+    for (let i = 0; i < 5000; i++) {
+      const open = price;
+      const change = (i % 2 === 0 ? 1 : -1) * (10 + (i % 50));
+      const close = open + change;
+      const high = Math.max(open, close) + 15;
+      const low = Math.min(open, close) - 15;
+      price = close;
+      candles.push({
+        open,
+        high,
+        low,
+        close,
+        volume: 100,
+        time: baseTime + i * 300_000,
+      });
+    }
+
+    const script = `
+      export default async function run({ market, positions, trade, indicators }) {
+        const candles = await market.getCandles(50);
+        const rsiVal = indicators.rsi(candles.map(c => c.close), 14);
+        const latestRsi = rsiVal[rsiVal.length - 1];
+        const pos = await positions.get('B-BTC_USDT');
+        if (latestRsi && latestRsi < 40 && !pos) {
+          await trade.buy({ pair: 'B-BTC_USDT', percentBp: 2000, leverage: 5 });
+        } else if (latestRsi && latestRsi > 60 && pos) {
+          await trade.close('B-BTC_USDT');
+        }
+      }
+    `;
+
+    const start = Date.now();
+    const result = await runBacktest({
+      script,
+      pair: 'B-BTC_USDT',
+      timeframe: '5m',
+      initialCapital: 10000,
+      customCandles: candles,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(result.candleCount).toBe(5000);
+    // 5000 candles should complete well under 2 seconds
+    expect(elapsed).toBeLessThan(2000);
+    // Downsampled equity curve should have fewer than 1000 points
+    expect(result.equityCurve.length).toBeLessThan(1000);
+  });
 });
 
 describe('Currency Scale Conversions', () => {
