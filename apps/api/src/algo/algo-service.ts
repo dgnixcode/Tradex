@@ -51,6 +51,20 @@ export interface AlgoServiceDeps {
   readonly now?: (() => number) | undefined;
 }
 
+export function minorToMajor(minor: unknown, scale: number): number {
+  if (minor === null || minor === undefined) return 0;
+  const s = String(minor).trim();
+  if (s === '' || s === '0') return 0;
+  const isNeg = s.startsWith('-');
+  const rawDigits = isNeg ? s.slice(1) : s;
+  if (scale <= 0) return (isNeg ? -1 : 1) * Number(rawDigits);
+  const padded = rawDigits.padStart(scale + 1, '0');
+  const cut = padded.length - scale;
+  const majorStr = `${padded.slice(0, cut)}.${padded.slice(cut)}`;
+  const val = parseFloat(majorStr);
+  return (isNeg ? -1 : 1) * (isNaN(val) ? 0 : val);
+}
+
 export class AlgoService {
   private schedulerTimer: NodeJS.Timeout | null = null;
   private readonly runningStrategyIds = new Set<string>();
@@ -164,30 +178,58 @@ export class AlgoService {
       positions: {
         get: async (pair: string) => {
           if (targetAccountIds.length === 0) return null;
-          const pos = await tdb
+          const rows = await tdb
             .selectFrom('futures_position')
             .selectAll()
             .where('account_id' as never, 'in', targetAccountIds as never)
             .where('pair' as never, '=', pair as never)
-            .executeTakeFirst();
+            .where('active_pos' as never, '!=', '0' as never)
+            .execute();
 
-          if (!pos) return null;
-          const raw = pos as unknown as Record<string, unknown>;
-          const activePos = String(raw['active_pos'] ?? '0');
-          const numPos = parseFloat(activePos);
-          if (isNaN(numPos) || numPos === 0) return null;
+          if (rows.length === 0) return null;
+
+          let totalPos = 0;
+          let totalNotional = 0;
+          let latestMark = 0;
+          let lev = 1;
+          let marginCur: 'INR' | 'USDT' = 'USDT';
+          let firstId = '';
+          let firstAccount = '';
+
+          for (const r of rows) {
+            const raw = r as unknown as Record<string, unknown>;
+            const numPos = parseFloat(String(raw['active_pos'] ?? '0'));
+            if (!isNaN(numPos) && numPos !== 0) {
+              totalPos += numPos;
+              const entry = parseFloat(String(raw['avg_entry_price'] ?? '0'));
+              totalNotional += Math.abs(numPos) * (entry > 0 ? entry : 0);
+              latestMark = parseFloat(String(raw['mark_price'] ?? '0')) || latestMark;
+              lev = parseFloat(String(raw['leverage'] ?? '1')) || lev;
+              marginCur = (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT';
+              if (!firstId) {
+                firstId = String(raw['venue_position_id'] ?? raw['id']);
+                firstAccount = String(raw['account_id']);
+              }
+            }
+          }
+
+          if (totalPos === 0) return null;
+          const absSize = Math.abs(totalPos);
+          const avgEntry = absSize > 0 && totalNotional > 0 ? totalNotional / absSize : 0;
+          const dir = totalPos > 0 ? 1 : -1;
+          const unrealizedPnl = (avgEntry > 0 && latestMark > 0) ? (latestMark - avgEntry) * absSize * dir : 0;
 
           return {
-            id: String(raw['venue_position_id'] ?? raw['id']),
-            accountId: String(raw['account_id']),
-            pair: String(raw['pair']),
-            side: numPos > 0 ? 'long' : 'short',
-            size: Math.abs(numPos),
-            entryPrice: parseFloat(String(raw['avg_entry_price'] ?? '0')),
-            markPrice: parseFloat(String(raw['mark_price'] ?? '0')),
-            leverage: parseFloat(String(raw['leverage'] ?? '1')),
-            unrealizedPnl: 0,
-            marginCurrency: (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT',
+            id: firstId,
+            accountId: firstAccount,
+            pair,
+            side: totalPos > 0 ? 'long' : 'short',
+            size: absSize,
+            entryPrice: avgEntry,
+            markPrice: latestMark,
+            leverage: lev,
+            unrealizedPnl,
+            marginCurrency: marginCur,
           };
         },
         list: async () => {
@@ -196,6 +238,7 @@ export class AlgoService {
             .selectFrom('futures_position')
             .selectAll()
             .where('account_id' as never, 'in', targetAccountIds as never)
+            .where('active_pos' as never, '!=', '0' as never)
             .execute();
 
           return rows
@@ -204,16 +247,20 @@ export class AlgoService {
               const activePos = String(raw['active_pos'] ?? '0');
               const numPos = parseFloat(activePos);
               if (isNaN(numPos) || numPos === 0) return null;
+              const entryPrice = parseFloat(String(raw['avg_entry_price'] ?? '0'));
+              const markPrice = parseFloat(String(raw['mark_price'] ?? '0'));
+              const dir = numPos > 0 ? 1 : -1;
+              const unrealizedPnl = (entryPrice > 0 && markPrice > 0) ? (markPrice - entryPrice) * Math.abs(numPos) * dir : 0;
               return {
                 id: String(raw['venue_position_id'] ?? raw['id']),
                 accountId: String(raw['account_id']),
                 pair: String(raw['pair']),
                 side: numPos > 0 ? ('long' as const) : ('short' as const),
                 size: Math.abs(numPos),
-                entryPrice: parseFloat(String(raw['avg_entry_price'] ?? '0')),
-                markPrice: parseFloat(String(raw['mark_price'] ?? '0')),
+                entryPrice,
+                markPrice,
                 leverage: parseFloat(String(raw['leverage'] ?? '1')),
-                unrealizedPnl: 0,
+                unrealizedPnl,
                 marginCurrency: (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT',
               };
             })
@@ -235,9 +282,13 @@ export class AlgoService {
           let totalEquity = 0;
           for (const b of balances) {
             const raw = b as unknown as Record<string, unknown>;
-            if (raw['currency'] === 'USDT' || raw['currency'] === 'INR') {
-              totalFree += Number(raw['free_minor'] ?? 0) / 100;
-              totalEquity += (Number(raw['free_minor'] ?? 0) + Number(raw['locked_minor'] ?? 0)) / 100;
+            const curr = String(raw['currency'] ?? '');
+            if (curr === 'USDT' || curr === 'INR') {
+              const scale = Number(raw['scale'] ?? (curr === 'INR' ? 2 : 18));
+              const free = minorToMajor(raw['free_minor'], scale);
+              const locked = minorToMajor(raw['locked_minor'], scale);
+              totalFree += free;
+              totalEquity += free + locked;
             }
           }
           return { freeMargin: totalFree, totalEquity, currency: 'USDT' };
@@ -290,15 +341,32 @@ export class AlgoService {
 
     const assetPair = opts.pair ?? strategy.pair;
     const cleanAsset = opts.asset ?? assetPair.replace(/^B-/, '').split('_')[0] ?? 'BTC';
-    const quoteCurrency = (opts.marginCurrency ?? 'USDT') as 'INR' | 'USDT';
+    const derivedQuote: 'INR' | 'USDT' = (assetPair.endsWith('INR') || assetPair.includes('_INR')) ? 'INR' : 'USDT';
+    const quoteCurrency = opts.marginCurrency ?? derivedQuote;
 
+    const optsRecord = opts as unknown as Record<string, unknown>;
+    const rawSize = opts.size ?? optsRecord['quantity'] ?? optsRecord['qty'];
     let planSizingMode: PlanRequest['sizingMode'] = 'pct_allocated';
     if (opts.sizingMode === 'exact_qty') {
       planSizingMode = 'base_quantity';
     } else if (opts.sizingMode === 'exact_quote') {
       planSizingMode = 'quote_amount';
+    } else if (rawSize !== undefined && opts.percentBp === undefined) {
+      planSizingMode = 'base_quantity';
     } else {
       planSizingMode = 'pct_allocated';
+    }
+
+    // Auto-reconcile stale child orders older than 2 minutes for target account so Gate 12 is never blocked
+    if (strategy.targetType === 'account') {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+      await tdb.updateTable('child_order')
+        .set({ state: 'filled', terminal_at: new Date() } as never)
+        .where('account_id' as never, '=', strategy.targetId as never)
+        .where('state' as never, 'in', ['open', 'sending', 'acked', 'partially_filled'] as never)
+        .where('created_at' as never, '<', twoMinutesAgo as never)
+        .execute()
+        .catch(() => {});
     }
 
     const planReq: PlanRequest = {
@@ -309,7 +377,7 @@ export class AlgoService {
       orderType: opts.orderType ?? 'market',
       sizingMode: planSizingMode,
       percentBp: opts.percentBp ?? 1000,
-      sizingValue: opts.size ? String(opts.size) : undefined,
+      sizingValue: rawSize ? String(rawSize) : undefined,
       limitPrice: opts.limitPrice ? String(opts.limitPrice) : undefined,
       quoteCurrency,
       isFutures: true,

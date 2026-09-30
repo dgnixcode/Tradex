@@ -313,7 +313,10 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
           const currentSize = sim.currentPos ? sim.currentPos.size : 0;
           return { success: true, price: candle.close, quantity: currentSize };
         },
-        close: async () => {
+        close: async (closePair?: string) => {
+          if (closePair && closePair !== pair) {
+            return { success: true, pair: closePair, exitedCount: 0 };
+          }
           if (sim.currentPos) {
             const pos = sim.currentPos;
             const rawPnl = pos.side === 'long'

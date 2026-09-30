@@ -206,11 +206,16 @@ export function AlgoTrading() {
         throw new Error('Parameters must be valid JSON');
       }
 
+      const effectiveTargetId = targetId || (targetType === 'group' ? groups[0]?.id : accounts[0]?.id) || '';
+      if (!effectiveTargetId) {
+        throw new Error('Target group or account is required');
+      }
+
       const input: Partial<AlgoStrategyInput> = {
         name,
         description: description.trim() !== '' ? description : null,
         targetType,
-        targetId,
+        targetId: effectiveTargetId,
         pair,
         timeframe,
         scheduleInterval,
@@ -250,10 +255,15 @@ export function AlgoTrading() {
         }
       }
 
+      const effectiveTargetId = newStratTargetId || (newStratTargetType === 'group' ? groups[0]?.id : accounts[0]?.id) || '';
+      if (!effectiveTargetId) {
+        throw new Error('Please select a target group or account');
+      }
+
       return await createAlgoStrategy({
         name: newStratName.trim(),
         targetType: newStratTargetType,
-        targetId: newStratTargetId,
+        targetId: effectiveTargetId,
         pair: initialPair,
         timeframe: initialTimeframe,
         scheduleInterval: initialInterval,
@@ -1242,8 +1252,13 @@ export function AlgoTrading() {
                           </div>
                           {(() => {
                             const curve = backtestResult.equityCurve;
-                            const minEq = Math.min(...curve.map((c) => c.equity));
-                            const maxEq = Math.max(...curve.map((c) => c.equity));
+                            let minEq = curve[0]?.equity ?? 0;
+                            let maxEq = curve[0]?.equity ?? 0;
+                            for (let i = 1; i < curve.length; i++) {
+                              const eq = curve[i]!.equity;
+                              if (eq < minEq) minEq = eq;
+                              if (eq > maxEq) maxEq = eq;
+                            }
                             const range = Math.max(1, maxEq - minEq);
                             const width = 800;
                             const height = 180;
@@ -1303,7 +1318,7 @@ export function AlgoTrading() {
                                     {tr.pnlPct >= 0 ? '+' : ''}{tr.pnlPct}%
                                   </td>
                                   <td style={{ padding: '8px 12px', color: '#a1a1aa' }}>{tr.exitReason}</td>
-                                  <td style={{ padding: '8px 12px', color: '#71717a' }}>{new Date(tr.entryTime).toLocaleTimeString()}</td>
+                                  <td style={{ padding: '8px 12px', color: '#71717a' }}>{new Date(tr.entryTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                                 </tr>
                               ))}
                             </tbody>

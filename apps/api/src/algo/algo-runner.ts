@@ -110,6 +110,9 @@ export async function executeStrategyScript(
       cleanedCode = cleanedCode.replace(/exports\.default\s*=\s*/, '__entrypoint = ');
     }
 
+    // Strip leading 'export ' on named declarations so VM doesn't throw SyntaxError: Unexpected token 'export'
+    cleanedCode = cleanedCode.replace(/export\s+(async\s+function|function|const|let|var|class)\s+/g, '$1 ');
+
     const sandbox = {
       __context: wrappedContext,
       __entrypoint: null as ((ctx: AlgoContext) => Promise<unknown>) | null,
@@ -157,6 +160,10 @@ export async function executeStrategyScript(
           return await __entrypoint(__context);
         } else if (typeof run === 'function') {
           return await run(__context);
+        } else if (typeof onTick === 'function') {
+          return await onTick(__context);
+        } else if (typeof execute === 'function') {
+          return await execute(__context);
         } else {
           throw new Error('Strategy script must define or export default an async function run(context)');
         }

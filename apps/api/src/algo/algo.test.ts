@@ -5,6 +5,7 @@ import * as indicators from './algo-indicators.js';
 import { executeStrategyScript } from './algo-runner.js';
 import { runBacktest } from './algo-backtest.js';
 import type { AlgoContext, CandleData } from './algo-sdk.js';
+import { minorToMajor } from './algo-service.js';
 
 describe('Algo Indicators', () => {
   it('calculates SMA accurately', () => {
@@ -135,6 +136,62 @@ describe('Algo Runner Sandbox', () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain('Deliberate strategy runtime failure');
   });
+  it('supports named export declarations without default keyword', async () => {
+    const script = `
+      export const params = { multiplier: 2 };
+      export async function run(ctx) {
+        ctx.log("Named export run invoked, multiplier: " + params.multiplier);
+      }
+    `;
+
+    let logMessage = '';
+    const mockContext: AlgoContext = {
+      market: { getPrice: async () => 100, getCandles: async () => [] },
+      positions: { get: async () => null, list: async () => [] },
+      account: { getBalance: async () => ({ freeMargin: 0, totalEquity: 0, currency: 'USDT' }) },
+      indicators,
+      trade: {
+        buy: async () => ({ success: true }),
+        sell: async () => ({ success: true }),
+        close: async () => ({ success: true, pair: '', exitedCount: 0 }),
+        closeAll: async () => [],
+      },
+      log: (msg) => { logMessage = msg; },
+      params: {},
+    };
+
+    const res = await executeStrategyScript(script, mockContext, 2000);
+    expect(res.success).toBe(true);
+    expect(logMessage).toContain('multiplier: 2');
+  });
+
+  it('supports onTick and execute entrypoint aliases', async () => {
+    const script = `
+      async function onTick(ctx) {
+        ctx.log("onTick executed");
+      }
+    `;
+
+    let logMessage = '';
+    const mockContext: AlgoContext = {
+      market: { getPrice: async () => 100, getCandles: async () => [] },
+      positions: { get: async () => null, list: async () => [] },
+      account: { getBalance: async () => ({ freeMargin: 0, totalEquity: 0, currency: 'USDT' }) },
+      indicators,
+      trade: {
+        buy: async () => ({ success: true }),
+        sell: async () => ({ success: true }),
+        close: async () => ({ success: true, pair: '', exitedCount: 0 }),
+        closeAll: async () => [],
+      },
+      log: (msg) => { logMessage = msg; },
+      params: {},
+    };
+
+    const res = await executeStrategyScript(script, mockContext, 2000);
+    expect(res.success).toBe(true);
+    expect(logMessage).toBe('onTick executed');
+  });
 });
 
 describe('Algo Backtesting', () => {
@@ -184,5 +241,27 @@ describe('Algo Backtesting', () => {
     expect(result.metrics.initialCapital).toBe(10000);
     expect(result.equityCurve.length).toBeGreaterThan(30);
     expect(result.trades.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Currency Scale Conversions', () => {
+  it('converts USDT scale 18 minor units accurately without scientific notation', () => {
+    // 3925.29621711786032 USDT
+    const minor = '3925296217117860320000';
+    const major = minorToMajor(minor, 18);
+    expect(major).toBeCloseTo(3925.2962, 3);
+  });
+
+  it('converts INR scale 2 minor units accurately', () => {
+    // 1250.50 INR
+    const minor = '125050';
+    const major = minorToMajor(minor, 2);
+    expect(major).toBe(1250.50);
+  });
+
+  it('handles zero and null minor amounts gracefully', () => {
+    expect(minorToMajor('0', 18)).toBe(0);
+    expect(minorToMajor(null, 18)).toBe(0);
+    expect(minorToMajor('', 2)).toBe(0);
   });
 });
