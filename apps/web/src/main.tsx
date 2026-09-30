@@ -35,6 +35,7 @@ import { Security } from './routes/Security.tsx';
 import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
 import { MasterPanel } from './routes/MasterPanel.tsx';
+import { AlgoTrading } from './routes/AlgoTrading.tsx';
 import { NotFound } from './routes/NotFound.tsx';
 import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary.tsx';
@@ -228,6 +229,8 @@ function PageTitleSync() {
       pageTitle = 'Account Groups';
     } else if (path === '/app/activity') {
       pageTitle = 'Order Blotter';
+    } else if (path === '/app/algo') {
+      pageTitle = 'Algorithmic Trading Desk';
     } else if (path === '/app/trading') {
       pageTitle = 'Trading Desk Controls';
     } else if (path === '/app/report') {
@@ -301,6 +304,7 @@ const router = createBrowserRouter([
           { path: 'groups/:groupId/analytics', element: <GroupAnalytics /> },
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Futures /> },
+          { path: 'algo', element: <AlgoTrading /> },
           { path: 'analytics', element: <Analytics /> },
           { path: 'activity', element: <Blotter /> },
           { path: 'activity/groups/:groupTradeId', element: <GroupDetailReport /> },

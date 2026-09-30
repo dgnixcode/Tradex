@@ -1123,3 +1123,201 @@ export const toggleKillSwitch = (
     body: JSON.stringify({ active, reason }),
   });
 
+// --- Algorithmic Trading API ---------------------------------
+
+export interface AlgoStrategy {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly targetType: 'account' | 'group';
+  readonly targetId: string;
+  readonly pair: string;
+  readonly timeframe: string;
+  readonly scheduleInterval: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | 'manual';
+  readonly script: string;
+  readonly params: Record<string, unknown>;
+  readonly status: 'active' | 'paused' | 'stopped';
+  readonly isDryRun: boolean;
+  readonly lastRunAt: string | null;
+  readonly lastStatus: 'success' | 'error' | 'skipped' | null;
+  readonly lastError: string | null;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface AlgoStrategyInput {
+  readonly name: string;
+  readonly description?: string | null;
+  readonly targetType: 'account' | 'group';
+  readonly targetId: string;
+  readonly pair: string;
+  readonly timeframe?: string;
+  readonly scheduleInterval?: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | 'manual';
+  readonly script: string;
+  readonly params?: Record<string, unknown>;
+  readonly isDryRun?: boolean;
+}
+
+export interface AlgoRunLogEntry {
+  readonly timestamp: string;
+  readonly level: 'info' | 'warn' | 'error' | 'trade';
+  readonly message: string;
+  readonly data?: unknown;
+}
+
+export interface AlgoRun {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly strategyId: string;
+  readonly mode: 'backtest' | 'dry_run' | 'live';
+  readonly status: 'running' | 'completed' | 'failed';
+  readonly triggeredAt: string;
+  readonly completedAt: string | null;
+  readonly logs: readonly AlgoRunLogEntry[];
+  readonly actionsTaken: readonly unknown[];
+  readonly metrics: Record<string, unknown>;
+  readonly error: string | null;
+  readonly createdAt: string;
+}
+
+export interface BacktestTrade {
+  readonly id: string;
+  readonly pair: string;
+  readonly side: 'long' | 'short';
+  readonly entryTime: number;
+  readonly exitTime: number;
+  readonly entryPrice: number;
+  readonly exitPrice: number;
+  readonly leverage: number;
+  readonly size: number;
+  readonly notional: number;
+  readonly pnl: number;
+  readonly pnlPct: number;
+  readonly exitReason: 'take_profit' | 'stop_loss' | 'signal_close' | 'end_of_data';
+}
+
+export interface EquityPoint {
+  readonly time: number;
+  readonly price: number;
+  readonly equity: number;
+  readonly drawdownPct: number;
+}
+
+export interface BacktestMetrics {
+  readonly initialCapital: number;
+  readonly finalCapital: number;
+  readonly netProfit: number;
+  readonly netProfitPct: number;
+  readonly totalTrades: number;
+  readonly winningTrades: number;
+  readonly losingTrades: number;
+  readonly winRatePct: number;
+  readonly profitFactor: number;
+  readonly maxDrawdownPct: number;
+  readonly sharpeRatio: number;
+  readonly avgTradeDurationMinutes: number;
+}
+
+export interface BacktestResult {
+  readonly pair: string;
+  readonly timeframe: string;
+  readonly candleCount: number;
+  readonly metrics: BacktestMetrics;
+  readonly equityCurve: readonly EquityPoint[];
+  readonly trades: readonly BacktestTrade[];
+  readonly logs: readonly string[];
+}
+
+export interface StrategyTemplate {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly pair: string;
+  readonly timeframe: string;
+  readonly scheduleInterval: '1m' | '5m' | '15m' | '1h';
+  readonly defaultParams: Record<string, unknown>;
+  readonly script: string;
+}
+
+export interface CandleDataPoint {
+  readonly open: number;
+  readonly high: number;
+  readonly low: number;
+  readonly close: number;
+  readonly volume: number;
+  readonly time: number;
+}
+
+export const fetchAlgoStrategies = (): Promise<readonly AlgoStrategy[]> =>
+  request<readonly AlgoStrategy[]>('/algo/strategies');
+
+export const fetchAlgoStrategy = (id: string): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>(`/algo/strategies/${encodeURIComponent(id)}`);
+
+export const createAlgoStrategy = (input: AlgoStrategyInput): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>('/algo/strategies', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+export const updateAlgoStrategy = (id: string, input: Partial<AlgoStrategyInput>): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>(`/algo/strategies/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+
+export const deleteAlgoStrategy = (id: string): Promise<{ success: boolean }> =>
+  request<{ success: boolean }>(`/algo/strategies/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+
+export const startAlgoStrategy = (id: string): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>(`/algo/strategies/${encodeURIComponent(id)}/start`, {
+    method: 'POST',
+  });
+
+export const pauseAlgoStrategy = (id: string): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>(`/algo/strategies/${encodeURIComponent(id)}/pause`, {
+    method: 'POST',
+  });
+
+export const stopAlgoStrategy = (id: string): Promise<AlgoStrategy> =>
+  request<AlgoStrategy>(`/algo/strategies/${encodeURIComponent(id)}/stop`, {
+    method: 'POST',
+  });
+
+export const runAlgoStrategyOnce = (id: string, mode: 'dry_run' | 'live' = 'dry_run'): Promise<AlgoRun> =>
+  request<AlgoRun>(`/algo/strategies/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  });
+
+export const fetchAlgoRuns = (strategyId: string, limit = 50): Promise<readonly AlgoRun[]> =>
+  request<readonly AlgoRun[]>(`/algo/strategies/${encodeURIComponent(strategyId)}/runs?limit=${limit}`);
+
+export const emergencyStopAllAlgos = (): Promise<{ success: boolean; stoppedCount: number }> =>
+  request<{ success: boolean; stoppedCount: number }>('/algo/emergency-stop', {
+    method: 'POST',
+  });
+
+export const runAlgoBacktest = (payload: {
+  readonly script: string;
+  readonly pair: string;
+  readonly timeframe?: string;
+  readonly initialCapital?: number;
+  readonly candleLimit?: number;
+  readonly params?: Record<string, unknown>;
+}): Promise<BacktestResult> =>
+  request<BacktestResult>('/algo/backtest', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const fetchAlgoTemplates = (): Promise<readonly StrategyTemplate[]> =>
+  request<readonly StrategyTemplate[]>('/algo/templates');
+
+export const fetchAlgoCandles = (pair: string, timeframe = '5m', limit = 100): Promise<readonly CandleDataPoint[]> =>
+  request<readonly CandleDataPoint[]>(`/algo/market/candles?pair=${encodeURIComponent(pair)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`);
+

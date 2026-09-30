@@ -641,6 +641,43 @@ export interface FuturesClosedTradeTable {
   updated_at: Generated<Timestamp>;
 }
 
+export interface AlgoStrategyTable {
+  id: Generated<string>;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  target_type: 'account' | 'group';
+  target_id: string;
+  pair: string;
+  timeframe: string;
+  schedule_interval: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | 'manual';
+  script: string;
+  params: unknown;
+  status: 'active' | 'paused' | 'stopped';
+  is_dry_run: boolean;
+  last_run_at: Timestamp | null;
+  last_status: 'success' | 'error' | 'skipped' | null;
+  last_error: string | null;
+  created_by: string;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface AlgoRunTable {
+  id: Generated<string>;
+  tenant_id: string;
+  strategy_id: string;
+  mode: 'backtest' | 'dry_run' | 'live';
+  status: 'running' | 'completed' | 'failed';
+  triggered_at: Generated<Timestamp>;
+  completed_at: Timestamp | null;
+  logs: unknown;
+  actions_taken: unknown;
+  metrics: unknown;
+  error: string | null;
+  created_at: Generated<Timestamp>;
+}
+
 export interface DB {
   session: SessionTable;
   tenant: TenantTable;
@@ -671,6 +708,8 @@ export interface DB {
   consultation_inquiry: ConsultationInquiryTable;
   platform_branding: PlatformBrandingTable;
   login_ip_attempt: LoginIpAttemptTable;
+  algo_strategy: AlgoStrategyTable;
+  algo_run: AlgoRunTable;
 }
 
 /**
@@ -701,6 +740,8 @@ export const TENANT_SCOPED_TABLES = [
   'futures_execution_lock',
   'futures_trailing_sl',
   'futures_closed_trade',
+  'algo_strategy',
+  'algo_run',
 ] as const satisfies readonly (keyof DB)[];
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];

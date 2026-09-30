@@ -64,6 +64,8 @@ import { hardExit, HardExitError } from './futures/exit-service.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import { buildTradingAnalytics } from './futures/trading-analytics.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
+import { AlgoService } from './algo/algo-service.js';
+import { fetchHistoricalCandles } from './algo/algo-sdk.js';
 
 /**
  * Partially close, or add to, a live futures position.
@@ -379,6 +381,17 @@ export function createHttpServer(deps: HttpDeps): Server {
     });
     engine = { worker, executor: new GroupExecutor({ db: deps.db, worker }), bus };
   }
+
+  const algoService = new AlgoService({
+    db: deps.db,
+    planningFor,
+    engine,
+    futuresExit: deps.futuresExit,
+    afterFanOut: deps.afterFanOut,
+    accountSync: deps.accountSync,
+    now: deps.now,
+  });
+  algoService.startScheduler();
 
   /** Require a live session, or 401. Returns the principal. */
   const requireAuth = (ctx: Ctx): Principal & { sessionId: string } => {
@@ -2324,6 +2337,183 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    // ---- Algo Trading API Routes ----
+
+    // GET /api/algo/templates - list prebuilt strategy templates
+    if (method === 'GET' && path === '/api/algo/templates') {
+      requireAction(principal, 'view.dashboards');
+      sendJson(ctx.res, 200, algoService.getTemplates());
+      return;
+    }
+
+    // GET /api/algo/market/candles - fetch candlestick data for pair & timeframe
+    if (method === 'GET' && path === '/api/algo/market/candles') {
+      requireAction(principal, 'view.dashboards');
+      const pair = ctx.url.searchParams.get('pair') ?? 'B-BTC_USDT';
+      const timeframe = ctx.url.searchParams.get('timeframe') ?? '5m';
+      const limit = parseInt(ctx.url.searchParams.get('limit') ?? '100', 10);
+      const candles = await fetchHistoricalCandles(pair, timeframe, isNaN(limit) ? 100 : limit);
+      sendJson(ctx.res, 200, candles);
+      return;
+    }
+
+    // POST /api/algo/backtest - run backtesting simulation over historical candles
+    if (method === 'POST' && path === '/api/algo/backtest') {
+      requireAction(principal, 'view.dashboards');
+      const body = (ctx.body ?? {}) as {
+        script?: string;
+        pair?: string;
+        timeframe?: string;
+        initialCapital?: number;
+        candleLimit?: number;
+        params?: Record<string, unknown>;
+      };
+      if (typeof body.script !== 'string' || typeof body.pair !== 'string') {
+        throw new HttpError(400, 'script and pair are required for backtesting');
+      }
+      const result = await algoService.runBacktest({
+        script: body.script,
+        pair: body.pair,
+        timeframe: body.timeframe ?? '5m',
+        initialCapital: body.initialCapital ?? 10_000,
+        candleLimit: body.candleLimit ?? 300,
+        params: body.params ?? {},
+      });
+      sendJson(ctx.res, 200, result);
+      return;
+    }
+
+    // POST /api/algo/emergency-stop - kill switch for all active strategies
+    if (method === 'POST' && path === '/api/algo/emergency-stop') {
+      requireAction(principal, 'trade.cancel');
+      const stopped = await algoService.emergencyStopAll(principal.tenantId);
+      sendJson(ctx.res, 200, { success: true, stoppedCount: stopped });
+      return;
+    }
+
+    // GET /api/algo/strategies - list tenant's algo strategies
+    if (method === 'GET' && path === '/api/algo/strategies') {
+      requireAction(principal, 'view.dashboards');
+      const strategies = await algoService.listStrategies(principal.tenantId);
+      sendJson(ctx.res, 200, strategies);
+      return;
+    }
+
+    // POST /api/algo/strategies - create new algo strategy
+    if (method === 'POST' && path === '/api/algo/strategies') {
+      requireAction(principal, 'trade.place');
+      const body = (ctx.body ?? {}) as {
+        name?: string;
+        description?: string;
+        targetType?: 'account' | 'group';
+        targetId?: string;
+        pair?: string;
+        timeframe?: string;
+        scheduleInterval?: '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d' | 'manual';
+        script?: string;
+        params?: Record<string, unknown>;
+        isDryRun?: boolean;
+      };
+
+      if (!body.name || !body.targetType || !body.targetId || !body.pair || !body.script) {
+        throw new HttpError(400, 'name, targetType, targetId, pair, and script are required');
+      }
+      if (body.targetType !== 'account' && body.targetType !== 'group') {
+        throw new HttpError(400, 'targetType must be either account or group');
+      }
+
+      const created = await algoService.createStrategy(principal.tenantId, {
+        name: body.name.trim(),
+        description: body.description?.trim(),
+        targetType: body.targetType,
+        targetId: body.targetId,
+        pair: body.pair.trim(),
+        timeframe: body.timeframe ?? '5m',
+        scheduleInterval: body.scheduleInterval ?? '5m',
+        script: body.script,
+        params: body.params ?? {},
+        isDryRun: body.isDryRun ?? true,
+        createdBy: principal.userId,
+      });
+
+      sendJson(ctx.res, 201, created);
+      return;
+    }
+
+    // Matchers for strategy ID routes: /api/algo/strategies/:id/...
+    const algoStartMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})\/start$/.exec(path);
+    if (method === 'POST' && algoStartMatch !== null) {
+      requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
+      const updated = await algoService.updateStrategy(principal.tenantId, algoStartMatch[1] as string, { status: 'active' });
+      if (!updated) throw new HttpError(404, 'Strategy not found');
+      sendJson(ctx.res, 200, updated);
+      return;
+    }
+
+    const algoPauseMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})\/pause$/.exec(path);
+    if (method === 'POST' && algoPauseMatch !== null) {
+      requireAction(principal, 'trade.place');
+      const updated = await algoService.updateStrategy(principal.tenantId, algoPauseMatch[1] as string, { status: 'paused' });
+      if (!updated) throw new HttpError(404, 'Strategy not found');
+      sendJson(ctx.res, 200, updated);
+      return;
+    }
+
+    const algoStopMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})\/stop$/.exec(path);
+    if (method === 'POST' && algoStopMatch !== null) {
+      requireAction(principal, 'trade.place');
+      const updated = await algoService.updateStrategy(principal.tenantId, algoStopMatch[1] as string, { status: 'stopped' });
+      if (!updated) throw new HttpError(404, 'Strategy not found');
+      sendJson(ctx.res, 200, updated);
+      return;
+    }
+
+    const algoRunMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})\/run$/.exec(path);
+    if (method === 'POST' && algoRunMatch !== null) {
+      requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
+      const body = (ctx.body ?? {}) as { mode?: 'dry_run' | 'live' };
+      const run = await algoService.runStrategy(principal.tenantId, algoRunMatch[1] as string, body.mode ?? 'dry_run');
+      sendJson(ctx.res, 200, run);
+      return;
+    }
+
+    const algoRunsMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})\/runs$/.exec(path);
+    if (method === 'GET' && algoRunsMatch !== null) {
+      requireAction(principal, 'view.dashboards');
+      const limit = parseInt(ctx.url.searchParams.get('limit') ?? '50', 10);
+      const runs = await algoService.listRuns(principal.tenantId, algoRunsMatch[1] as string, isNaN(limit) ? 50 : limit);
+      sendJson(ctx.res, 200, runs);
+      return;
+    }
+
+    const algoSingleMatch = /^\/api\/algo\/strategies\/([0-9a-f-]{36})$/.exec(path);
+    if (algoSingleMatch !== null) {
+      const id = algoSingleMatch[1] as string;
+      if (method === 'GET') {
+        requireAction(principal, 'view.dashboards');
+        const strat = await algoService.getStrategy(principal.tenantId, id);
+        if (!strat) throw new HttpError(404, 'Strategy not found');
+        sendJson(ctx.res, 200, strat);
+        return;
+      }
+      if (method === 'PUT') {
+        requireAction(principal, 'trade.place');
+        const body = (ctx.body ?? {}) as Record<string, unknown>;
+        const updated = await algoService.updateStrategy(principal.tenantId, id, body);
+        if (!updated) throw new HttpError(404, 'Strategy not found');
+        sendJson(ctx.res, 200, updated);
+        return;
+      }
+      if (method === 'DELETE') {
+        requireAction(principal, 'trade.place');
+        const ok = await algoService.deleteStrategy(principal.tenantId, id);
+        sendJson(ctx.res, 200, { success: ok });
+        return;
+      }
+    }
+
     throw new HttpError(404, 'not found');
   };
 
@@ -2447,6 +2637,9 @@ export function createHttpServer(deps: HttpDeps): Server {
   });
   // The sweep must not outlive the server, or a test that starts and stops one
   // leaves a timer writing to a destroyed pool.
-  server.on('close', () => { if (resolverTimer !== undefined) clearInterval(resolverTimer); });
+  server.on('close', () => {
+    if (resolverTimer !== undefined) clearInterval(resolverTimer);
+    algoService.stopScheduler();
+  });
   return server;
 }

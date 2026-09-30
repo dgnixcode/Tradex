@@ -47,6 +47,17 @@ const NAV_ITEMS: readonly NavItem[] = [
     match: (p) => p.startsWith('/app/positions'),
   },
   {
+    label: 'Algo Trading',
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+      </svg>
+    ),
+    to: '/app/algo',
+    match: (p) => p.startsWith('/app/algo'),
+  },
+  {
     label: 'Analytics',
     icon: (
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
