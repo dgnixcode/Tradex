@@ -678,6 +678,38 @@ export interface AlgoRunTable {
   created_at: Generated<Timestamp>;
 }
 
+export interface WatchlistCoinTable {
+  id: Generated<string>;
+  tenant_id: string;
+  symbol: string;
+  pair: string;
+  is_active: Generated<boolean>;
+  added_at: Generated<Timestamp>;
+  sync_status: Generated<'pending' | 'syncing' | 'synced' | 'error'>;
+  synced_timeframes: Generated<unknown>;
+  earliest_candle_at: Timestamp | null;
+  latest_candle_at: Timestamp | null;
+  total_candles_count: Generated<string>;
+  last_sync_error: string | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MarketCandleDatasetTable {
+  id: string;
+  pair: string;
+  symbol: string;
+  timeframe: string;
+  year: number;
+  month: number;
+  bar_count: number;
+  start_time: string;
+  end_time: string;
+  file_path: string;
+  source: Generated<string>;
+  created_at: Generated<Timestamp>;
+}
+
 export interface DB {
   session: SessionTable;
   tenant: TenantTable;
@@ -710,6 +742,8 @@ export interface DB {
   login_ip_attempt: LoginIpAttemptTable;
   algo_strategy: AlgoStrategyTable;
   algo_run: AlgoRunTable;
+  watchlist_coin: WatchlistCoinTable;
+  market_candle_dataset: MarketCandleDatasetTable;
 }
 
 /**
@@ -742,6 +776,7 @@ export const TENANT_SCOPED_TABLES = [
   'futures_closed_trade',
   'algo_strategy',
   'algo_run',
+  'watchlist_coin',
 ] as const satisfies readonly (keyof DB)[];
 
 export type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
@@ -759,7 +794,7 @@ export const isTenantScoped = (table: string): table is TenantScopedTable => sco
  * `tenant_id`, which `checks/00-tenant-isolation.check.mjs` cross-references.
  */
 export const GLOBAL_TABLES = [
-  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry', 'platform_branding', 'login_ip_attempt',
+  'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry', 'platform_branding', 'login_ip_attempt', 'market_candle_dataset',
 ] as const;
 
 /** Tables a trigger makes append-only. Probed by 03-fx-snapshot.check.mjs. */

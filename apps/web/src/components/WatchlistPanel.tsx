@@ -1,6 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchFuturesPrices, type AssetOption } from '../api.ts';
+import {
+  fetchFuturesPrices,
+  syncAlgoWatchlist,
+  addAlgoWatchlistCoin,
+  type AssetOption,
+} from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
 
 const STORAGE_KEY = 'tradex_watchlist_v1';
@@ -87,11 +92,19 @@ export function WatchlistPanel({
     } catch {}
   }, [watchlist]);
 
+  // Sync watchlist with backend historical candle downloader
+  useEffect(() => {
+    if (watchlist.length > 0) {
+      syncAlgoWatchlist(watchlist).catch(() => {});
+    }
+  }, []);
+
   const addCoin = (coin: string) => {
     const clean = coin.toUpperCase().trim();
     if (!clean) return;
     if (!watchlist.includes(clean)) {
       setWatchlist((prev) => [clean, ...prev]);
+      addAlgoWatchlistCoin(clean).catch(() => {});
     }
     setSearch('');
     setShowAddMenu(false);
@@ -399,7 +412,7 @@ export function WatchlistPanel({
                   onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#f6465d'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--faint, #546070)'; }}
                 >
-                  ✕
+                  x
                 </button>
               </div>
             </div>

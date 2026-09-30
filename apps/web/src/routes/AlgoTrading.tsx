@@ -15,12 +15,15 @@ import {
   fetchAlgoTemplates,
   fetchGroups,
   fetchAccounts,
+  syncAlgoWatchlist,
+  fetchAlgoCandleStatus,
 } from '../api.ts';
 import type {
   AlgoStrategy,
   AlgoStrategyInput,
   AlgoRun,
   BacktestResult,
+  WatchlistCoinItem,
 } from '../api.ts';
 
 const POPULAR_PAIRS = [
@@ -107,7 +110,12 @@ export function AlgoTrading() {
   const [isDirty, setIsDirty] = useState(false);
 
   // Backtest runner state
-  const [backtestCandleLimit, setBacktestCandleLimit] = useState(300);
+  const [backtestCandleLimit] = useState(300);
+  const [backtestLookbackPeriod, setBacktestLookbackPeriod] = useState<string>('300');
+  const [backtestDataSource, setBacktestDataSource] = useState<'binance' | 'coindcx'>('binance');
+  const [feeTierPreset, setFeeTierPreset] = useState<'vip0' | 'vip1' | 'vip2' | 'zero' | 'custom'>('vip0');
+  const [backtestMakerFeePct, setBacktestMakerFeePct] = useState(0.02);
+  const [backtestTakerFeePct, setBacktestTakerFeePct] = useState(0.05);
   const [backtestCapital, setBacktestCapital] = useState(10000);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -116,8 +124,28 @@ export function AlgoTrading() {
   // UI Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
+  const [isDataStatusModalOpen, setIsDataStatusModalOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isSdkDocOpen, setIsSdkDocOpen] = useState(false);
+
+  // Candle Dataset Status query
+  const candleStatusQuery = useQuery({
+    queryKey: ['algo', 'candles', 'status'],
+    queryFn: fetchAlgoCandleStatus,
+    refetchInterval: isDataStatusModalOpen ? 2500 : 15000,
+  });
+
+  const syncWatchlistMutation = useMutation({
+    mutationFn: (symbols?: string[]) =>
+      syncAlgoWatchlist(symbols ?? ['BTC', 'ETH', 'SOL', 'DASH', 'ZEC', 'DOGE', 'XRP', 'AVAX', 'BNB']),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['algo', 'candles', 'status'] });
+      showToast(`Started background download for ${data.enqueued.length} coins across 4-year archive`, 'success');
+    },
+    onError: (err) => {
+      showToast(err instanceof Error ? err.message : String(err), 'error');
+    },
+  });
 
   // Create Modal form state
   const [newStratName, setNewStratName] = useState('');
@@ -373,17 +401,59 @@ export function AlgoTrading() {
       return;
     }
 
+    // Determine candle limit and lookback months
+    let limitVal = backtestCandleLimit;
+    let lookbackMonthsVal: number | undefined = undefined;
+
+    switch (backtestLookbackPeriod) {
+      case '100': limitVal = 100; break;
+      case '300': limitVal = 300; break;
+      case '1000': limitVal = 1000; break;
+      case '1m': limitVal = 10_000; lookbackMonthsVal = 1; break;
+      case '6m': limitVal = 60_000; lookbackMonthsVal = 6; break;
+      case '1y': limitVal = 120_000; lookbackMonthsVal = 12; break;
+      case '2y': limitVal = 240_000; lookbackMonthsVal = 24; break;
+      case '3y': limitVal = 360_000; lookbackMonthsVal = 36; break;
+      case '4y': limitVal = 500_000; lookbackMonthsVal = 48; break;
+      default: limitVal = backtestCandleLimit; break;
+    }
+
+    // Determine Maker and Taker fee rates
+    let makerRate = 0.0002;
+    let takerRate = 0.0005;
+
+    if (feeTierPreset === 'vip0') {
+      makerRate = 0.0002;
+      takerRate = 0.0005;
+    } else if (feeTierPreset === 'vip1') {
+      makerRate = 0.00016;
+      takerRate = 0.0004;
+    } else if (feeTierPreset === 'vip2') {
+      makerRate = 0.00014;
+      takerRate = 0.00035;
+    } else if (feeTierPreset === 'zero') {
+      makerRate = 0.0;
+      takerRate = 0.0;
+    } else if (feeTierPreset === 'custom') {
+      makerRate = Math.max(0, backtestMakerFeePct / 100);
+      takerRate = Math.max(0, backtestTakerFeePct / 100);
+    }
+
     try {
       const res = await runAlgoBacktest({
         script,
         pair,
         timeframe,
         initialCapital: backtestCapital,
-        candleLimit: backtestCandleLimit,
+        candleLimit: limitVal,
         params: parsedParams,
+        makerFeeRate: makerRate,
+        takerFeeRate: takerRate,
+        dataSource: backtestDataSource,
+        lookbackMonths: lookbackMonthsVal,
       });
       setBacktestResult(res);
-      showToast('Backtest completed successfully', 'success');
+      showToast(`Backtest simulated over ${res.candleCount.toLocaleString()} candles successfully`, 'success');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setBacktestError(msg);
@@ -1132,24 +1202,40 @@ export function AlgoTrading() {
                       alignItems: 'center',
                       gap: 16,
                       background: '#121215',
-                      padding: '12px 18px',
+                      padding: '14px 18px',
                       borderRadius: 8,
                       border: '1px solid #1f1f23',
                       flexWrap: 'wrap',
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Lookback History</div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Candle Data Source</div>
                       <select
-                        value={backtestCandleLimit}
-                        onChange={(e) => setBacktestCandleLimit(Number(e.target.value))}
+                        value={backtestDataSource}
+                        onChange={(e) => setBacktestDataSource(e.target.value as 'binance' | 'coindcx')}
                         style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
                       >
-                        <option value={100}>100 Candles</option>
-                        <option value={200}>200 Candles</option>
-                        <option value={300}>300 Candles (~25h on 5m)</option>
-                        <option value={500}>500 Candles (~41h on 5m)</option>
-                        <option value={1000}>1000 Candles (~3.5 days)</option>
+                        <option value="binance">Binance Vision (4-Year Archive)</option>
+                        <option value="coindcx">CoinDCX Exchange Live</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Lookback History</div>
+                      <select
+                        value={backtestLookbackPeriod}
+                        onChange={(e) => setBacktestLookbackPeriod(e.target.value)}
+                        style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
+                      >
+                        <option value="100">100 Candles (~8h)</option>
+                        <option value="300">300 Candles (~25h)</option>
+                        <option value="1000">1,000 Candles (~3.5 days)</option>
+                        <option value="1m">1 Month Archive (~8.6k 5m bars)</option>
+                        <option value="6m">6 Months Archive (~52k 5m bars)</option>
+                        <option value="1y">1 Year Archive (~105k 5m bars)</option>
+                        <option value="2y">2 Years Archive (~210k 5m bars)</option>
+                        <option value="3y">3 Years Archive (~315k 5m bars)</option>
+                        <option value="4y">4 Years Archive (~420k 5m bars)</option>
                       </select>
                     </div>
 
@@ -1159,11 +1245,68 @@ export function AlgoTrading() {
                         type="number"
                         value={backtestCapital}
                         onChange={(e) => setBacktestCapital(Number(e.target.value))}
-                        style={{ width: 120, background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
+                        style={{ width: 110, background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
                       />
                     </div>
 
-                    <div style={{ marginLeft: 'auto' }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Binance Fee Tier</div>
+                      <select
+                        value={feeTierPreset}
+                        onChange={(e) => setFeeTierPreset(e.target.value as typeof feeTierPreset)}
+                        style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
+                      >
+                        <option value="vip0">VIP 0: Maker 0.02% / Taker 0.05%</option>
+                        <option value="vip1">VIP 1: Maker 0.016% / Taker 0.04%</option>
+                        <option value="vip2">VIP 2: Maker 0.014% / Taker 0.035%</option>
+                        <option value="zero">Zero Fees (0.00% / 0.00%)</option>
+                        <option value="custom">Custom Rates...</option>
+                      </select>
+                    </div>
+
+                    {feeTierPreset === 'custom' && (
+                      <>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Maker %</div>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={backtestMakerFeePct}
+                            onChange={(e) => setBacktestMakerFeePct(Number(e.target.value))}
+                            style={{ width: 75, background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 8px', borderRadius: 4, fontSize: 12 }}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Taker %</div>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={backtestTakerFeePct}
+                            onChange={(e) => setBacktestTakerFeePct(Number(e.target.value))}
+                            style={{ width: 75, background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 8px', borderRadius: 4, fontSize: 12 }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsDataStatusModalOpen(true)}
+                        style={{
+                          background: '#1f1f23',
+                          color: '#e4e4e7',
+                          border: '1px solid #27272a',
+                          padding: '7px 14px',
+                          borderRadius: 5,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Historical Datasets
+                      </button>
+
                       <button
                         type="button"
                         onClick={handleRunBacktest}
@@ -1194,11 +1337,14 @@ export function AlgoTrading() {
                   {backtestResult && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       {/* Metric Stat Cards */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 12 }}>
                         <div style={{ background: '#121215', padding: '12px 16px', borderRadius: 6, border: '1px solid #1f1f23' }}>
                           <div style={{ fontSize: 11, color: '#71717a' }}>Net Return</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: backtestResult.metrics.netProfit >= 0 ? '#22c55e' : '#ef4444', marginTop: 4 }}>
                             {backtestResult.metrics.netProfit >= 0 ? '+' : ''}${backtestResult.metrics.netProfit.toLocaleString()} ({backtestResult.metrics.netProfitPct}%)
+                          </div>
+                          <div style={{ fontSize: 10.5, color: '#71717a', marginTop: 2 }}>
+                            Gross: +${backtestResult.metrics.grossProfit?.toLocaleString() ?? '—'} / -${backtestResult.metrics.grossLoss?.toLocaleString() ?? '—'}
                           </div>
                         </div>
 
@@ -1217,12 +1363,18 @@ export function AlgoTrading() {
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#f87171', marginTop: 4 }}>
                             {backtestResult.metrics.maxDrawdownPct}%
                           </div>
+                          <div style={{ fontSize: 10.5, color: '#71717a', marginTop: 2 }}>
+                            Peak to Trough
+                          </div>
                         </div>
 
                         <div style={{ background: '#121215', padding: '12px 16px', borderRadius: 6, border: '1px solid #1f1f23' }}>
                           <div style={{ fontSize: 11, color: '#71717a' }}>Profit Factor</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#f4f4f5', marginTop: 4 }}>
                             {backtestResult.metrics.profitFactor}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: '#71717a', marginTop: 2 }}>
+                            Sharpe: {backtestResult.metrics.sharpeRatio}
                           </div>
                         </div>
 
@@ -1237,9 +1389,22 @@ export function AlgoTrading() {
                         </div>
 
                         <div style={{ background: '#121215', padding: '12px 16px', borderRadius: 6, border: '1px solid #1f1f23' }}>
+                          <div style={{ fontSize: 11, color: '#71717a' }}>Total Fees Paid</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b', marginTop: 4 }}>
+                            -${backtestResult.metrics.totalFees?.toLocaleString() ?? 0}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>
+                            Maker: -${backtestResult.metrics.makerFees?.toLocaleString() ?? 0} | Taker: -${backtestResult.metrics.takerFees?.toLocaleString() ?? 0}
+                          </div>
+                        </div>
+
+                        <div style={{ background: '#121215', padding: '12px 16px', borderRadius: 6, border: '1px solid #1f1f23' }}>
                           <div style={{ fontSize: 11, color: '#71717a' }}>Final Balance</div>
                           <div style={{ fontSize: 18, fontWeight: 700, color: '#ffffff', marginTop: 4 }}>
                             ${backtestResult.metrics.finalCapital.toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: '#71717a', marginTop: 2 }}>
+                            {backtestResult.candleCount.toLocaleString()} candles tested
                           </div>
                         </div>
                       </div>
@@ -1287,8 +1452,11 @@ export function AlgoTrading() {
 
                       {/* Simulated Trades Blotter */}
                       <div style={{ background: '#121215', borderRadius: 8, border: '1px solid #1f1f23', overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f1f23', fontSize: 12, fontWeight: 600, color: '#a1a1aa' }}>
-                          Simulated Trades Log ({backtestResult.trades.length})
+                        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f1f23', fontSize: 12, fontWeight: 600, color: '#a1a1aa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>Simulated Trades Log ({backtestResult.trades.length})</div>
+                          <div style={{ fontSize: 11, color: '#71717a' }}>
+                            Binance Fees: Maker {((backtestResult.metrics.makerFeeRate ?? 0.0002) * 100).toFixed(3)}% | Taker {((backtestResult.metrics.takerFeeRate ?? 0.0005) * 100).toFixed(3)}%
+                          </div>
                         </div>
                         <div style={{ maxHeight: 280, overflowY: 'auto' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, textAlign: 'left' }}>
@@ -1297,8 +1465,10 @@ export function AlgoTrading() {
                                 <th style={{ padding: '8px 12px' }}>Side</th>
                                 <th style={{ padding: '8px 12px' }}>Entry</th>
                                 <th style={{ padding: '8px 12px' }}>Exit</th>
-                                <th style={{ padding: '8px 12px' }}>PnL ($)</th>
-                                <th style={{ padding: '8px 12px' }}>PnL (%)</th>
+                                <th style={{ padding: '8px 12px' }}>Gross PnL</th>
+                                <th style={{ padding: '8px 12px' }}>Fees Paid</th>
+                                <th style={{ padding: '8px 12px' }}>Net PnL ($)</th>
+                                <th style={{ padding: '8px 12px' }}>Net PnL (%)</th>
                                 <th style={{ padding: '8px 12px' }}>Reason</th>
                                 <th style={{ padding: '8px 12px' }}>Time</th>
                               </tr>
@@ -1309,15 +1479,26 @@ export function AlgoTrading() {
                                   <td style={{ padding: '8px 12px', fontWeight: 600, color: tr.side === 'long' ? '#22c55e' : '#ef4444' }}>
                                     {tr.side.toUpperCase()}
                                   </td>
-                                  <td style={{ padding: '8px 12px' }}>{tr.entryPrice}</td>
-                                  <td style={{ padding: '8px 12px' }}>{tr.exitPrice}</td>
+                                  <td style={{ padding: '8px 12px' }}>${tr.entryPrice}</td>
+                                  <td style={{ padding: '8px 12px' }}>${tr.exitPrice}</td>
+                                  <td style={{ padding: '8px 12px', color: (tr.grossPnl ?? tr.pnl) >= 0 ? '#22c55e' : '#ef4444' }}>
+                                    {(tr.grossPnl ?? tr.pnl) >= 0 ? '+' : ''}${tr.grossPnl ?? tr.pnl}
+                                  </td>
+                                  <td style={{ padding: '8px 12px', color: '#f59e0b' }}>
+                                    -${tr.totalFees ?? 0}
+                                    <span style={{ fontSize: 9.5, color: '#71717a', marginLeft: 4 }}>
+                                      ({tr.entryFeeType === 'maker' ? 'M' : 'T'}+{tr.exitFeeType === 'maker' ? 'M' : 'T'})
+                                    </span>
+                                  </td>
                                   <td style={{ padding: '8px 12px', fontWeight: 600, color: tr.pnl >= 0 ? '#22c55e' : '#ef4444' }}>
                                     {tr.pnl >= 0 ? '+' : ''}${tr.pnl}
                                   </td>
                                   <td style={{ padding: '8px 12px', fontWeight: 600, color: tr.pnlPct >= 0 ? '#22c55e' : '#ef4444' }}>
                                     {tr.pnlPct >= 0 ? '+' : ''}{tr.pnlPct}%
                                   </td>
-                                  <td style={{ padding: '8px 12px', color: '#a1a1aa' }}>{tr.exitReason}</td>
+                                  <td style={{ padding: '8px 12px', color: '#a1a1aa' }}>
+                                    {tr.exitReason === 'take_profit' ? 'TP Limit [Maker]' : tr.exitReason === 'stop_loss' ? 'SL Stop [Taker]' : tr.exitReason}
+                                  </td>
                                   <td style={{ padding: '8px 12px', color: '#71717a' }}>{new Date(tr.entryTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                                 </tr>
                               ))}
@@ -1705,6 +1886,228 @@ export function AlgoTrading() {
                 }}
               >
                 {emergencyStopMutation.isPending ? 'Halting...' : 'HALT ALL STRATEGIES'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Historical Candle Datasets Modal */}
+      {isDataStatusModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 24,
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 900,
+              maxHeight: '90vh',
+              background: '#121215',
+              border: '1px solid #27272a',
+              borderRadius: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '16px 22px', borderBottom: '1px solid #1f1f23', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#f4f4f5' }}>
+                  Binance Vision Historical Candle Archive (4-Year Institutional Store)
+                </h2>
+                <div style={{ fontSize: 11.5, color: '#71717a', marginTop: 3 }}>
+                  Local compressed disk storage (<code>data/candles</code>) across 1m, 3m, 5m, 15m, 30m, 1h, 4h timeframes.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDataStatusModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: '#71717a', fontSize: 18, cursor: 'pointer' }}
+              >
+                x
+              </button>
+            </div>
+
+            {/* Sync Telemetry Banner */}
+            <div style={{ padding: '12px 22px', background: '#0e0e11', borderBottom: '1px solid #1f1f23', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: candleStatusQuery.data?.worker.isProcessing ? '#f59e0b' : '#22c55e',
+                  }}
+                />
+                <span style={{ fontSize: 12, color: '#e4e4e7', fontWeight: 600 }}>
+                  {candleStatusQuery.data?.worker.isProcessing
+                    ? `Downloading: ${candleStatusQuery.data.worker.currentCoin} [${candleStatusQuery.data.worker.currentTimeframe}] ${candleStatusQuery.data.worker.currentYear}-${String(candleStatusQuery.data.worker.currentMonth).padStart(2, '0')} (${candleStatusQuery.data.worker.queueLength} in queue)`
+                    : 'Sync Engine: Idle / Up-to-Date'}
+                </span>
+                <span style={{ fontSize: 11.5, color: '#71717a' }}>
+                  Total Datasets: {candleStatusQuery.data?.datasetsCount ?? 0} monthly chunks
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => syncWatchlistMutation.mutate()}
+                  disabled={syncWatchlistMutation.isPending}
+                  style={{
+                    background: '#ffffff',
+                    color: '#000000',
+                    border: 'none',
+                    padding: '5px 14px',
+                    borderRadius: 4,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {syncWatchlistMutation.isPending ? 'Starting...' : 'Sync Watchlist Coins (4Y Archive)'}
+                </button>
+              </div>
+            </div>
+
+            {/* Table of Coins */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 22px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, textAlign: 'left', marginTop: 12 }}>
+                <thead>
+                  <tr style={{ color: '#71717a', borderBottom: '1px solid #1f1f23' }}>
+                    <th style={{ padding: '10px 8px' }}>Coin / Pair</th>
+                    <th style={{ padding: '10px 8px' }}>Sync Status</th>
+                    <th style={{ padding: '10px 8px' }}>Timeframes Available</th>
+                    <th style={{ padding: '10px 8px' }}>Date Range</th>
+                    <th style={{ padding: '10px 8px' }}>Total Bars</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candleStatusQuery.data?.watchlistCoins && candleStatusQuery.data.watchlistCoins.length > 0 ? (
+                    candleStatusQuery.data.watchlistCoins.map((coin: WatchlistCoinItem) => (
+                      <tr key={coin.id} style={{ borderBottom: '1px solid #18181b' }}>
+                        <td style={{ padding: '10px 8px', fontWeight: 600, color: '#ffffff' }}>
+                          {coin.symbol}{' '}
+                          <span style={{ fontSize: 11, color: '#71717a', fontWeight: 400 }}>({coin.pair})</span>
+                        </td>
+                        <td style={{ padding: '10px 8px' }}>
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              background:
+                                coin.syncStatus === 'synced'
+                                  ? '#14532d'
+                                  : coin.syncStatus === 'syncing'
+                                    ? '#78350f'
+                                    : '#27272a',
+                              color:
+                                coin.syncStatus === 'synced'
+                                  ? '#86efac'
+                                  : coin.syncStatus === 'syncing'
+                                    ? '#fde68a'
+                                    : '#a1a1aa',
+                            }}
+                          >
+                            {coin.syncStatus.toUpperCase()}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 8px', color: '#d4d4d8' }}>
+                          {coin.syncedTimeframes && Object.keys(coin.syncedTimeframes).length > 0 ? (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {Object.entries(coin.syncedTimeframes).map(([tf, info]) => (
+                                <span
+                                  key={tf}
+                                  style={{
+                                    fontSize: 10,
+                                    background: '#1f1f23',
+                                    padding: '1px 5px',
+                                    borderRadius: 3,
+                                    color: info.count > 0 ? '#6ee7b7' : '#71717a',
+                                  }}
+                                  title={`${info.count.toLocaleString()} bars`}
+                                >
+                                  {tf}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ color: '#71717a', fontSize: 11 }}>1m, 3m, 5m, 15m, 30m, 1h, 4h</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 8px', color: '#a1a1aa', fontSize: 11 }}>
+                          {coin.earliestCandleAt && coin.latestCandleAt ? (
+                            `${new Date(coin.earliestCandleAt).toLocaleDateString([], { month: 'short', year: 'numeric' })} - ${new Date(coin.latestCandleAt).toLocaleDateString([], { month: 'short', year: 'numeric' })}`
+                          ) : (
+                            'Pending sync'
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 8px', color: '#f4f4f5', fontWeight: 600 }}>
+                          {coin.totalCandlesCount ? coin.totalCandlesCount.toLocaleString() : '—'}
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => syncWatchlistMutation.mutate([coin.symbol])}
+                            style={{
+                              background: '#27272a',
+                              border: 'none',
+                              color: '#fff',
+                              padding: '3px 8px',
+                              borderRadius: 4,
+                              fontSize: 11,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Sync Coin
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '24px 8px', textAlign: 'center', color: '#71717a' }}>
+                        No watchlist coins registered yet. Click &apos;Sync Watchlist Coins&apos; above to begin downloading 4 years of historical data.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '14px 22px', borderTop: '1px solid #1f1f23', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setIsDataStatusModalOpen(false)}
+                style={{
+                  background: '#27272a',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '6px 16px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
               </button>
             </div>
           </div>

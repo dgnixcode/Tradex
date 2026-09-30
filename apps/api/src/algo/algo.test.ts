@@ -241,6 +241,81 @@ describe('Algo Backtesting', () => {
     expect(result.metrics.initialCapital).toBe(10000);
     expect(result.equityCurve.length).toBeGreaterThan(30);
     expect(result.trades.length).toBeGreaterThan(0);
+    expect(result.metrics.totalFees).toBeGreaterThan(0);
+    expect(result.metrics.makerFeeRate).toBe(0.0002);
+    expect(result.metrics.takerFeeRate).toBe(0.0005);
+  });
+
+  it('accurately applies Binance maker fee (0.02%) to limit orders and taker fee (0.05%) to stop triggers', async () => {
+    const candles: CandleData[] = [];
+    const baseTime = Date.now();
+
+    for (let i = 0; i < 40; i++) {
+      const price = 50000 + i * 10;
+      candles.push({
+        open: price,
+        high: price + 15,
+        low: price - 15,
+        close: price,
+        volume: 100,
+        time: baseTime + i * 60_000,
+      });
+    }
+
+    const script = `
+      export default async function run({ positions, trade, params }) {
+        const pos = await positions.get(params.pair);
+        if (!pos) {
+          // Enter with limit order (maker fee: 0.02%) and take profit (maker fee: 0.02%)
+          await trade.buy({ pair: params.pair, orderType: "limit", percentBp: 1000, leverage: 10, takeProfitPrice: 50350 });
+        }
+      }
+    `;
+
+    const result = await runBacktest({
+      script,
+      pair: 'BTCUSDT',
+      timeframe: '1m',
+      initialCapital: 10000,
+      makerFeeRate: 0.0002,
+      takerFeeRate: 0.0005,
+      customCandles: candles,
+    });
+
+    expect(result.trades.length).toBeGreaterThan(0);
+    const trade = result.trades[0]!;
+    expect(trade.entryFeeType).toBe('maker');
+    expect(result.metrics.makerFees).toBeGreaterThan(0);
+    expect(result.metrics.totalFees).toBe(Number((result.metrics.makerFees + result.metrics.takerFees).toFixed(2)));
+  });
+});
+
+describe('Binance Historical Candle Engine', () => {
+  it('normalizes various coin and pair formats', async () => {
+    const { normalizeSymbol } = await import('./binance-history.js');
+    expect(normalizeSymbol('BTC')).toEqual({ symbol: 'BTC', binancePair: 'BTCUSDT', tradexPair: 'B-BTC_USDT' });
+    expect(normalizeSymbol('B-ETH_USDT')).toEqual({ symbol: 'ETH', binancePair: 'ETHUSDT', tradexPair: 'B-ETH_USDT' });
+    expect(normalizeSymbol('solusdt')).toEqual({ symbol: 'SOL', binancePair: 'SOLUSDT', tradexPair: 'B-SOL_USDT' });
+    expect(normalizeSymbol('DASH')).toEqual({ symbol: 'DASH', binancePair: 'DASHUSDT', tradexPair: 'B-DASH_USDT' });
+    expect(normalizeSymbol('ZEC')).toEqual({ symbol: 'ZEC', binancePair: 'ZECUSDT', tradexPair: 'B-ZEC_USDT' });
+  });
+
+  it('parses standard Binance kline CSV rows accurately', async () => {
+    const { parseBinanceKlineCsv } = await import('./binance-history.js');
+    const csv = [
+      'open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore',
+      '1704067200000,42314.00,42603.20,42289.60,42503.50,8459.477,1704070799999,359196345.08,88278,4687.97,199033806.82,0',
+      '1704070800000,42503.50,42832.00,42462.00,42647.90,9043.411,1704074399999,385970069.22,90351,4783.83,204180582.72,0',
+    ].join('\n');
+
+    const candles = parseBinanceKlineCsv(csv);
+    expect(candles.length).toBe(2);
+    expect(candles[0]!.time).toBe(1704067200000);
+    expect(candles[0]!.open).toBe(42314);
+    expect(candles[0]!.high).toBe(42603.2);
+    expect(candles[0]!.low).toBe(42289.6);
+    expect(candles[0]!.close).toBe(42503.5);
+    expect(candles[0]!.volume).toBe(8459.477);
   });
 });
 

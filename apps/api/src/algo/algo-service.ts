@@ -14,8 +14,22 @@ import {
   getAlgoRun,
   confirmDryRun,
   beginExecution,
+  listWatchlistCoins,
+  listAllCandleDatasets,
 } from '@tradex/db';
-import type { DB, AlgoStrategyRecord, AlgoRunRecord, AlgoStrategyInput, UpdateAlgoStrategyInput } from '@tradex/db';
+import type {
+  DB,
+  AlgoStrategyRecord,
+  AlgoRunRecord,
+  AlgoStrategyInput,
+  UpdateAlgoStrategyInput,
+  WatchlistCoinRecord,
+  CandleDatasetRecord,
+} from '@tradex/db';
+import {
+  BinanceHistorySyncManager,
+  DEFAULT_WATCHLIST_COINS,
+} from './binance-history.js';
 import type { PlanningService, PlanRequest } from '../planning-service.js';
 import type { ExecutionWorker } from '../execution-worker.js';
 import type { GroupExecutor } from '../group-executor.js';
@@ -68,8 +82,18 @@ export function minorToMajor(minor: unknown, scale: number): number {
 export class AlgoService {
   private schedulerTimer: NodeJS.Timeout | null = null;
   private readonly runningStrategyIds = new Set<string>();
+  private readonly historyManager: BinanceHistorySyncManager;
 
-  constructor(private readonly deps: AlgoServiceDeps) {}
+  constructor(private readonly deps: AlgoServiceDeps) {
+    this.historyManager = new BinanceHistorySyncManager(this.deps.db);
+  }
+
+  /**
+   * Return Binance history sync manager instance.
+   */
+  getHistoryManager(): BinanceHistorySyncManager {
+    return this.historyManager;
+  }
 
   /**
    * Start the recurring strategy evaluation scheduler.
@@ -83,6 +107,13 @@ export class AlgoService {
     }, intervalMs);
     // Don't keep the process alive solely for the scheduler timer in test environments
     this.schedulerTimer.unref();
+
+    // Start background sync for default watchlist coins if not already running
+    setTimeout(() => {
+      this.historyManager.enqueueCoins([...DEFAULT_WATCHLIST_COINS]).catch((err) => {
+        console.warn('[algo-service] initial watchlist sync notice:', err instanceof Error ? err.message : String(err));
+      });
+    }, 5000).unref();
   }
 
   /**
@@ -607,7 +638,49 @@ export class AlgoService {
    * Run backtest for a strategy or custom script.
    */
   async runBacktest(options: RunBacktestOptions): Promise<BacktestResult> {
-    return await runBacktest(options);
+    return await runBacktest({ ...options, db: this.deps.db });
+  }
+
+  /**
+   * Sync watchlist coins and start background historical candle download.
+   */
+  async syncWatchlist(tenantId: string, symbols: string[], lookbackYears = 4) {
+    const tdb = forTenant(this.deps.db, tenantId);
+    return await this.historyManager.enqueueCoins(symbols, tdb, lookbackYears);
+  }
+
+  /**
+   * Add a single coin to watchlist and trigger background download.
+   */
+  async addWatchlistCoin(tenantId: string, symbol: string, lookbackYears = 4) {
+    const tdb = forTenant(this.deps.db, tenantId);
+    return await this.historyManager.enqueueCoins([symbol], tdb, lookbackYears);
+  }
+
+  /**
+   * List watchlist coins for a tenant.
+   */
+  async listWatchlist(tenantId: string): Promise<WatchlistCoinRecord[]> {
+    const tdb = forTenant(this.deps.db, tenantId);
+    return await listWatchlistCoins(tdb);
+  }
+
+  /**
+   * Get candle dataset summary and worker status.
+   */
+  async getCandleStatus(tenantId?: string) {
+    const workerStatus = this.historyManager.getStatus();
+    const datasets = await listAllCandleDatasets(this.deps.db);
+    let watchlistCoins: WatchlistCoinRecord[] = [];
+    if (tenantId) {
+      watchlistCoins = await listWatchlistCoins(forTenant(this.deps.db, tenantId));
+    }
+    return {
+      worker: workerStatus,
+      datasetsCount: datasets.length,
+      datasets,
+      watchlistCoins,
+    };
   }
 
   /**

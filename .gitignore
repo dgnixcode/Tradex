@@ -12,3 +12,6 @@ coverage/
 secrets/
 *.pem
 *.key
+
+# historical candle data storage
+data/

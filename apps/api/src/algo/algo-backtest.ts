@@ -1,10 +1,14 @@
 // Historical backtesting simulator for algorithmic trading strategies.
+// Supports institutional-grade Binance Maker (0.02%) & Taker (0.05%) fee calculation.
 
+import type { Kysely } from 'kysely';
+import type { DB } from '@tradex/db';
 import * as indicators from './algo-indicators.js';
 import type { CandleData } from './algo-indicators.js';
 import { fetchHistoricalCandles } from './algo-sdk.js';
 import type { AlgoPosition, AlgoTradeOptions } from './algo-sdk.js';
 import { executeStrategyScript } from './algo-runner.js';
+import { loadHistoricalCandles } from './binance-history.js';
 
 export interface BacktestTrade {
   readonly id: string;
@@ -17,8 +21,15 @@ export interface BacktestTrade {
   readonly leverage: number;
   readonly size: number;
   readonly notional: number;
-  readonly pnl: number;
+  readonly grossPnl: number;
+  readonly netPnl: number;
+  readonly pnl: number; // Matches netPnl for backward compatibility
   readonly pnlPct: number;
+  readonly entryFee: number;
+  readonly exitFee: number;
+  readonly entryFeeType: 'maker' | 'taker';
+  readonly exitFeeType: 'maker' | 'taker';
+  readonly totalFees: number;
   readonly exitReason: 'take_profit' | 'stop_loss' | 'signal_close' | 'end_of_data';
 }
 
@@ -34,6 +45,13 @@ export interface BacktestMetrics {
   readonly finalCapital: number;
   readonly netProfit: number;
   readonly netProfitPct: number;
+  readonly grossProfit: number;
+  readonly grossLoss: number;
+  readonly totalFees: number;
+  readonly makerFees: number;
+  readonly takerFees: number;
+  readonly makerFeeRate: number;
+  readonly takerFeeRate: number;
   readonly totalTrades: number;
   readonly winningTrades: number;
   readonly losingTrades: number;
@@ -62,6 +80,11 @@ export interface RunBacktestOptions {
   readonly candleLimit?: number | undefined;
   readonly params?: Record<string, unknown> | undefined;
   readonly customCandles?: readonly CandleData[] | undefined;
+  readonly makerFeeRate?: number | undefined; // Default 0.0002 (0.02% Binance VIP 0)
+  readonly takerFeeRate?: number | undefined; // Default 0.0005 (0.05% Binance VIP 0)
+  readonly dataSource?: 'binance' | 'coindcx' | 'auto' | undefined;
+  readonly lookbackMonths?: number | undefined;
+  readonly db?: Kysely<DB> | undefined;
 }
 
 interface SimulatedPosition {
@@ -73,6 +96,8 @@ interface SimulatedPosition {
   readonly size: number;
   readonly notional: number;
   readonly marginUsed: number;
+  readonly entryFee: number;
+  readonly entryFeeType: 'maker' | 'taker';
   readonly takeProfitPrice: number | null;
   readonly stopLossPrice: number | null;
 }
@@ -92,12 +117,27 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
   const candleLimit = options.candleLimit ?? 300;
   const params = { ...(options.params ?? {}), pair, timeframe };
 
-  const candles = options.customCandles && options.customCandles.length > 0
-    ? [...options.customCandles]
-    : await fetchHistoricalCandles(pair, timeframe, candleLimit);
+  // Institutional default fee rates: Binance VIP 0 (0.02% maker, 0.05% taker)
+  const makerFeeRate = typeof options.makerFeeRate === 'number' ? options.makerFeeRate : 0.0002;
+  const takerFeeRate = typeof options.takerFeeRate === 'number' ? options.takerFeeRate : 0.0005;
+
+  let candles: CandleData[];
+  if (options.customCandles && options.customCandles.length > 0) {
+    candles = [...options.customCandles];
+  } else if (options.db) {
+    candles = await loadHistoricalCandles(options.db, pair, timeframe, {
+      limit: candleLimit,
+      dataSource: options.dataSource,
+      lookbackMonths: options.lookbackMonths,
+    });
+  } else {
+    candles = await fetchHistoricalCandles(pair, timeframe, candleLimit);
+  }
 
   if (candles.length < 25) {
-    throw new Error(`Insufficient historical candles for backtesting (${candles.length} available, minimum 25 required)`);
+    throw new Error(
+      `Insufficient historical candles for backtesting (${candles.length} available, minimum 25 required)`,
+    );
   }
 
   const sim: SimState = {
@@ -107,6 +147,8 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
 
   let peakEquity = initialCapital;
   let maxDrawdown = 0;
+  let totalMakerFees = 0;
+  let totalTakerFees = 0;
 
   const trades: BacktestTrade[] = [];
   const equityCurve: EquityPoint[] = [];
@@ -123,32 +165,43 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
       const active: SimulatedPosition = sim.currentPos;
       let exitPrice: number | null = null;
       let exitReason: BacktestTrade['exitReason'] | null = null;
+      let exitFeeType: 'maker' | 'taker' = 'taker';
 
       if (active.side === 'long') {
         if (active.takeProfitPrice !== null && candle.high >= active.takeProfitPrice) {
           exitPrice = active.takeProfitPrice;
           exitReason = 'take_profit';
+          exitFeeType = 'maker'; // Take-profit limit fills on book
         } else if (active.stopLossPrice !== null && candle.low <= active.stopLossPrice) {
           exitPrice = active.stopLossPrice;
           exitReason = 'stop_loss';
+          exitFeeType = 'taker'; // Stop-loss triggers market order
         }
       } else {
         if (active.takeProfitPrice !== null && candle.low <= active.takeProfitPrice) {
           exitPrice = active.takeProfitPrice;
           exitReason = 'take_profit';
+          exitFeeType = 'maker'; // Take-profit limit fills on book
         } else if (active.stopLossPrice !== null && candle.high >= active.stopLossPrice) {
           exitPrice = active.stopLossPrice;
           exitReason = 'stop_loss';
+          exitFeeType = 'taker'; // Stop-loss triggers market order
         }
       }
 
       if (exitPrice !== null && exitReason !== null) {
+        const exitNotional = exitPrice * active.size;
+        const exitFee = exitFeeType === 'maker' ? exitNotional * makerFeeRate : exitNotional * takerFeeRate;
+        const totalTradeFees = active.entryFee + exitFee;
+
+        if (exitFeeType === 'maker') totalMakerFees += exitFee;
+        else totalTakerFees += exitFee;
+
         const rawPnl = active.side === 'long'
           ? (exitPrice - active.entryPrice) * active.size
           : (active.entryPrice - exitPrice) * active.size;
 
-        const fee = active.notional * 0.0005 + (exitPrice * active.size) * 0.0005;
-        const netPnl = rawPnl - fee;
+        const netPnl = rawPnl - totalTradeFees;
         const pnlPct = (netPnl / active.marginUsed) * 100;
 
         sim.equity += netPnl;
@@ -164,8 +217,15 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
           leverage: active.leverage,
           size: active.size,
           notional: active.notional,
+          grossPnl: Number(rawPnl.toFixed(4)),
+          netPnl: Number(netPnl.toFixed(4)),
           pnl: Number(netPnl.toFixed(4)),
           pnlPct: Number(pnlPct.toFixed(2)),
+          entryFee: Number(active.entryFee.toFixed(4)),
+          exitFee: Number(exitFee.toFixed(4)),
+          entryFeeType: active.entryFeeType,
+          exitFeeType,
+          totalFees: Number(totalTradeFees.toFixed(4)),
           exitReason,
         });
 
@@ -214,13 +274,20 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
       indicators,
       trade: {
         buy: async (opts: AlgoTradeOptions) => {
+          // If already short, close the short first
           if (sim.currentPos && sim.currentPos.side === 'short') {
             const shortPos = sim.currentPos;
-            const rawPnl = (shortPos.entryPrice - candle.close) * shortPos.size;
-            const fee = shortPos.notional * 0.0005 + (candle.close * shortPos.size) * 0.0005;
-            const netPnl = rawPnl - fee;
+            const exitPrice = candle.close;
+            const exitNotional = exitPrice * shortPos.size;
+            const exitFee = exitNotional * takerFeeRate; // Signal close executes at market taker
+            totalTakerFees += exitFee;
+            const totalTradeFees = shortPos.entryFee + exitFee;
+
+            const rawPnl = (shortPos.entryPrice - exitPrice) * shortPos.size;
+            const netPnl = rawPnl - totalTradeFees;
             const pnlPct = (netPnl / shortPos.marginUsed) * 100;
             sim.equity += netPnl;
+
             trades.push({
               id: shortPos.id,
               pair,
@@ -228,23 +295,37 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
               entryTime: shortPos.entryTime,
               exitTime: candle.time,
               entryPrice: shortPos.entryPrice,
-              exitPrice: candle.close,
+              exitPrice,
               leverage: shortPos.leverage,
               size: shortPos.size,
               notional: shortPos.notional,
+              grossPnl: Number(rawPnl.toFixed(4)),
+              netPnl: Number(netPnl.toFixed(4)),
               pnl: Number(netPnl.toFixed(4)),
               pnlPct: Number(pnlPct.toFixed(2)),
+              entryFee: Number(shortPos.entryFee.toFixed(4)),
+              exitFee: Number(exitFee.toFixed(4)),
+              entryFeeType: shortPos.entryFeeType,
+              exitFeeType: 'taker',
+              totalFees: Number(totalTradeFees.toFixed(4)),
               exitReason: 'signal_close',
             });
             sim.currentPos = null;
           }
 
+          // Open long position
           if (!sim.currentPos) {
             const lev = Number(opts.leverage) || 10;
             const allocPct = (opts.percentBp ?? 1000) / 10000;
             const margin = Math.max(10, sim.equity * allocPct);
             const notional = margin * lev;
             const size = notional / candle.close;
+
+            const entryFeeType: 'maker' | 'taker' = opts.orderType === 'limit' ? 'maker' : 'taker';
+            const entryFee = entryFeeType === 'maker' ? notional * makerFeeRate : notional * takerFeeRate;
+
+            if (entryFeeType === 'maker') totalMakerFees += entryFee;
+            else totalTakerFees += entryFee;
 
             sim.currentPos = {
               id: `sim-order-${i}`,
@@ -255,6 +336,8 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
               size,
               notional,
               marginUsed: margin,
+              entryFee,
+              entryFeeType,
               takeProfitPrice: opts.takeProfitPrice ? Number(opts.takeProfitPrice) : null,
               stopLossPrice: opts.stopLossPrice ? Number(opts.stopLossPrice) : null,
             };
@@ -264,13 +347,20 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
           return { success: true, price: candle.close, quantity: currentSize };
         },
         sell: async (opts: AlgoTradeOptions) => {
+          // If already long, close the long first
           if (sim.currentPos && sim.currentPos.side === 'long') {
             const longPos = sim.currentPos;
-            const rawPnl = (candle.close - longPos.entryPrice) * longPos.size;
-            const fee = longPos.notional * 0.0005 + (candle.close * longPos.size) * 0.0005;
-            const netPnl = rawPnl - fee;
+            const exitPrice = candle.close;
+            const exitNotional = exitPrice * longPos.size;
+            const exitFee = exitNotional * takerFeeRate; // Signal close executes at market taker
+            totalTakerFees += exitFee;
+            const totalTradeFees = longPos.entryFee + exitFee;
+
+            const rawPnl = (exitPrice - longPos.entryPrice) * longPos.size;
+            const netPnl = rawPnl - totalTradeFees;
             const pnlPct = (netPnl / longPos.marginUsed) * 100;
             sim.equity += netPnl;
+
             trades.push({
               id: longPos.id,
               pair,
@@ -278,23 +368,37 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
               entryTime: longPos.entryTime,
               exitTime: candle.time,
               entryPrice: longPos.entryPrice,
-              exitPrice: candle.close,
+              exitPrice,
               leverage: longPos.leverage,
               size: longPos.size,
               notional: longPos.notional,
+              grossPnl: Number(rawPnl.toFixed(4)),
+              netPnl: Number(netPnl.toFixed(4)),
               pnl: Number(netPnl.toFixed(4)),
               pnlPct: Number(pnlPct.toFixed(2)),
+              entryFee: Number(longPos.entryFee.toFixed(4)),
+              exitFee: Number(exitFee.toFixed(4)),
+              entryFeeType: longPos.entryFeeType,
+              exitFeeType: 'taker',
+              totalFees: Number(totalTradeFees.toFixed(4)),
               exitReason: 'signal_close',
             });
             sim.currentPos = null;
           }
 
+          // Open short position
           if (!sim.currentPos) {
             const lev = Number(opts.leverage) || 10;
             const allocPct = (opts.percentBp ?? 1000) / 10000;
             const margin = Math.max(10, sim.equity * allocPct);
             const notional = margin * lev;
             const size = notional / candle.close;
+
+            const entryFeeType: 'maker' | 'taker' = opts.orderType === 'limit' ? 'maker' : 'taker';
+            const entryFee = entryFeeType === 'maker' ? notional * makerFeeRate : notional * takerFeeRate;
+
+            if (entryFeeType === 'maker') totalMakerFees += entryFee;
+            else totalTakerFees += entryFee;
 
             sim.currentPos = {
               id: `sim-order-${i}`,
@@ -305,6 +409,8 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
               size,
               notional,
               marginUsed: margin,
+              entryFee,
+              entryFeeType,
               takeProfitPrice: opts.takeProfitPrice ? Number(opts.takeProfitPrice) : null,
               stopLossPrice: opts.stopLossPrice ? Number(opts.stopLossPrice) : null,
             };
@@ -319,13 +425,20 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
           }
           if (sim.currentPos) {
             const pos = sim.currentPos;
+            const exitPrice = candle.close;
+            const exitNotional = exitPrice * pos.size;
+            const exitFee = exitNotional * takerFeeRate;
+            totalTakerFees += exitFee;
+            const totalTradeFees = pos.entryFee + exitFee;
+
             const rawPnl = pos.side === 'long'
-              ? (candle.close - pos.entryPrice) * pos.size
-              : (pos.entryPrice - candle.close) * pos.size;
-            const fee = pos.notional * 0.0005 + (candle.close * pos.size) * 0.0005;
-            const netPnl = rawPnl - fee;
+              ? (exitPrice - pos.entryPrice) * pos.size
+              : (pos.entryPrice - exitPrice) * pos.size;
+
+            const netPnl = rawPnl - totalTradeFees;
             const pnlPct = (netPnl / pos.marginUsed) * 100;
             sim.equity += netPnl;
+
             trades.push({
               id: pos.id,
               pair,
@@ -333,12 +446,19 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
               entryTime: pos.entryTime,
               exitTime: candle.time,
               entryPrice: pos.entryPrice,
-              exitPrice: candle.close,
+              exitPrice,
               leverage: pos.leverage,
               size: pos.size,
               notional: pos.notional,
+              grossPnl: Number(rawPnl.toFixed(4)),
+              netPnl: Number(netPnl.toFixed(4)),
               pnl: Number(netPnl.toFixed(4)),
               pnlPct: Number(pnlPct.toFixed(2)),
+              entryFee: Number(pos.entryFee.toFixed(4)),
+              exitFee: Number(exitFee.toFixed(4)),
+              entryFeeType: pos.entryFeeType,
+              exitFeeType: 'taker',
+              totalFees: Number(totalTradeFees.toFixed(4)),
               exitReason: 'signal_close',
             });
             sim.currentPos = null;
@@ -386,13 +506,20 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
   if (sim.currentPos && candles.length > 0) {
     const pos = sim.currentPos;
     const finalCandle = candles[candles.length - 1]!;
+    const exitPrice = finalCandle.close;
+    const exitNotional = exitPrice * pos.size;
+    const exitFee = exitNotional * takerFeeRate;
+    totalTakerFees += exitFee;
+    const totalTradeFees = pos.entryFee + exitFee;
+
     const rawPnl = pos.side === 'long'
-      ? (finalCandle.close - pos.entryPrice) * pos.size
-      : (pos.entryPrice - finalCandle.close) * pos.size;
-    const fee = pos.notional * 0.0005 + (finalCandle.close * pos.size) * 0.0005;
-    const netPnl = rawPnl - fee;
+      ? (exitPrice - pos.entryPrice) * pos.size
+      : (pos.entryPrice - exitPrice) * pos.size;
+
+    const netPnl = rawPnl - totalTradeFees;
     const pnlPct = (netPnl / pos.marginUsed) * 100;
     sim.equity += netPnl;
+
     trades.push({
       id: pos.id,
       pair,
@@ -400,12 +527,19 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
       entryTime: pos.entryTime,
       exitTime: finalCandle.time,
       entryPrice: pos.entryPrice,
-      exitPrice: finalCandle.close,
+      exitPrice,
       leverage: pos.leverage,
       size: pos.size,
       notional: pos.notional,
+      grossPnl: Number(rawPnl.toFixed(4)),
+      netPnl: Number(netPnl.toFixed(4)),
       pnl: Number(netPnl.toFixed(4)),
       pnlPct: Number(pnlPct.toFixed(2)),
+      entryFee: Number(pos.entryFee.toFixed(4)),
+      exitFee: Number(exitFee.toFixed(4)),
+      entryFeeType: pos.entryFeeType,
+      exitFeeType: 'taker',
+      totalFees: Number(totalTradeFees.toFixed(4)),
       exitReason: 'end_of_data',
     });
     sim.currentPos = null;
@@ -413,21 +547,22 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
 
   // 5. Compute performance statistics
   const totalTrades = trades.length;
-  const winningTrades = trades.filter((t) => t.pnl > 0).length;
-  const losingTrades = trades.filter((t) => t.pnl <= 0).length;
+  const winningTrades = trades.filter((t) => t.netPnl > 0).length;
+  const losingTrades = trades.filter((t) => t.netPnl <= 0).length;
   const winRatePct = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
 
-  const grossProfit = trades.filter((t) => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0);
-  const grossLoss = Math.abs(trades.filter((t) => t.pnl < 0).reduce((sum, t) => sum + t.pnl, 0));
+  const grossProfit = trades.filter((t) => t.grossPnl > 0).reduce((sum, t) => sum + t.grossPnl, 0);
+  const grossLoss = Math.abs(trades.filter((t) => t.grossPnl < 0).reduce((sum, t) => sum + t.grossPnl, 0));
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.9 : 0;
 
+  const totalFees = totalMakerFees + totalTakerFees;
   const netProfit = sim.equity - initialCapital;
   const netProfitPct = (netProfit / initialCapital) * 100;
 
   const totalDurationMs = trades.reduce((sum, t) => sum + (t.exitTime - t.entryTime), 0);
   const avgTradeDurationMinutes = totalTrades > 0 ? totalDurationMs / totalTrades / (60 * 1000) : 0;
 
-  // Approximate Sharpe Ratio
+  // Sharpe Ratio
   const returns = trades.map((t) => t.pnlPct);
   const meanReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
   const variance = returns.length > 1
@@ -445,6 +580,13 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
       finalCapital: Number(sim.equity.toFixed(2)),
       netProfit: Number(netProfit.toFixed(2)),
       netProfitPct: Number(netProfitPct.toFixed(2)),
+      grossProfit: Number(grossProfit.toFixed(2)),
+      grossLoss: Number(grossLoss.toFixed(2)),
+      totalFees: Number(totalFees.toFixed(2)),
+      makerFees: Number(totalMakerFees.toFixed(2)),
+      takerFees: Number(totalTakerFees.toFixed(2)),
+      makerFeeRate,
+      takerFeeRate,
       totalTrades,
       winningTrades,
       losingTrades,

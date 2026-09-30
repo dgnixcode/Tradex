@@ -2367,6 +2367,10 @@ export function createHttpServer(deps: HttpDeps): Server {
         initialCapital?: number;
         candleLimit?: number;
         params?: Record<string, unknown>;
+        makerFeeRate?: number;
+        takerFeeRate?: number;
+        dataSource?: 'binance' | 'coindcx' | 'auto';
+        lookbackMonths?: number;
       };
       if (typeof body.script !== 'string' || typeof body.pair !== 'string') {
         throw new HttpError(400, 'script and pair are required for backtesting');
@@ -2378,8 +2382,50 @@ export function createHttpServer(deps: HttpDeps): Server {
         initialCapital: body.initialCapital ?? 10_000,
         candleLimit: body.candleLimit ?? 300,
         params: body.params ?? {},
+        makerFeeRate: body.makerFeeRate,
+        takerFeeRate: body.takerFeeRate,
+        dataSource: body.dataSource,
+        lookbackMonths: body.lookbackMonths,
       });
       sendJson(ctx.res, 200, result);
+      return;
+    }
+
+    // GET /api/algo/watchlist - list watchlist coins with historical sync progress
+    if (method === 'GET' && path === '/api/algo/watchlist') {
+      requireAction(principal, 'view.dashboards');
+      const list = await algoService.listWatchlist(principal.tenantId);
+      sendJson(ctx.res, 200, list);
+      return;
+    }
+
+    // POST /api/algo/watchlist/sync - sync watchlist coins from Trade page and kick off download
+    if (method === 'POST' && path === '/api/algo/watchlist/sync') {
+      requireAction(principal, 'view.dashboards');
+      const body = (ctx.body ?? {}) as { symbols?: string[]; lookbackYears?: number };
+      const symbols = Array.isArray(body.symbols) && body.symbols.length > 0 ? body.symbols : ['BTC', 'ETH', 'SOL', 'DASH', 'ZEC', 'DOGE', 'XRP', 'AVAX', 'BNB'];
+      const res = await algoService.syncWatchlist(principal.tenantId, symbols, body.lookbackYears ?? 4);
+      sendJson(ctx.res, 200, { success: true, ...res });
+      return;
+    }
+
+    // POST /api/algo/watchlist/add - add single coin to watchlist and start background download
+    if (method === 'POST' && path === '/api/algo/watchlist/add') {
+      requireAction(principal, 'view.dashboards');
+      const body = (ctx.body ?? {}) as { symbol?: string; lookbackYears?: number };
+      if (!body.symbol || typeof body.symbol !== 'string') {
+        throw new HttpError(400, 'symbol is required');
+      }
+      const res = await algoService.addWatchlistCoin(principal.tenantId, body.symbol, body.lookbackYears ?? 4);
+      sendJson(ctx.res, 200, { success: true, symbol: body.symbol, ...res });
+      return;
+    }
+
+    // GET /api/algo/candles/status - get candle datasets summary and background sync worker status
+    if (method === 'GET' && path === '/api/algo/candles/status') {
+      requireAction(principal, 'view.dashboards');
+      const status = await algoService.getCandleStatus(principal.tenantId);
+      sendJson(ctx.res, 200, status);
       return;
     }
 

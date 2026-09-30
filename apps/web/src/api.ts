@@ -1193,8 +1193,15 @@ export interface BacktestTrade {
   readonly leverage: number;
   readonly size: number;
   readonly notional: number;
+  readonly grossPnl?: number;
+  readonly netPnl?: number;
   readonly pnl: number;
   readonly pnlPct: number;
+  readonly entryFee?: number;
+  readonly exitFee?: number;
+  readonly entryFeeType?: 'maker' | 'taker';
+  readonly exitFeeType?: 'maker' | 'taker';
+  readonly totalFees?: number;
   readonly exitReason: 'take_profit' | 'stop_loss' | 'signal_close' | 'end_of_data';
 }
 
@@ -1210,6 +1217,13 @@ export interface BacktestMetrics {
   readonly finalCapital: number;
   readonly netProfit: number;
   readonly netProfitPct: number;
+  readonly grossProfit?: number;
+  readonly grossLoss?: number;
+  readonly totalFees?: number;
+  readonly makerFees?: number;
+  readonly takerFees?: number;
+  readonly makerFeeRate?: number;
+  readonly takerFeeRate?: number;
   readonly totalTrades: number;
   readonly winningTrades: number;
   readonly losingTrades: number;
@@ -1305,10 +1319,14 @@ export const emergencyStopAllAlgos = (): Promise<{ success: boolean; stoppedCoun
 export const runAlgoBacktest = (payload: {
   readonly script: string;
   readonly pair: string;
-  readonly timeframe?: string;
-  readonly initialCapital?: number;
-  readonly candleLimit?: number;
-  readonly params?: Record<string, unknown>;
+  readonly timeframe?: string | undefined;
+  readonly initialCapital?: number | undefined;
+  readonly candleLimit?: number | undefined;
+  readonly params?: Record<string, unknown> | undefined;
+  readonly makerFeeRate?: number | undefined;
+  readonly takerFeeRate?: number | undefined;
+  readonly dataSource?: 'binance' | 'coindcx' | 'auto' | undefined;
+  readonly lookbackMonths?: number | undefined;
 }): Promise<BacktestResult> =>
   request<BacktestResult>('/algo/backtest', {
     method: 'POST',
@@ -1320,4 +1338,63 @@ export const fetchAlgoTemplates = (): Promise<readonly StrategyTemplate[]> =>
 
 export const fetchAlgoCandles = (pair: string, timeframe = '5m', limit = 100): Promise<readonly CandleDataPoint[]> =>
   request<readonly CandleDataPoint[]>(`/algo/market/candles?pair=${encodeURIComponent(pair)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`);
+
+export interface WatchlistCoinItem {
+  readonly id: string;
+  readonly symbol: string;
+  readonly pair: string;
+  readonly isActive: boolean;
+  readonly syncStatus: 'pending' | 'syncing' | 'synced' | 'error';
+  readonly syncedTimeframes: Record<string, { count: number; syncedAt: string }>;
+  readonly earliestCandleAt: string | null;
+  readonly latestCandleAt: string | null;
+  readonly totalCandlesCount: number;
+  readonly lastSyncError: string | null;
+}
+
+export interface CandleStatusResponse {
+  readonly worker: {
+    readonly isProcessing: boolean;
+    readonly queueLength: number;
+    readonly currentCoin: string | null;
+    readonly currentTimeframe: string | null;
+    readonly currentYear: number | null;
+    readonly currentMonth: number | null;
+    readonly lastError: string | null;
+    readonly lastCompletedCoin: string | null;
+    readonly storageDirectory: string;
+  };
+  readonly datasetsCount: number;
+  readonly datasets: readonly {
+    readonly id: string;
+    readonly pair: string;
+    readonly symbol: string;
+    readonly timeframe: string;
+    readonly year: number;
+    readonly month: number;
+    readonly barCount: number;
+    readonly startTime: number;
+    readonly endTime: number;
+    readonly source: string;
+  }[];
+  readonly watchlistCoins: readonly WatchlistCoinItem[];
+}
+
+export const fetchAlgoWatchlist = (): Promise<readonly WatchlistCoinItem[]> =>
+  request<readonly WatchlistCoinItem[]>('/algo/watchlist');
+
+export const syncAlgoWatchlist = (symbols: readonly string[], lookbackYears = 4): Promise<{ success: boolean; enqueued: string[]; totalQueue: number }> =>
+  request<{ success: boolean; enqueued: string[]; totalQueue: number }>('/algo/watchlist/sync', {
+    method: 'POST',
+    body: JSON.stringify({ symbols, lookbackYears }),
+  });
+
+export const addAlgoWatchlistCoin = (symbol: string, lookbackYears = 4): Promise<{ success: boolean; symbol: string; enqueued: string[]; totalQueue: number }> =>
+  request<{ success: boolean; symbol: string; enqueued: string[]; totalQueue: number }>('/algo/watchlist/add', {
+    method: 'POST',
+    body: JSON.stringify({ symbol, lookbackYears }),
+  });
+
+export const fetchAlgoCandleStatus = (): Promise<CandleStatusResponse> =>
+  request<CandleStatusResponse>('/algo/candles/status');
 

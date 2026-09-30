@@ -26,3 +26,4 @@ export * from './branding-repo.js';
 export * from './login-security-repo.js';
 export * from './futures-closed-trade-repo.js';
 export * from './algo-repo.js';
+export * from './watchlist-repo.js';
