@@ -558,11 +558,18 @@ export async function loadHistoricalCandles(
 
   if (datasets.length === 0) {
     // No pre-downloaded dataset in DB, attempt reading from disk directly if exists
-    const months = generateMonthList(options.lookbackMonths ?? 4);
+    const months = generateMonthList(Math.min(4, Math.ceil((options.lookbackMonths ?? 12) / 12)))
+      .slice(0, options.lookbackMonths ?? 12);
     const diskCandles: CandleData[] = [];
 
     for (const { year, month } of months) {
-      const chunk = readChunkFromDisk(binancePair, timeframe, year, month);
+      let chunk = readChunkFromDisk(binancePair, timeframe, year, month);
+      if (!chunk && (options.lookbackMonths ?? 0) <= 6) {
+        // Fast on-demand fetch for small lookbacks if not yet synced
+        try {
+          chunk = await downloadMonthlyChunk(binancePair, timeframe, year, month);
+        } catch {}
+      }
       if (chunk && chunk.length > 0) {
         diskCandles.push(...chunk);
       }
@@ -570,7 +577,7 @@ export async function loadHistoricalCandles(
 
     if (diskCandles.length >= 25) {
       diskCandles.sort((a, b) => a.time - b.time);
-      if (options.limit && diskCandles.length > options.limit) {
+      if (!options.lookbackMonths && options.limit && diskCandles.length > options.limit) {
         return diskCandles.slice(diskCandles.length - options.limit);
       }
       return diskCandles;
@@ -580,9 +587,20 @@ export async function loadHistoricalCandles(
     return await fetchHistoricalCandles(pair, timeframe, limit);
   }
 
-  // 2. Load candles from recorded datasets
+  // 2. Filter datasets by lookback months if specified
+  let relevantDatasets = datasets;
+  if (options.lookbackMonths && options.lookbackMonths > 0) {
+    const targetMonths = new Set(
+      generateMonthList(Math.min(4, Math.ceil(options.lookbackMonths / 12)))
+        .slice(0, options.lookbackMonths)
+        .map((m) => `${m.year}_${m.month}`)
+    );
+    relevantDatasets = datasets.filter((ds) => targetMonths.has(`${ds.year}_${ds.month}`));
+  }
+
+  // 3. Load candles from recorded datasets
   const allCandles: CandleData[] = [];
-  for (const ds of datasets) {
+  for (const ds of relevantDatasets) {
     if (options.startTime && ds.endTime < options.startTime) continue;
     if (options.endTime && ds.startTime > options.endTime) continue;
 
@@ -592,7 +610,7 @@ export async function loadHistoricalCandles(
     }
   }
 
-  // 3. Check if we should append recent live candles (e.g. current month)
+  // 4. Check if we should append recent live candles (e.g. current month)
   const now = Date.now();
   const latestRecordedTime = allCandles.length > 0 ? allCandles[allCandles.length - 1]!.time : 0;
 
@@ -618,7 +636,8 @@ export async function loadHistoricalCandles(
     }
   }
 
-  if (options.limit && deduped.length > options.limit) {
+  // If lookbackMonths is not set, apply limit; otherwise return the complete requested history
+  if (!options.lookbackMonths && options.limit && deduped.length > options.limit) {
     return deduped.slice(deduped.length - options.limit);
   }
 

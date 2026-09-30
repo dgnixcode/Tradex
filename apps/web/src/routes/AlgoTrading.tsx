@@ -30,17 +30,20 @@ const POPULAR_PAIRS = [
   'B-BTC_USDT',
   'B-ETH_USDT',
   'B-SOL_USDT',
-  'B-XRP_USDT',
-  'B-BNB_USDT',
+  'B-DASH_USDT',
+  'B-ZEC_USDT',
   'B-DOGE_USDT',
-  'B-ADA_USDT',
+  'B-XRP_USDT',
   'B-AVAX_USDT',
+  'B-BNB_USDT',
+  'B-ADA_USDT',
   'B-LINK_USDT',
   'B-SUI_USDT',
 ];
 
 const TIMEFRAMES = [
   { label: '1 min', value: '1m' },
+  { label: '3 min', value: '3m' },
   { label: '5 min', value: '5m' },
   { label: '15 min', value: '15m' },
   { label: '30 min', value: '30m' },
@@ -48,6 +51,50 @@ const TIMEFRAMES = [
   { label: '4 hours', value: '4h' },
   { label: '1 day', value: '1d' },
 ];
+
+interface LookbackPresetItem {
+  readonly key: string;
+  readonly label: string;
+  readonly months?: number;
+}
+
+const LOOKBACK_PRESETS: readonly LookbackPresetItem[] = [
+  { key: '100', label: 'Recent 100 Candles' },
+  { key: '300', label: 'Recent 300 Candles' },
+  { key: '1000', label: 'Recent 1,000 Candles' },
+  { key: '1m', label: '1 Month Archive', months: 1 },
+  { key: '3m', label: '3 Months Archive', months: 3 },
+  { key: '6m', label: '6 Months Archive', months: 6 },
+  { key: '1y', label: '1 Year Archive', months: 12 },
+  { key: '2y', label: '2 Years Archive', months: 24 },
+  { key: '3y', label: '3 Years Archive', months: 36 },
+  { key: '4y', label: '4 Years Archive (Full)', months: 48 },
+];
+
+function formatLookbackLabel(tf: string, item: LookbackPresetItem): string {
+  const minsMap: Record<string, number> = {
+    '1m': 1,
+    '3m': 3,
+    '5m': 5,
+    '15m': 15,
+    '30m': 30,
+    '1h': 60,
+    '4h': 240,
+    '1d': 1440,
+  };
+  const mins = minsMap[tf] ?? 5;
+  const barsPerDay = 1440 / mins;
+
+  if (!item.months) {
+    const count = Number(item.key);
+    const days = (count / barsPerDay).toFixed(1);
+    return `${item.label} (~${days} days on ${tf})`;
+  }
+
+  const estBars = Math.round(item.months * 30.4 * barsPerDay);
+  const barStr = estBars >= 1000 ? `${(estBars / 1000).toFixed(estBars >= 10000 ? 0 : 1)}k` : String(estBars);
+  return `${item.label} (~${barStr} ${tf} bars)`;
+}
 
 const INTERVALS = [
   { label: 'Every 1 minute', value: '1m' },
@@ -110,6 +157,8 @@ export function AlgoTrading() {
   const [isDirty, setIsDirty] = useState(false);
 
   // Backtest runner state
+  const [backtestPair, setBacktestPair] = useState('B-BTC_USDT');
+  const [backtestTimeframe, setBacktestTimeframe] = useState('5m');
   const [backtestCandleLimit] = useState(300);
   const [backtestLookbackPeriod, setBacktestLookbackPeriod] = useState<string>('300');
   const [backtestDataSource, setBacktestDataSource] = useState<'binance' | 'coindcx'>('binance');
@@ -186,6 +235,8 @@ export function AlgoTrading() {
       setTargetId(selectedStrategy.targetId);
       setPair(selectedStrategy.pair);
       setTimeframe(selectedStrategy.timeframe);
+      setBacktestPair(selectedStrategy.pair);
+      setBacktestTimeframe(selectedStrategy.timeframe);
       setScheduleInterval(selectedStrategy.scheduleInterval);
       setIsDryRun(selectedStrategy.isDryRun);
       setScript(selectedStrategy.script);
@@ -409,12 +460,13 @@ export function AlgoTrading() {
       case '100': limitVal = 100; break;
       case '300': limitVal = 300; break;
       case '1000': limitVal = 1000; break;
-      case '1m': limitVal = 10_000; lookbackMonthsVal = 1; break;
-      case '6m': limitVal = 60_000; lookbackMonthsVal = 6; break;
-      case '1y': limitVal = 120_000; lookbackMonthsVal = 12; break;
-      case '2y': limitVal = 240_000; lookbackMonthsVal = 24; break;
-      case '3y': limitVal = 360_000; lookbackMonthsVal = 36; break;
-      case '4y': limitVal = 500_000; lookbackMonthsVal = 48; break;
+      case '1m': limitVal = 100_000; lookbackMonthsVal = 1; break;
+      case '3m': limitVal = 300_000; lookbackMonthsVal = 3; break;
+      case '6m': limitVal = 600_000; lookbackMonthsVal = 6; break;
+      case '1y': limitVal = 1_200_000; lookbackMonthsVal = 12; break;
+      case '2y': limitVal = 2_000_000; lookbackMonthsVal = 24; break;
+      case '3y': limitVal = 2_800_000; lookbackMonthsVal = 36; break;
+      case '4y': limitVal = 3_500_000; lookbackMonthsVal = 48; break;
       default: limitVal = backtestCandleLimit; break;
     }
 
@@ -442,8 +494,8 @@ export function AlgoTrading() {
     try {
       const res = await runAlgoBacktest({
         script,
-        pair,
-        timeframe,
+        pair: backtestPair,
+        timeframe: backtestTimeframe,
         initialCapital: backtestCapital,
         candleLimit: limitVal,
         params: parsedParams,
@@ -1209,14 +1261,32 @@ export function AlgoTrading() {
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Candle Data Source</div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Pair / Coin</div>
                       <select
-                        value={backtestDataSource}
-                        onChange={(e) => setBacktestDataSource(e.target.value as 'binance' | 'coindcx')}
+                        value={backtestPair}
+                        onChange={(e) => setBacktestPair(e.target.value)}
                         style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
                       >
-                        <option value="binance">Binance Vision (4-Year Archive)</option>
-                        <option value="coindcx">CoinDCX Exchange Live</option>
+                        {POPULAR_PAIRS.map((p) => (
+                          <option key={p} value={p}>
+                            {p.replace('B-', '').replace('_', '/')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Candle Timeframe</div>
+                      <select
+                        value={backtestTimeframe}
+                        onChange={(e) => setBacktestTimeframe(e.target.value)}
+                        style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
+                      >
+                        {TIMEFRAMES.map((tf) => (
+                          <option key={tf.value} value={tf.value}>
+                            {tf.label} ({tf.value})
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -1227,15 +1297,23 @@ export function AlgoTrading() {
                         onChange={(e) => setBacktestLookbackPeriod(e.target.value)}
                         style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
                       >
-                        <option value="100">100 Candles (~8h)</option>
-                        <option value="300">300 Candles (~25h)</option>
-                        <option value="1000">1,000 Candles (~3.5 days)</option>
-                        <option value="1m">1 Month Archive (~8.6k 5m bars)</option>
-                        <option value="6m">6 Months Archive (~52k 5m bars)</option>
-                        <option value="1y">1 Year Archive (~105k 5m bars)</option>
-                        <option value="2y">2 Years Archive (~210k 5m bars)</option>
-                        <option value="3y">3 Years Archive (~315k 5m bars)</option>
-                        <option value="4y">4 Years Archive (~420k 5m bars)</option>
+                        {LOOKBACK_PRESETS.map((item) => (
+                          <option key={item.key} value={item.key}>
+                            {formatLookbackLabel(backtestTimeframe, item)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: '#71717a', marginBottom: 3 }}>Candle Data Source</div>
+                      <select
+                        value={backtestDataSource}
+                        onChange={(e) => setBacktestDataSource(e.target.value as 'binance' | 'coindcx')}
+                        style={{ background: '#18181b', color: '#fff', border: '1px solid #27272a', padding: '5px 10px', borderRadius: 4, fontSize: 12 }}
+                      >
+                        <option value="binance">Binance Vision (4-Year Archive)</option>
+                        <option value="coindcx">CoinDCX Exchange Live</option>
                       </select>
                     </div>
 
@@ -1412,8 +1490,9 @@ export function AlgoTrading() {
                       {/* Equity Curve SVG Chart */}
                       {backtestResult.equityCurve.length > 1 && (
                         <div style={{ background: '#121215', padding: 16, borderRadius: 8, border: '1px solid #1f1f23' }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#a1a1aa', marginBottom: 12 }}>
-                            Equity Curve ($ USDT)
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#a1a1aa', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>Equity Curve ($ USDT) &mdash; {backtestResult.pair.replace('B-', '').replace('_', '/')} ({backtestResult.timeframe})</span>
+                            <span style={{ fontSize: 11, color: '#71717a' }}>{backtestResult.candleCount.toLocaleString()} candles tested</span>
                           </div>
                           {(() => {
                             const curve = backtestResult.equityCurve;
@@ -1453,7 +1532,7 @@ export function AlgoTrading() {
                       {/* Simulated Trades Blotter */}
                       <div style={{ background: '#121215', borderRadius: 8, border: '1px solid #1f1f23', overflow: 'hidden' }}>
                         <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f1f23', fontSize: 12, fontWeight: 600, color: '#a1a1aa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>Simulated Trades Log ({backtestResult.trades.length})</div>
+                          <div>Simulated Trades Log ({backtestResult.trades.length}) &mdash; {backtestResult.pair.replace('B-', '').replace('_', '/')} ({backtestResult.timeframe})</div>
                           <div style={{ fontSize: 11, color: '#71717a' }}>
                             Binance Fees: Maker {((backtestResult.metrics.makerFeeRate ?? 0.0002) * 100).toFixed(3)}% | Taker {((backtestResult.metrics.takerFeeRate ?? 0.0005) * 100).toFixed(3)}%
                           </div>
