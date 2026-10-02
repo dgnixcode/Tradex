@@ -27,7 +27,7 @@ import {
 import type { FuturesPositionRow } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 import { useLivePrices } from '../useLivePrices.ts';
-import { fmtCurrency, fmtSignedCurrency } from './Analytics.tsx';
+import { fmtCurrency, fmtSignedCurrency, getPnlSentiment, renderKpiValue } from './Analytics.tsx';
 import {
   PositionManageModal,
   QuickExitModal,
@@ -102,6 +102,8 @@ export function AccountDetail() {
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
 
   const [activeTab, setActiveTab] = useState<'positions' | 'analytics' | 'overview' | 'actions'>('positions');
+  const [positionCurrencyFilter, setPositionCurrencyFilter] = useState<'all' | 'INR' | 'USDT'>('all');
+  const [analyticsCurrencyFilter, setAnalyticsCurrencyFilter] = useState<'all' | 'INR' | 'USDT'>('all');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState<'all' | '30d' | '7d' | 'today' | 'custom'>('all');
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -414,6 +416,75 @@ export function AccountDetail() {
     return byCurrency;
   }, [accountPositions]);
 
+  // Multi-currency available funds across INR and USDT
+  const accountFundsList = useMemo(() => {
+    if (!a) return [];
+    const curMap = new Map<string, { currency: string; freeMinor: string; scale: number; lockedMinor?: string }>();
+
+    if (a.allocatedCurrency) {
+      curMap.set(a.allocatedCurrency, {
+        currency: a.allocatedCurrency,
+        freeMinor: a.allocatedCapitalMinor ?? '0',
+        scale: quoteScaleOf(a.allocatedCurrency),
+      });
+    }
+    for (const cur of a.fundingCurrencies) {
+      if (!curMap.has(cur)) {
+        curMap.set(cur, {
+          currency: cur,
+          freeMinor: '0',
+          scale: quoteScaleOf(cur),
+        });
+      }
+    }
+    for (const b of a.balances) {
+      curMap.set(b.currency, {
+        currency: b.currency,
+        freeMinor: b.freeMinor,
+        scale: b.scale,
+        lockedMinor: b.lockedMinor,
+      });
+    }
+    for (const p of accountPositions) {
+      if (p.marginCurrency && !curMap.has(p.marginCurrency)) {
+        curMap.set(p.marginCurrency, {
+          currency: p.marginCurrency,
+          freeMinor: '0',
+          scale: quoteScaleOf(p.marginCurrency),
+        });
+      }
+    }
+
+    return Array.from(curMap.values()).sort((x, y) => {
+      if (x.currency === 'INR') return -1;
+      if (y.currency === 'INR') return 1;
+      return x.currency.localeCompare(y.currency);
+    });
+  }, [a, accountPositions]);
+
+  const filteredAccountPositions = useMemo(() => {
+    if (positionCurrencyFilter === 'all') return accountPositions;
+    return accountPositions.filter((p) => p.marginCurrency.toUpperCase() === positionCurrencyFilter.toUpperCase());
+  }, [accountPositions, positionCurrencyFilter]);
+
+  const filteredTotalAccountPnl = useMemo(() => {
+    if (positionCurrencyFilter === 'all') return totalAccountPnl;
+    const res: Record<string, string> = {};
+    if (totalAccountPnl[positionCurrencyFilter]) {
+      res[positionCurrencyFilter] = totalAccountPnl[positionCurrencyFilter]!;
+    }
+    return res;
+  }, [totalAccountPnl, positionCurrencyFilter]);
+
+  const filteredTotalAccountMargin = useMemo(() => {
+    if (positionCurrencyFilter === 'all') return totalAccountMargin;
+    const res: Record<string, string> = {};
+    if (totalAccountMargin[positionCurrencyFilter]) {
+      res[positionCurrencyFilter] = totalAccountMargin[positionCurrencyFilter]!;
+    }
+    return res;
+  }, [totalAccountMargin, positionCurrencyFilter]);
+
   if (account.isLoading) return <div className="panel full-width-page">Loading account…</div>;
   if (account.isError) return <div className="panel error full-width-page">{(account.error as Error).message}</div>;
   if (!account.isSuccess || !a) return <div className="panel full-width-page">No such account.</div>;
@@ -699,6 +770,69 @@ export function AccountDetail() {
           </div>
         )}
 
+        {/* Account Capital & Multi-Currency Funds Strip */}
+        <div
+          className="account-funds-strip"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+            flexWrap: 'wrap',
+            background: 'linear-gradient(180deg, #111522 0%, #0c0e15 100%)',
+            border: '1px solid #1a2233',
+            borderRadius: 10,
+            padding: '12px 18px',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)' }}>
+              Available Account Funds:
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              {accountFundsList.map((fund) => (
+                <div key={fund.currency} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className={`kpi-currency-pill ${fund.currency.toLowerCase()}`}>{fund.currency}</span>
+                  <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}>
+                    {formatMinor(fund.freeMinor, fund.scale, fund.currency, fund.currency === 'USDT' ? 4 : 2)}
+                  </span>
+                </div>
+              ))}
+              {accountFundsList.length === 0 && (
+                <span className="muted" style={{ fontSize: 13 }}>No funds on record — sync account</span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12 }}>
+            {Object.keys(totalAccountPnl).length > 0 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span className="muted">Live Open PnL:</span>
+                <div style={{ display: 'inline-flex', gap: 8 }}>
+                  {Object.entries(totalAccountPnl).map(([cur, min]) => (
+                    <span
+                      key={cur}
+                      style={{
+                        fontWeight: 700,
+                        color: min.startsWith('-') ? 'var(--danger)' : min !== '0' ? 'var(--ok)' : 'var(--text)',
+                      }}
+                    >
+                      {pnlText(min, cur as 'INR' | 'USDT')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {a.allocatedCurrency && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)' }}>
+                <span>Sizing Basis:</span>
+                <span className={`kpi-currency-pill ${a.allocatedCurrency.toLowerCase()}`}>{a.allocatedCurrency}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Tab Navigation */}
         <div className="account-nav-tabs">
           <button
@@ -737,6 +871,61 @@ export function AccountDetail() {
         {/* TAB 1: POSITIONS */}
         {activeTab === 'positions' && (
           <div>
+            {/* Currency Filter Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+              <div className="telemetry-pills" title="Filter positions by margin currency">
+                {(['all', 'INR', 'USDT'] as const).map((cf) => (
+                  <button
+                    key={cf}
+                    type="button"
+                    className={`telemetry-pill ${positionCurrencyFilter === cf ? 'active' : ''}`}
+                    onClick={() => setPositionCurrencyFilter(cf)}
+                  >
+                    {cf === 'all' ? 'All Positions' : `${cf} Positions`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Socket stream indicator matching Trade Watchlist */}
+              {isStreaming ? (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#0ecb81',
+                    background: 'rgba(14, 203, 129, 0.12)',
+                    border: '1px solid rgba(14, 203, 129, 0.25)',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                  title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
+                >
+                  <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
+                </span>
+              ) : (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#f59e0b',
+                    background: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.25)',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                  title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
+                >
+                  <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
+                </span>
+              )}
+            </div>
+
             {futuresPositions.isLoading && <p className="muted">Loading positions…</p>}
             {futuresPositions.isError && <div className="error">{(futuresPositions.error as Error).message}</div>}
 
@@ -751,14 +940,33 @@ export function AccountDetail() {
 
             {accountPositions.length > 0 && (
               <>
-                {/* Account-level Summary Stats */}
+                {/* Account-level Summary Stats (Multi-Currency Funds & Positions) */}
                 <div className="positions-summary" style={{ marginBottom: 16 }}>
+                  {/* Available Trading Funds */}
                   <div>
+                    <div className="stat-label">Available Balance</div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {accountFundsList
+                        .filter((f) => positionCurrencyFilter === 'all' || f.currency.toUpperCase() === positionCurrencyFilter.toUpperCase())
+                        .map((fund) => (
+                          <div key={fund.currency} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span className={`kpi-currency-pill ${fund.currency.toLowerCase()}`}>{fund.currency}</span>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', fontFamily: 'var(--font-mono, monospace)' }}>
+                              {formatMinor(fund.freeMinor, fund.scale, fund.currency, fund.currency === 'USDT' ? 4 : 2)}
+                            </span>
+                          </div>
+                        ))}
+                      {accountFundsList.length === 0 && <span className="stat-value muted">—</span>}
+                    </div>
+                  </div>
+
+                  {/* Unrealised PnL */}
+                  <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
                     <div className="stat-label">Unrealised PnL</div>
-                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      {Object.entries(totalAccountPnl).map(([cur, minor]) => {
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {Object.entries(filteredTotalAccountPnl).map(([cur, minor]) => {
                         const pnlVal = Number(minor);
-                        const marginMinor = totalAccountMargin[cur];
+                        const marginMinor = filteredTotalAccountMargin[cur] ?? totalAccountMargin[cur];
                         const marginVal = marginMinor ? Number(marginMinor) : 0;
                         const pct = marginVal > 0 ? (pnlVal / marginVal) * 100 : null;
                         const isProf = pnlVal > 0;
@@ -788,73 +996,43 @@ export function AccountDetail() {
                           </div>
                         );
                       })}
-                      {Object.keys(totalAccountPnl).length === 0 && (
+                      {Object.keys(filteredTotalAccountPnl).length === 0 && (
                         <span className="pnl-big muted">—</span>
                       )}
                     </div>
                   </div>
+
+                  {/* Margin Invested */}
                   <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
                     <div className="stat-label">Margin Invested</div>
-                    <div style={{ display: 'flex', gap: 16 }}>
-                      {Object.entries(totalAccountMargin).map(([cur, minor]) => (
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      {Object.entries(filteredTotalAccountMargin).map(([cur, minor]) => (
                         <span key={cur} className="stat-value" style={{ fontWeight: 600 }}>
                           {fmtMinor(minor, cur as 'INR' | 'USDT')}
                         </span>
                       ))}
-                      {Object.keys(totalAccountMargin).length === 0 && (
+                      {Object.keys(filteredTotalAccountMargin).length === 0 && (
                         <span className="stat-value muted">—</span>
                       )}
                     </div>
                   </div>
+
+                  {/* Open Positions Count */}
                   <div style={{ borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
                     <div className="stat-label">Open Positions</div>
                     <div className="stat-value">
-                      {accountPositions.length}
+                      {filteredAccountPositions.length}
+                      {positionCurrencyFilter !== 'all' && (
+                        <span className="muted" style={{ fontSize: 12, fontWeight: 500, marginLeft: 4 }}>
+                          of {accountPositions.length}
+                        </span>
+                      )}
                       {hiddenTradesCount > 0 && (
                         <span style={{ fontSize: 11.5, fontWeight: 500, color: '#fca5a5', marginLeft: 6 }}>
-                          ({hiddenTradesCount} hidden from platform)
+                          ({hiddenTradesCount} hidden)
                         </span>
                       )}
                     </div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-                    {isStreaming ? (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#0ecb81',
-                          background: 'rgba(14, 203, 129, 0.12)',
-                          border: '1px solid rgba(14, 203, 129, 0.25)',
-                          borderRadius: 4,
-                          padding: '2px 8px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                        }}
-                        title="Real-time WebSocket streaming active (<500ms updates via CoinDCX)"
-                      >
-                        <span style={{ fontSize: 7, color: '#0ecb81' }}>●</span> Live (WS Stream)
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#f59e0b',
-                          background: 'rgba(245, 158, 11, 0.12)',
-                          border: '1px solid rgba(245, 158, 11, 0.25)',
-                          borderRadius: 4,
-                          padding: '2px 8px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                        }}
-                        title="Connecting to real-time WebSocket stream — falling back to 1s HTTP polling"
-                      >
-                        <span style={{ fontSize: 7, color: '#f59e0b' }}>●</span> Polling (1s)
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -876,7 +1054,14 @@ export function AccountDetail() {
                       </tr>
                     </thead>
                     <tbody>
-                      {accountPositions.map((p) => {
+                      {filteredAccountPositions.length === 0 ? (
+                        <tr>
+                          <td colSpan={11} style={{ textAlign: 'center', padding: '36px 16px' }} className="muted">
+                            No open positions matching the {positionCurrencyFilter} filter on this account.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredAccountPositions.map((p) => {
                           const roe = calcRoePct(p);
                           const tpSl = calcEstimatedTpSl(p);
                           const sideBadgeColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
@@ -1108,14 +1293,22 @@ export function AccountDetail() {
                               </td>
                             </tr>
                           );
-                        })}
-                      </tbody>
+                        })
+                      )}
+                    </tbody>
                     </table>
                   </div>
 
                 {/* Mobile Position Cards (<= 768px) */}
                 <div className="mobile-pos-cards">
-                  {accountPositions.map((p) => {
+                  {filteredAccountPositions.length === 0 ? (
+                    <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, textAlign: 'center' }}>
+                      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                        No open positions matching the {positionCurrencyFilter} filter on this account.
+                      </p>
+                    </div>
+                  ) : (
+                    filteredAccountPositions.map((p) => {
                     const roe = calcRoePct(p);
                     const tpSl = calcEstimatedTpSl(p);
                     const sideColor = p.side === 'long' ? 'var(--ok)' : p.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
@@ -1329,7 +1522,7 @@ export function AccountDetail() {
                         </div>
                       </div>
                     );
-                  })}
+                  }))}
                 </div>
               </>
             )}
@@ -1349,6 +1542,20 @@ export function AccountDetail() {
               </div>
 
               <div className="telemetry-toolbar">
+                {/* Currency Mode Filter */}
+                <div className="telemetry-pills" title="Filter display currency">
+                  {(['all', 'INR', 'USDT'] as const).map((cf) => (
+                    <button
+                      key={cf}
+                      type="button"
+                      className={`telemetry-pill ${analyticsCurrencyFilter === cf ? 'active' : ''}`}
+                      onClick={() => setAnalyticsCurrencyFilter(cf)}
+                    >
+                      {cf === 'all' ? 'All Currencies' : `${cf} Margin`}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="telemetry-pills">
                   {(['all', '30d', '7d', 'today', 'custom'] as const).map((tf) => (
                     <button
@@ -1450,263 +1657,317 @@ export function AccountDetail() {
             {tradingAnalytics.data && (() => {
               const rep = tradingAnalytics.data;
               const kpis = rep.kpis;
-              const primaryCurrency = a.allocatedCurrency ?? 'INR';
-              const pnlMinor = kpis.unrealisedPnlMinor[primaryCurrency] ?? kpis.unrealisedPnlMinor['INR'] ?? '0';
-              const realPnlMinor = kpis.realizedPnlMinor?.[primaryCurrency] ?? kpis.realizedPnlMinor?.['INR'] ?? '0';
-              const netPnlMinor = kpis.netPnlMinor?.[primaryCurrency] ?? kpis.netPnlMinor?.['INR'] ?? '0';
-              const marginMinor = kpis.lockedMarginMinor[primaryCurrency] ?? kpis.lockedMarginMinor['INR'] ?? '0';
-              const pnlPct = kpis.pnlPercentage[primaryCurrency] ?? kpis.pnlPercentage['INR'];
 
-              const netNum = Number(netPnlMinor);
-              const isNetProf = netNum > 0;
-              const isNetLoss = netNum < 0;
+              const netSentimentObj = analyticsCurrencyFilter === 'all'
+                ? kpis.netPnlMinor
+                : { [analyticsCurrencyFilter]: kpis.netPnlMinor?.[analyticsCurrencyFilter] ?? '0' };
+              const netSentiment = getPnlSentiment(netSentimentObj);
+              const isNetProf = netSentiment === 'prof';
+              const isNetLoss = netSentiment === 'loss';
 
-              const realNum = Number(realPnlMinor);
-              const isRealProf = realNum > 0;
-              const isRealLoss = realNum < 0;
+              const realSentimentObj = analyticsCurrencyFilter === 'all'
+                ? kpis.realizedPnlMinor
+                : { [analyticsCurrencyFilter]: kpis.realizedPnlMinor?.[analyticsCurrencyFilter] ?? '0' };
+              const realSentiment = getPnlSentiment(realSentimentObj);
+              const isRealProf = realSentiment === 'prof';
+              const isRealLoss = realSentiment === 'loss';
 
-              const unrealNum = Number(pnlMinor);
-              const isUnrealProf = unrealNum > 0;
-              const isUnrealLoss = unrealNum < 0;
+              const unrealSentimentObj = analyticsCurrencyFilter === 'all'
+                ? kpis.unrealisedPnlMinor
+                : { [analyticsCurrencyFilter]: kpis.unrealisedPnlMinor?.[analyticsCurrencyFilter] ?? '0' };
+              const unrealSentiment = getPnlSentiment(unrealSentimentObj);
+              const isUnrealProf = unrealSentiment === 'prof';
+              const isUnrealLoss = unrealSentiment === 'loss';
 
-              // Sizing capital & utilization
-              const allocatedCapMinor = a.allocatedCapitalMinor;
-              const capNum = allocatedCapMinor ? Number(allocatedCapMinor) : 0;
-              const marginNum = Number(marginMinor);
-              const utilizationPct = capNum > 0 ? (marginNum / capNum) * 100 : null;
+              const filteredSymbols = rep.symbols.filter(
+                (s) => analyticsCurrencyFilter === 'all' || s.marginCurrency.toUpperCase() === analyticsCurrencyFilter.toUpperCase()
+              );
+              const filteredClosedTrades = (rep.closedTrades ?? []).filter(
+                (t) => analyticsCurrencyFilter === 'all' || t.marginCurrency.toUpperCase() === analyticsCurrencyFilter.toUpperCase()
+              );
+              const filteredRecentOrders = (rep.recentOrders ?? []).filter(
+                (o) => analyticsCurrencyFilter === 'all' || (o.quoteCurrency && o.quoteCurrency.toUpperCase() === analyticsCurrencyFilter.toUpperCase())
+              );
 
               return (
                 <div>
-                  {/* KPI Cards Grid */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                      gap: 14,
-                      marginBottom: 24,
-                    }}
-                  >
+                  {/* Redesigned Multi-Currency Telemetry KPI Grid */}
+                  <div className="telemetry-kpi-grid">
                     {/* KPI 1: Net Account PnL */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: `4px solid ${isNetProf ? '#10b981' : isNetLoss ? '#ef4444' : '#64748b'}`,
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Net Account PnL (Total)
+                    <div className={`telemetry-kpi-card ${isNetProf ? 'profit' : isNetLoss ? 'loss' : 'neutral'}`}>
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Net Account PnL</span>
+                        <div className="kpi-card-icon-box" style={{ color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : '#94a3b8' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            {isNetProf ? (
+                              <>
+                                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                                <polyline points="17 6 23 6 23 12" />
+                              </>
+                            ) : (
+                              <>
+                                <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
+                                <polyline points="17 18 23 18 23 12" />
+                              </>
+                            )}
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span
-                          style={{
-                            fontSize: 22,
-                            fontWeight: 800,
-                            color: isNetProf ? 'var(--ok)' : isNetLoss ? 'var(--danger)' : 'var(--text)',
-                            letterSpacing: '-0.5px',
-                          }}
-                        >
-                          {fmtSignedCurrency(netPnlMinor, primaryCurrency)}
+                      <div className="kpi-card-body">
+                        {renderKpiValue(kpis.netPnlMinor, true, analyticsCurrencyFilter)}
+                      </div>
+                      <div className="kpi-card-footer">
+                        <span className="muted">Realized:</span>
+                        <span style={{ fontWeight: 600, color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>
+                          {renderKpiValue(kpis.realizedPnlMinor, true, analyticsCurrencyFilter, 11.5)}
                         </span>
-                      </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                        Realized: <strong style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)' }}>{fmtSignedCurrency(realPnlMinor, primaryCurrency)}</strong>
                       </div>
                     </div>
 
                     {/* KPI 2: Realized Closed PnL */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: `4px solid ${isRealProf ? '#10b981' : isRealLoss ? '#ef4444' : '#8b5cf6'}`,
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Realized Closed PnL
+                    <div className={`telemetry-kpi-card ${isRealProf ? 'profit' : isRealLoss ? 'loss' : 'realized'}`}>
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Realized Closed PnL</span>
+                        <div className="kpi-card-icon-box" style={{ color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : '#a78bfa' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span
-                          style={{
-                            fontSize: 22,
-                            fontWeight: 800,
-                            color: isRealProf ? 'var(--ok)' : isRealLoss ? 'var(--danger)' : 'var(--text)',
-                            letterSpacing: '-0.5px',
-                          }}
-                        >
-                          {fmtSignedCurrency(realPnlMinor, primaryCurrency)}
-                        </span>
+                      <div className="kpi-card-body">
+                        {renderKpiValue(kpis.realizedPnlMinor, true, analyticsCurrencyFilter)}
                       </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                        Across {kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)} closed trade{(kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)) === 1 ? '' : 's'} ({kpis.winningClosedTrades ?? 0}W / {kpis.losingClosedTrades ?? 0}L)
+                      <div className="kpi-card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                          <span>{kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)} closed trade{(kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)) === 1 ? '' : 's'}</span>
+                          <span style={{ fontWeight: 700 }}>
+                            <span style={{ color: 'var(--ok)' }}>{kpis.winningClosedTrades ?? 0}W</span> / <span style={{ color: 'var(--danger)' }}>{kpis.losingClosedTrades ?? 0}L</span>
+                          </span>
+                        </div>
+                        {(kpis.closedTradesCount ?? (rep.closedTrades?.length ?? 0)) > 0 && (
+                          <div className="kpi-mini-bar-track" title={`${kpis.winningClosedTrades ?? 0} Wins / ${kpis.losingClosedTrades ?? 0} Losses`}>
+                            <div
+                              className="kpi-mini-bar-win"
+                              style={{ width: `${((kpis.winningClosedTrades ?? 0) / (kpis.closedTradesCount || (rep.closedTrades?.length ?? 1))) * 100}%` }}
+                            />
+                            <div
+                              className="kpi-mini-bar-loss"
+                              style={{ width: `${((kpis.losingClosedTrades ?? 0) / (kpis.closedTradesCount || (rep.closedTrades?.length ?? 1))) * 100}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* KPI 3: Unrealised PnL */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: `4px solid ${isUnrealProf ? '#10b981' : isUnrealLoss ? '#ef4444' : '#64748b'}`,
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Net Unrealised PnL
+                    <div className={`telemetry-kpi-card ${isUnrealProf ? 'profit' : isUnrealLoss ? 'loss' : 'neutral'}`}>
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Unrealised PnL (Live)</span>
+                        <div className="kpi-card-icon-box" style={{ color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : '#38bdf8' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span
-                          style={{
-                            fontSize: 22,
-                            fontWeight: 800,
-                            color: isUnrealProf ? 'var(--ok)' : isUnrealLoss ? 'var(--danger)' : 'var(--text)',
-                            letterSpacing: '-0.5px',
-                          }}
-                        >
-                          {fmtSignedCurrency(pnlMinor, primaryCurrency)}
-                        </span>
-                        {pnlPct !== undefined && (
-                          <span
-                            className="pnl-pct-badge"
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 700,
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                              background: isUnrealProf ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                              color: isUnrealProf ? 'var(--ok)' : 'var(--danger)',
-                              border: `1px solid ${isUnrealProf ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-                            }}
-                          >
-                            {isUnrealProf ? '+' : isUnrealLoss ? '−' : ''}{Math.abs(pnlPct).toFixed(2)}%
-                          </span>
+                      <div className="kpi-card-body">
+                        {renderKpiValue(kpis.unrealisedPnlMinor, true, analyticsCurrencyFilter)}
+                        {kpis.pnlPercentage && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                            {Object.entries(kpis.pnlPercentage)
+                              .filter(([cur]) => analyticsCurrencyFilter === 'all' || cur.toUpperCase() === analyticsCurrencyFilter.toUpperCase())
+                              .map(([cur, pct]) => {
+                                const isP = pct > 0;
+                                const isL = pct < 0;
+                                return (
+                                  <span
+                                    key={cur}
+                                    className="pnl-pct-badge"
+                                    style={{
+                                      fontSize: 10.5,
+                                      fontWeight: 700,
+                                      padding: '1px 6px',
+                                      borderRadius: 4,
+                                      background: isP ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                      color: isP ? 'var(--ok)' : 'var(--danger)',
+                                      border: `1px solid ${isP ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                                    }}
+                                  >
+                                    {isP ? '+' : isL ? '−' : ''}{Math.abs(pct).toFixed(2)}% ({cur})
+                                  </span>
+                                );
+                              })}
+                          </div>
                         )}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                        Across {kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}
+                      <div className="kpi-card-footer">
+                        <span>{kpis.openPositionsCount} active trade{kpis.openPositionsCount === 1 ? '' : 's'}</span>
+                        <span className="muted" style={{ fontSize: 11 }}>Live Mark</span>
                       </div>
                     </div>
 
-                    {/* KPI 4: Margin Deployed & Utilization */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: '4px solid #3b82f6',
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Locked Margin Deployed
+                    {/* KPI 4: Margin Deployed */}
+                    <div className="telemetry-kpi-card margin">
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Locked Margin</span>
+                        <div className="kpi-card-icon-box" style={{ color: '#60a5fa' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                        {fmtCurrency(marginMinor, primaryCurrency)}
+                      <div className="kpi-card-body">
+                        {renderKpiValue(kpis.lockedMarginMinor, false, analyticsCurrencyFilter)}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                        {utilizationPct !== null
-                          ? `${utilizationPct.toFixed(1)}% of capital deployed`
-                          : 'Active collateral backing positions'}
+                      <div className="kpi-card-footer">
+                        <span>Active Collateral</span>
+                        <span className="badge" style={{ fontSize: 10, padding: '1px 5px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                          Futures
+                        </span>
                       </div>
                     </div>
 
                     {/* KPI 5: Executed Volume */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: '4px solid #8b5cf6',
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Executed Volume
+                    <div className="telemetry-kpi-card volume">
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Traded Volume</span>
+                        <div className="kpi-card-icon-box" style={{ color: '#fbbf24' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="20" x2="18" y2="10" />
+                            <line x1="12" y1="20" x2="12" y2="4" />
+                            <line x1="6" y1="20" x2="6" y2="14" />
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>
-                        {fmtCurrency(kpis.totalTradedVolumeMinor[primaryCurrency] ?? kpis.totalTradedVolumeMinor['INR'] ?? '0', primaryCurrency)}
+                      <div className="kpi-card-body">
+                        {renderKpiValue(kpis.totalTradedVolumeMinor, false, analyticsCurrencyFilter)}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                        From {kpis.filledOrders} filled child order{kpis.filledOrders === 1 ? '' : 's'}
+                      <div className="kpi-card-footer">
+                        <span>From {kpis.filledOrders} filled order{kpis.filledOrders === 1 ? '' : 's'}</span>
+                        <span className="muted" style={{ fontSize: 11 }}>Cumulative</span>
                       </div>
                     </div>
 
                     {/* KPI 6: Win Rate & Execution Success */}
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #131722 0%, #0d0f14 100%)',
-                        border: '1px solid #1e2433',
-                        borderRadius: 12,
-                        padding: '16px 18px',
-                        borderLeft: '4px solid #10b981',
-                      }}
-                    >
-                      <div className="stat-label" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                        Win Rate & Fill Rate
+                    <div className="telemetry-kpi-card winrate">
+                      <div className="kpi-card-header">
+                        <span className="kpi-card-title">Performance</span>
+                        <div className="kpi-card-icon-box" style={{ color: '#34d399' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <circle cx="12" cy="12" r="6" />
+                            <circle cx="12" cy="12" r="2" />
+                          </svg>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ok)' }}>
-                          {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
-                        </span>
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          ({kpis.winningClosedTrades}W / {kpis.losingClosedTrades}L)
-                        </span>
+                      <div className="kpi-card-body">
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span className="kpi-single-val" style={{ color: kpis.winRatePct && kpis.winRatePct >= 50 ? 'var(--ok)' : kpis.winRatePct !== null ? '#f59e0b' : 'var(--muted)' }}>
+                            {kpis.winRatePct !== null ? `${kpis.winRatePct.toFixed(1)}%` : '—'}
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                            win rate {(kpis.closedTradesCount ?? 0) > 0 ? `(${kpis.winningClosedTrades}W / ${kpis.losingClosedTrades}L)` : ''}
+                          </span>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                        Fill Rate: <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}%</strong> ({kpis.filledOrders}/{kpis.totalOrders})
+                      <div className="kpi-card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                          <span className="muted">Fill Rate:</span>
+                          <strong style={{ color: 'var(--text)' }}>{kpis.fillRatePct.toFixed(1)}% ({kpis.filledOrders}/{kpis.totalOrders})</strong>
+                        </div>
+                        {kpis.totalOrders > 0 && (
+                          <div className="kpi-mini-bar-track">
+                            <div className="kpi-mini-bar-win" style={{ width: `${Math.min(100, kpis.fillRatePct)}%` }} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Capital Allocation & Utilization Progress Bar */}
-                  {allocatedCapMinor && capNum > 0 && (
-                    <div
-                      style={{
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid var(--line)',
-                        borderRadius: 10,
-                        padding: '16px 20px',
-                        marginBottom: 24,
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>Capital Utilization & Buffer</span>
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          {fmtCurrency(marginMinor, primaryCurrency)} used of {formatMinor(allocatedCapMinor, quoteScaleOf(a.allocatedCurrency ?? 'INR'), a.allocatedCurrency ?? 'INR')}
-                        </span>
+                  {/* Multi-Currency Capital Utilization & Buffer Cards */}
+                  {(() => {
+                    const fundsToShow = accountFundsList.filter(
+                      (f) => analyticsCurrencyFilter === 'all' || f.currency.toUpperCase() === analyticsCurrencyFilter.toUpperCase()
+                    );
+                    if (fundsToShow.length === 0) return null;
+                    return (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: fundsToShow.length > 1 ? 'repeat(auto-fit, minmax(320px, 1fr))' : '1fr',
+                          gap: 14,
+                          marginBottom: 24,
+                        }}
+                      >
+                        {fundsToShow.map((fund) => {
+                          const cur = fund.currency;
+                          const freeMinorStr = fund.freeMinor ?? '0';
+                          const freeNum = Number(freeMinorStr);
+                          const lockedMinorStr = kpis.lockedMarginMinor?.[cur] ?? '0';
+                          const lockedNum = Number(lockedMinorStr);
+                          const totalNum = freeNum + lockedNum;
+                          const utilPct = totalNum > 0 ? (lockedNum / totalNum) * 100 : 0;
+                          const scale = fund.scale ?? quoteScaleOf(cur);
+
+                          return (
+                            <div
+                              key={cur}
+                              style={{
+                                background: 'linear-gradient(180deg, #111522 0%, #0c0e15 100%)',
+                                border: '1px solid #1a2233',
+                                borderRadius: 12,
+                                padding: '16px 20px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span className={`kpi-currency-pill ${cur.toLowerCase()}`}>{cur}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                                    Capital Utilization & Buffer
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>
+                                  {fmtCurrency(lockedMinorStr, cur)} used of {formatMinor(totalNum.toString(), scale, cur, cur === 'USDT' ? 4 : 2)}
+                                </span>
+                              </div>
+
+                              <div style={{ width: '100%', height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+                                <div
+                                  style={{
+                                    width: `${Math.min(100, Math.max(0, utilPct))}%`,
+                                    height: '100%',
+                                    background: utilPct > 80 ? 'var(--danger)' : utilPct > 50 ? '#f59e0b' : '#3b82f6',
+                                    transition: 'width 0.3s ease',
+                                  }}
+                                />
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 11.5, color: 'var(--muted)' }}>
+                                <span>Utilization: <strong style={{ color: utilPct > 80 ? 'var(--danger)' : utilPct > 50 ? '#f59e0b' : 'var(--text)' }}>{utilPct.toFixed(1)}%</strong></span>
+                                <span>Available Free: <strong style={{ color: 'var(--ok)', fontFamily: 'var(--font-mono, monospace)' }}>{formatMinor(freeMinorStr, scale, cur, cur === 'USDT' ? 4 : 2)}</strong></span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div style={{ width: '100%', height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
-                        <div
-                          style={{
-                            width: `${Math.min(100, Math.max(0, utilizationPct ?? 0))}%`,
-                            height: '100%',
-                            background: (utilizationPct ?? 0) > 80 ? 'var(--danger)' : (utilizationPct ?? 0) > 50 ? '#f59e0b' : '#3b82f6',
-                            transition: 'width 0.3s ease',
-                          }}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
-                        <span>Utilization: <strong>{(utilizationPct ?? 0).toFixed(1)}%</strong></span>
-                        <span>Free Buffer: <strong>{fmtCurrency((BigInt(allocatedCapMinor) - BigInt(marginMinor)).toString(), primaryCurrency)}</strong></span>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Open Positions Asset Table */}
                   <div style={{ marginBottom: 28 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h4 style={{ margin: 0, fontSize: 15 }}>Current Asset Exposure</h4>
-                      <span className="muted" style={{ fontSize: 12 }}>{rep.symbols.length} active pair{rep.symbols.length === 1 ? '' : 's'}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {filteredSymbols.length} active pair{filteredSymbols.length === 1 ? '' : 's'}
+                      </span>
                     </div>
 
-                    {rep.symbols.length === 0 ? (
+                    {filteredSymbols.length === 0 ? (
                       <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No active positions currently open on this account.</p>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                          No active {analyticsCurrencyFilter === 'all' ? '' : `${analyticsCurrencyFilter} `}positions open on this account.
+                        </p>
                       </div>
                     ) : (
                       <div className="table-scroll-container">
@@ -1724,7 +1985,7 @@ export function AccountDetail() {
                             </tr>
                           </thead>
                           <tbody>
-                            {rep.symbols.map((s) => {
+                            {filteredSymbols.map((s) => {
                               const sPnlNum = Number(s.unrealisedPnlMinor);
                               const sIsProf = sPnlNum > 0;
                               const sIsLoss = sPnlNum < 0;
@@ -1796,12 +2057,16 @@ export function AccountDetail() {
                   <div style={{ marginBottom: 28 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h4 style={{ margin: 0, fontSize: 15 }}>Closed Trades & Realized PnL</h4>
-                      <span className="muted" style={{ fontSize: 12 }}>{rep.closedTrades?.length ?? 0} closed trade{(rep.closedTrades?.length ?? 0) === 1 ? '' : 's'}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {filteredClosedTrades.length} closed trade{filteredClosedTrades.length === 1 ? '' : 's'}
+                      </span>
                     </div>
 
-                    {(!rep.closedTrades || rep.closedTrades.length === 0) ? (
+                    {filteredClosedTrades.length === 0 ? (
                       <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No closed trades recorded for this account in this timeframe.</p>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                          No closed {analyticsCurrencyFilter === 'all' ? '' : `${analyticsCurrencyFilter} `}trades recorded for this account in this timeframe.
+                        </p>
                       </div>
                     ) : (
                       <div className="table-scroll-container">
@@ -1820,7 +2085,7 @@ export function AccountDetail() {
                             </tr>
                           </thead>
                           <tbody>
-                            {rep.closedTrades.map((t) => {
+                            {filteredClosedTrades.map((t) => {
                               const pnlNum = Number(t.realizedPnlMinor);
                               const isP = pnlNum > 0;
                               const isL = pnlNum < 0;
@@ -1882,12 +2147,16 @@ export function AccountDetail() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h4 style={{ margin: 0, fontSize: 15 }}>Recent Execution Orders</h4>
-                      <span className="muted" style={{ fontSize: 12 }}>{rep.recentOrders.length} order{rep.recentOrders.length === 1 ? '' : 's'}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {filteredRecentOrders.length} order{filteredRecentOrders.length === 1 ? '' : 's'}
+                      </span>
                     </div>
 
-                    {rep.recentOrders.length === 0 ? (
+                    {filteredRecentOrders.length === 0 ? (
                       <div className="empty-state" style={{ padding: '24px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No orders recorded for this account in this timeframe.</p>
+                        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+                          No {analyticsCurrencyFilter === 'all' ? '' : `${analyticsCurrencyFilter} `}orders recorded for this account in this timeframe.
+                        </p>
                       </div>
                     ) : (
                       <div className="table-scroll-container">
@@ -1904,7 +2173,7 @@ export function AccountDetail() {
                             </tr>
                           </thead>
                           <tbody>
-                            {rep.recentOrders.map((o) => (
+                            {filteredRecentOrders.map((o) => (
                               <tr key={o.id}>
                                 <td className="muted" style={{ fontSize: 12 }}>{new Date(o.createdAtMs).toLocaleTimeString()}</td>
                                 <td><strong>{o.pair}</strong></td>
