@@ -25,6 +25,7 @@ import type {
   BacktestResult,
   WatchlistCoinItem,
 } from '../api.ts';
+import { ALGO_AI_SYSTEM_PROMPT } from './AlgoRules.tsx';
 
 const POPULAR_PAIRS = [
   'B-BTC_USDT',
@@ -177,6 +178,8 @@ export function AlgoTrading() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
   const [isDataStatusModalOpen, setIsDataStatusModalOpen] = useState(false);
+  const [isAiPromptModalOpen, setIsAiPromptModalOpen] = useState(false);
+  const [aiPromptCopied, setAiPromptCopied] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isSdkDocOpen, setIsSdkDocOpen] = useState(false);
 
@@ -1163,25 +1166,46 @@ export function AlgoTrading() {
                 </button>
               ))}
 
-              <button
-                type="button"
-                onClick={() => setIsSdkDocOpen(!isSdkDocOpen)}
-                style={{
-                  marginLeft: 'auto',
-                  marginRight: 16,
-                  background: 'transparent',
-                  border: 'none',
-                  color: isSdkDocOpen ? '#ffffff' : '#a1a1aa',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                {isSdkDocOpen ? 'Close SDK Docs' : 'SDK Reference'}
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, marginRight: 16 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAiPromptModalOpen(true)}
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    color: '#60a5fa',
+                    padding: '4px 10px',
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                  title="Generate or optimize strategy scripts using Claude or ChatGPT"
+                >
+                  AI Prompt & Rules
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSdkDocOpen(!isSdkDocOpen)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: isSdkDocOpen ? '#ffffff' : '#a1a1aa',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  {isSdkDocOpen ? 'Close SDK Docs' : 'SDK Reference'}
+                </button>
+              </div>
             </div>
 
             {/* Tab Body */}
@@ -2179,6 +2203,245 @@ export function AlgoTrading() {
               <button
                 type="button"
                 onClick={() => setIsDataStatusModalOpen(false)}
+                style={{
+                  background: '#27272a',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '6px 16px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Strategy Prompt & Rules Modal */}
+      {isAiPromptModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAiPromptModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: 720,
+              maxWidth: '96vw',
+              maxHeight: '90vh',
+              background: '#121215',
+              border: '1px solid #27272a',
+              borderRadius: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #1f1f23',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#ffffff' }}>
+                  AI Strategy Generation &amp; Scripting Rules
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: 12, color: '#71717a' }}>
+                  Generate flawless Aza WealthKare strategy scripts using ChatGPT, Claude, or DeepSeek
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiPromptModalOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#a1a1aa',
+                  fontSize: 16,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                }}
+              >
+                X
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Actions Ribbon */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: '#18181b',
+                  border: '1px solid #27272a',
+                  borderRadius: 6,
+                  padding: '12px 16px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(ALGO_AI_SYSTEM_PROMPT);
+                      setAiPromptCopied(true);
+                      setTimeout(() => setAiPromptCopied(false), 2500);
+                    } catch {
+                      // Fallback
+                    }
+                  }}
+                  style={{
+                    background: aiPromptCopied ? '#059669' : '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: 4,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {aiPromptCopied ? 'Copied Prompt to Clipboard' : 'Copy AI System Prompt'}
+                </button>
+
+                <a
+                  href="/algo-rules"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: '#27272a',
+                    color: '#f4f4f5',
+                    border: '1px solid #3f3f46',
+                    padding: '7px 14px',
+                    borderRadius: 4,
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Open Full Rules Webpage
+                </a>
+
+                <a
+                  href="/aza-wealthkare-algo-rules.md"
+                  download="aza-wealthkare-algo-rules.md"
+                  style={{
+                    background: '#27272a',
+                    color: '#a1a1aa',
+                    border: '1px solid #3f3f46',
+                    padding: '7px 14px',
+                    borderRadius: 4,
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Download .md Spec
+                </a>
+
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <a
+                    href="https://chatgpt.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: '#60a5fa',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      textDecoration: 'none',
+                      padding: '4px 6px',
+                    }}
+                  >
+                    ChatGPT &rarr;
+                  </a>
+                  <a
+                    href="https://claude.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: '#60a5fa',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      textDecoration: 'none',
+                      padding: '4px 6px',
+                    }}
+                  >
+                    Claude &rarr;
+                  </a>
+                </div>
+              </div>
+
+              {/* Step by step guide */}
+              <div style={{ background: '#09090b', border: '1px solid #1f1f23', borderRadius: 6, padding: '14px 16px' }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#e4e4e7', marginBottom: 8 }}>
+                  How to generate compatible strategies:
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#a1a1aa', lineHeight: 1.6 }}>
+                  <li>Click <strong>Copy AI System Prompt</strong> above.</li>
+                  <li>Paste it into ChatGPT or Claude at the beginning of your chat (or add it as Project Instructions).</li>
+                  <li>Ask the AI model for your strategy (e.g., <em>&quot;Create a 15m Supertrend breakout with 5x leverage and 2% trailing stop&quot;</em>).</li>
+                  <li>Copy the returned JavaScript and paste it directly into this Script Code Editor.</li>
+                  <li>Click <strong>Save &amp; Compile</strong>, then test your script in the <strong>Backtest &amp; Simulation</strong> tab.</li>
+                </ol>
+              </div>
+
+              {/* Prompt Preview */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#a1a1aa' }}>System Prompt Preview</span>
+                  <span style={{ fontSize: 11, color: '#71717a' }}>Pure Node.js VM • No external npm • Basis Points Sizing</span>
+                </div>
+                <pre
+                  style={{
+                    background: '#09090b',
+                    border: '1px solid #27272a',
+                    borderRadius: 6,
+                    padding: 12,
+                    fontSize: 11.5,
+                    fontFamily: '"Fira Code", monospace',
+                    color: '#d4d4d8',
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    margin: 0,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {ALGO_AI_SYSTEM_PROMPT}
+                </pre>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #1f1f23', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setIsAiPromptModalOpen(false)}
                 style={{
                   background: '#27272a',
                   color: '#ffffff',

@@ -36,6 +36,7 @@ import { Audit } from './routes/Audit.tsx';
 import { Inquiries } from './routes/Inquiries.tsx';
 import { MasterPanel } from './routes/MasterPanel.tsx';
 import { AlgoTrading } from './routes/AlgoTrading.tsx';
+import { AlgoRules } from './routes/AlgoRules.tsx';
 import { NotFound } from './routes/NotFound.tsx';
 import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary.tsx';
@@ -284,6 +285,7 @@ const router = createBrowserRouter([
       { path: '/guarantee', element: <Guarantee /> },
       { path: '/contact', element: <Contact /> },
       { path: '/faq', element: <FaqPage /> },
+      { path: '/algo-rules', element: <AlgoRules /> },
       { path: '/login', element: <Login /> },
       { path: '/signup', element: <Signup /> },
       { path: '/forgot-password', element: <ForgotPassword /> },
@@ -305,6 +307,7 @@ const router = createBrowserRouter([
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Futures /> },
           { path: 'algo', element: <AlgoTrading /> },
+          { path: 'algo/rules', element: <AlgoRules /> },
           { path: 'analytics', element: <Analytics /> },
           { path: 'activity', element: <Blotter /> },
           { path: 'activity/groups/:groupTradeId', element: <GroupDetailReport /> },
