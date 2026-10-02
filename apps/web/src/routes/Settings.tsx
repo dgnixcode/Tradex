@@ -1518,7 +1518,7 @@ export function Settings() {
                       }}
                       style={{ flex: 1, padding: '8px 12px', fontSize: 13, background: '#171f33', color: '#f1f5f9', border: '1px solid #28354d', borderRadius: 6 }}
                     >
-                      <option value="siren">Emergency Siren (High-Fidelity MP3 - Recommended)</option>
+                      <option value="siren">Indian Cuckoo (Koel Bird Sound - MP3)</option>
                       <option value="harmonic">Harmonic Chime (Melodic Tri-Tone)</option>
                       <option value="bell">Crystal Bell (Resonant Clear Tone)</option>
                       <option value="pulse">Alert Pulse (Dual Attention Tone)</option>
@@ -1535,7 +1535,7 @@ export function Settings() {
                     </button>
                   </div>
                   <span className="muted" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>
-                    Emergency MP3 siren audio with Web Audio synthesizer fallback.
+                    Melodic Indian Cuckoo (Koel) MP3 audio with Web Audio synthesizer fallback.
                   </span>
                 </div>
 

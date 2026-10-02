@@ -1,5 +1,7 @@
 // Web Audio API Synthesizer and Audio Alert Engine.
-// Supports both high-fidelity MP3 siren audio (/siren-alert.mp3) and polyphonic Web Audio API synthesis.
+// Supports both high-fidelity MP3 alert audio (/indian-cuckoo-call-koel-bird-sound.mp3) and polyphonic Web Audio API synthesis.
+
+export const PRIMARY_ALERT_AUDIO_URL = '/indian-cuckoo-call-koel-bird-sound.mp3';
 
 export type AlertSoundType = 'siren' | 'harmonic' | 'bell' | 'pulse';
 
@@ -202,7 +204,7 @@ class AlertSoundEngine {
 
   private getSirenAudio(): HTMLAudioElement {
     if (!this.sirenAudio && typeof Audio !== 'undefined') {
-      this.sirenAudio = new Audio('/siren-alert.mp3');
+      this.sirenAudio = new Audio(PRIMARY_ALERT_AUDIO_URL);
       this.sirenAudio.preload = 'auto';
       this.sirenAudio.load();
     }
@@ -216,7 +218,7 @@ class AlertSoundEngine {
 
     this.bufferPromise = (async () => {
       try {
-        const res = await fetch('/siren-alert.mp3');
+        const res = await fetch(PRIMARY_ALERT_AUDIO_URL);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const arrayBuf = await res.arrayBuffer();
         const ctx = this.getContext();
@@ -385,10 +387,10 @@ class AlertSoundEngine {
 
     if (soundType === 'siren') {
       this.playSirenAudio(clampedVolume, false);
-      // Stop sample after 4.5 seconds
+      // Stop sample after 6 seconds
       this.sampleStopTimer = window.setTimeout(() => {
         this.stopSirenAudio();
-      }, 4500);
+      }, 6000);
       return;
     }
 
