@@ -2583,6 +2583,9 @@ export function createHttpServer(deps: HttpDeps): Server {
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.ttf': 'font/ttf',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
   };
 
   const contentTypeFor = (filePath: string): string => {
