@@ -60,32 +60,81 @@ const STATUS_LABEL: Record<string, string> = {
 
 const statusBadgeClass = (status: string): string => (status === 'active' ? 'planned' : 'skipped');
 
+function minorToMajor(minorStr: string | null | undefined, scale: number): number {
+  if (!minorStr || minorStr === '0' || minorStr === '') return 0;
+  const isNeg = minorStr.startsWith('-');
+  const digits = isNeg ? minorStr.slice(1) : minorStr;
+  if (digits.includes('.') || digits.includes('e') || digits.includes('E')) {
+    const val = parseFloat(minorStr) || 0;
+    return val / (10 ** scale);
+  }
+  try {
+    const b = BigInt(digits);
+    if (scale <= 0) return isNeg ? -Number(b) : Number(b);
+    const divisor = 10n ** BigInt(scale);
+    const whole = b / divisor;
+    const rem = b % divisor;
+    const majorVal = Number(whole) + Number(rem) / Number(divisor);
+    return isNeg ? -majorVal : majorVal;
+  } catch {
+    const val = parseFloat(minorStr) || 0;
+    return val / (10 ** scale);
+  }
+}
+
+function fmtMajor(major: number, currency: string): string {
+  const isUsdt = currency.toUpperCase() === 'USDT';
+  const decimals = isUsdt ? (Math.abs(major) >= 100 ? 2 : 4) : 2;
+  const formatted = Math.abs(major).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: decimals,
+  });
+  const sign = major < 0 ? '−' : '';
+  return currency.toUpperCase() === 'INR' ? `${sign}₹${formatted}` : `${sign}${formatted} ${currency}`;
+}
+
 function formatMinor(minor: string, scale: number, currency: string, maxDecimals = 2): string {
   if (!minor) return currency === 'INR' ? '₹0.00' : `0.00 ${currency}`;
   const neg = minor.startsWith('-');
-  const digits = neg ? minor.slice(1) : minor;
+  let digits = neg ? minor.slice(1) : minor;
 
-  if (scale > maxDecimals) {
-    const diff = scale - maxDecimals;
-    const divisor = 10n ** BigInt(diff);
-    const half = divisor / 2n;
-    const rounded = (BigInt(digits) + half) / divisor;
-    const padded = String(rounded).padStart(maxDecimals + 1, '0');
-    const whole = padded.slice(0, -maxDecimals);
-    const frac = padded.slice(-maxDecimals);
-    const num = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
+  if (digits.includes('e') || digits.includes('E') || digits.includes('.')) {
+    const num = (parseFloat(digits) || 0) / (10 ** scale);
+    const isUsdt = currency.toUpperCase() === 'USDT';
+    const dec = isUsdt ? (num >= 100 ? 2 : 4) : Math.min(2, maxDecimals);
+    const formatted = num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: dec });
     const sign = neg ? '−' : '';
-    return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
+    return currency.toUpperCase() === 'INR' ? `${sign}₹${formatted}` : `${sign}${formatted} ${currency}`;
   }
 
-  const padded = digits.padStart(scale + 1, '0');
-  const whole = scale === 0 ? padded : padded.slice(0, -scale);
-  const frac = scale === 0 ? '' : padded.slice(-scale);
-  const num = scale === 0
-    ? whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-    : `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
-  const sign = neg ? '−' : '';
-  return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
+  try {
+    if (scale > maxDecimals) {
+      const diff = scale - maxDecimals;
+      const divisor = 10n ** BigInt(diff);
+      const half = divisor / 2n;
+      const rounded = (BigInt(digits) + half) / divisor;
+      const padded = String(rounded).padStart(maxDecimals + 1, '0');
+      const whole = padded.slice(0, -maxDecimals);
+      const frac = padded.slice(-maxDecimals);
+      const num = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
+      const sign = neg ? '−' : '';
+      return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
+    }
+
+    const padded = digits.padStart(scale + 1, '0');
+    const whole = scale === 0 ? padded : padded.slice(0, -scale);
+    const frac = scale === 0 ? '' : padded.slice(-scale);
+    const num = scale === 0
+      ? whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+      : `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${frac}`;
+    const sign = neg ? '−' : '';
+    return currency === 'INR' ? `${sign}₹${num}` : `${sign}${num} ${currency}`;
+  } catch {
+    const num = (parseFloat(digits) || 0) / (10 ** scale);
+    const formatted = num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: maxDecimals });
+    const sign = neg ? '−' : '';
+    return currency.toUpperCase() === 'INR' ? `${sign}₹${formatted}` : `${sign}${formatted} ${currency}`;
+  }
 }
 
 const quoteScaleOf = (currency: string): number => (currency === 'INR' ? 2 : 8);
@@ -1919,12 +1968,13 @@ export function AccountDetail() {
                         {fundsToShow.map((fund) => {
                           const cur = fund.currency;
                           const freeMinorStr = fund.freeMinor ?? '0';
-                          const freeNum = Number(freeMinorStr);
                           const lockedMinorStr = kpis.lockedMarginMinor?.[cur] ?? '0';
-                          const lockedNum = Number(lockedMinorStr);
-                          const totalNum = freeNum + lockedNum;
-                          const utilPct = totalNum > 0 ? (lockedNum / totalNum) * 100 : 0;
                           const scale = fund.scale ?? quoteScaleOf(cur);
+
+                          const freeMajor = minorToMajor(freeMinorStr, scale);
+                          const lockedMajor = minorToMajor(lockedMinorStr, quoteScaleOf(cur));
+                          const totalMajor = freeMajor + lockedMajor;
+                          const utilPct = totalMajor > 0 ? (lockedMajor / totalMajor) * 100 : 0;
 
                           return (
                             <div
@@ -1944,7 +1994,7 @@ export function AccountDetail() {
                                   </span>
                                 </div>
                                 <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>
-                                  {fmtCurrency(lockedMinorStr, cur)} used of {formatMinor(totalNum.toString(), scale, cur, cur === 'USDT' ? 4 : 2)}
+                                  {fmtCurrency(lockedMinorStr, cur)} used of {fmtMajor(totalMajor, cur)}
                                 </span>
                               </div>
 

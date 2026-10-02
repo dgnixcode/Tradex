@@ -28,9 +28,19 @@ export function quoteScaleOf(quote: 'INR' | 'USDT'): number {
 }
 
 export function fmtMinor(minor: string, quote: 'INR' | 'USDT', maxDecimals = 2): string {
+  if (!minor) return quote === 'INR' ? '₹0.00' : `0.00 ${quote}`;
   const scale = quoteScaleOf(quote);
   const neg = minor.startsWith('-');
   const digits = neg ? minor.slice(1) : minor;
+
+  if (digits.includes('e') || digits.includes('E') || digits.includes('.')) {
+    const num = (parseFloat(digits) || 0) / (10 ** scale);
+    const isUsdt = quote === 'USDT';
+    const dec = isUsdt ? (num >= 100 ? 2 : 4) : Math.min(2, maxDecimals);
+    const formatted = num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: dec });
+    const sign = neg ? '−' : '';
+    return quote === 'INR' ? `${sign}₹${formatted}` : `${sign}${formatted} ${quote}`;
+  }
 
   if (scale > maxDecimals) {
     const diff = scale - maxDecimals;
