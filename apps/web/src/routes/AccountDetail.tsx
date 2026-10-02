@@ -41,6 +41,7 @@ import {
   pnlText,
   roeText,
 } from './Futures.tsx';
+import { parseCoinFromPair } from './TradeTicket.tsx';
 
 // One connected exchange account.
 // Features:
@@ -1076,7 +1077,13 @@ export function AccountDetail() {
                             <tr key={p.venuePositionId}>
                               <td style={{ fontWeight: 600 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <span>{p.pair}</span>
+                                  <Link
+                                    to={`/app?coin=${encodeURIComponent(parseCoinFromPair(p.pair) || p.pair)}&tab=chart`}
+                                    className="pos-contract-link"
+                                    title={`Open ${p.pair} chart on Trade page`}
+                                  >
+                                    {p.pair}
+                                  </Link>
                                   <span className="muted" style={{ fontSize: 11 }}>({p.marginCurrency})</span>
                                   {p.isTradeHidden && (
                                     <span
@@ -1324,7 +1331,16 @@ export function AccountDetail() {
                         <div className="pos-mobile-card-top">
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <div className="pos-mobile-acc-name">{p.pair} ({p.marginCurrency})</div>
+                              <div className="pos-mobile-acc-name">
+                                <Link
+                                  to={`/app?coin=${encodeURIComponent(parseCoinFromPair(p.pair) || p.pair)}&tab=chart`}
+                                  className="pos-contract-link"
+                                  title={`Open ${p.pair} chart on Trade page`}
+                                >
+                                  {p.pair}
+                                </Link>
+                                <span className="muted" style={{ fontSize: 11, fontWeight: 400, marginLeft: 6 }}>({p.marginCurrency})</span>
+                              </div>
                               {p.isTradeHidden && (
                                 <span
                                   style={{
@@ -1998,7 +2014,16 @@ export function AccountDetail() {
                               const sIsNeg = sHasChange && sChangePct < 0;
                               return (
                                 <tr key={s.pair}>
-                                  <td><strong>{s.symbol}</strong> <span className="muted" style={{ fontSize: 11 }}>({s.pair})</span></td>
+                                  <td>
+                                    <Link
+                                      to={`/app?coin=${encodeURIComponent(s.symbol || parseCoinFromPair(s.pair) || s.pair)}&tab=chart`}
+                                      className="pos-contract-link"
+                                      title={`Open ${s.symbol || s.pair} chart on Trade page`}
+                                    >
+                                      <strong>{s.symbol}</strong>
+                                    </Link>
+                                    <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>({s.pair})</span>
+                                  </td>
                                   <td>
                                     <span className={`badge ${s.side === 'long' ? 'planned' : s.side === 'short' ? 'skipped' : ''}`}>
                                       {s.side.toUpperCase()}
@@ -2095,7 +2120,15 @@ export function AccountDetail() {
                                   <td className="muted" style={{ fontSize: 11.5 }}>
                                     {new Date(t.closedAtMs).toLocaleString('en-IN')}
                                   </td>
-                                  <td><strong>{t.pair}</strong></td>
+                                  <td>
+                                    <Link
+                                      to={`/app?coin=${encodeURIComponent(parseCoinFromPair(t.pair) || t.pair)}&tab=chart`}
+                                      className="pos-contract-link"
+                                      title={`Open ${t.pair} chart on Trade page`}
+                                    >
+                                      <strong>{t.pair}</strong>
+                                    </Link>
+                                  </td>
                                   <td>
                                     <span
                                       className="badge"
@@ -2176,7 +2209,15 @@ export function AccountDetail() {
                             {filteredRecentOrders.map((o) => (
                               <tr key={o.id}>
                                 <td className="muted" style={{ fontSize: 12 }}>{new Date(o.createdAtMs).toLocaleTimeString()}</td>
-                                <td><strong>{o.pair}</strong></td>
+                                <td>
+                                  <Link
+                                    to={`/app?coin=${encodeURIComponent(parseCoinFromPair(o.pair) || o.pair)}&tab=chart`}
+                                    className="pos-contract-link"
+                                    title={`Open ${o.pair} chart on Trade page`}
+                                  >
+                                    <strong>{o.pair}</strong>
+                                  </Link>
+                                </td>
                                 <td>
                                   <span
                                     className="badge"

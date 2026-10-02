@@ -8,6 +8,7 @@ import {
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
+import { parseCoinFromPair } from './TradeTicket.tsx';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -807,7 +808,14 @@ function GroupCard({
     <div className={`position-card ${statusClass}`}>
       <div className="position-card-header" onClick={onToggle}>
         {/* Asset + Side */}
-        <span className="asset-pill">{group.asset}</span>
+        <Link
+          to={`/app?coin=${encodeURIComponent(group.asset)}&tab=chart`}
+          onClick={(e) => e.stopPropagation()}
+          className="asset-pill asset-pill-clickable"
+          title={`Open ${group.asset} chart on Trade page`}
+        >
+          {group.asset}
+        </Link>
         <span
           className="badge"
           style={{
@@ -1447,7 +1455,13 @@ export function PositionManageModal({
         <div className="position-modal-header">
           <div>
             <h3 className="position-modal-title">
-              <span>{position.pair}</span>
+              <Link
+                to={`/app?coin=${encodeURIComponent(parseCoinFromPair(position.pair) || position.pair)}&tab=chart`}
+                className="pos-contract-link"
+                title={`Open ${position.pair} chart on Trade page`}
+              >
+                {position.pair}
+              </Link>
               <span
                 className="badge"
                 style={{
@@ -3706,7 +3720,16 @@ function GroupPositionManageModal({
         <div className="position-modal-header">
           <div>
             <h3 className="position-modal-title">
-              <span>{group.pair} (Group Actions)</span>
+              <Link
+                to={`/app?coin=${encodeURIComponent(group.asset || parseCoinFromPair(group.pair) || group.pair)}&tab=chart`}
+                className="pos-contract-link"
+                title={`Open ${group.pair} chart on Trade page`}
+              >
+                {group.pair}
+              </Link>
+              <span style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 500, marginLeft: 6 }}>
+                (Group Actions)
+              </span>
               <span
                 className="badge"
                 style={{
@@ -5399,8 +5422,96 @@ export function QuickExitModal({
   const group = isGroup ? target.group : null;
   const position = !isGroup ? target.position : null;
 
+  // Selected account IDs for group quick exit
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    if (isGroup && group) {
+      return new Set(group.positions.map((p) => p.venuePositionId));
+    }
+    return new Set();
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Re-sync selected IDs when target changes
+  useEffect(() => {
+    if (isGroup && group) {
+      setSelectedIds(new Set(group.positions.map((p) => p.venuePositionId)));
+      setSearchQuery('');
+    }
+  }, [target]);
+
+  const allGroupPositions = useMemo(() => group?.positions ?? [], [group]);
+
+  const profitGroupPositions = useMemo(() => {
+    return allGroupPositions.filter((p) => Number(p.unrealisedPnlMinor ?? 0) > 0);
+  }, [allGroupPositions]);
+
+  const lossGroupPositions = useMemo(() => {
+    return allGroupPositions.filter((p) => Number(p.unrealisedPnlMinor ?? 0) < 0);
+  }, [allGroupPositions]);
+
+  const filteredGroupPositions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allGroupPositions;
+    return allGroupPositions.filter(
+      (p) => p.accountName.toLowerCase().includes(q) || p.pair.toLowerCase().includes(q)
+    );
+  }, [allGroupPositions, searchQuery]);
+
+  const selectedGroupPositions = useMemo(() => {
+    return allGroupPositions.filter((p) => selectedIds.has(p.venuePositionId));
+  }, [allGroupPositions, selectedIds]);
+
+  const totalAccountsCount = isGroup ? allGroupPositions.length : 1;
+  const selectedAccountsCount = isGroup ? selectedGroupPositions.length : 1;
+  const isAllSelected = isGroup && selectedAccountsCount === totalAccountsCount && totalAccountsCount > 0;
+  const isNoneSelected = isGroup && selectedAccountsCount === 0;
+
+  const masterCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (masterCheckboxRef.current && isGroup) {
+      masterCheckboxRef.current.indeterminate = selectedAccountsCount > 0 && !isAllSelected;
+    }
+  }, [isGroup, selectedAccountsCount, isAllSelected]);
+
+  const handleTogglePosition = (id: string) => {
+    if (isExecuting) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (isExecuting) return;
+    setSelectedIds(new Set(allGroupPositions.map((p) => p.venuePositionId)));
+  };
+
+  const handleDeselectAll = () => {
+    if (isExecuting) return;
+    setSelectedIds(new Set());
+  };
+
+  const handleSelectProfit = () => {
+    if (isExecuting) return;
+    setSelectedIds(new Set(profitGroupPositions.map((p) => p.venuePositionId)));
+  };
+
+  const handleSelectLoss = () => {
+    if (isExecuting) return;
+    setSelectedIds(new Set(lossGroupPositions.map((p) => p.venuePositionId)));
+  };
+
+  const handleInvert = () => {
+    if (isExecuting) return;
+    setSelectedIds(new Set(allGroupPositions.filter((p) => !selectedIds.has(p.venuePositionId)).map((p) => p.venuePositionId)));
+  };
+
   const handleConfirmExit = async () => {
     if (isExecuting || isHalted) return;
+    if (isGroup && selectedGroupPositions.length === 0) return;
+
     setIsExecuting(true);
     setExecResult(null);
 
@@ -5411,7 +5522,7 @@ export function QuickExitModal({
 
       let completed = 0;
       const batchGroupTradeId = crypto.randomUUID();
-      await mapConcurrent(group.positions, 12, async (pos) => {
+      await mapConcurrent(selectedGroupPositions, 12, async (pos) => {
         try {
           await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency, batchGroupTradeId);
           succeeded++;
@@ -5425,7 +5536,7 @@ export function QuickExitModal({
           }
         } finally {
           completed++;
-          setProgress({ current: completed, total: group.positions.length, accountName: pos.accountName });
+          setProgress({ current: completed, total: selectedGroupPositions.length, accountName: pos.accountName });
         }
       });
 
@@ -5436,7 +5547,7 @@ export function QuickExitModal({
       if (failed === 0) {
         setExecResult({
           kind: 'ok',
-          message: `Successfully closed positions at market across all ${succeeded} account${succeeded === 1 ? '' : 's'}.`,
+          message: `Successfully closed positions at market across ${succeeded} selected account${succeeded === 1 ? '' : 's'}.`,
         });
         setTimeout(() => onClose(), 1500);
       } else {
@@ -5478,24 +5589,49 @@ export function QuickExitModal({
     }
   };
 
-  const pnlNum = isGroup ? Number(group?.totalPnlMinor ?? 0) : Number(position?.unrealisedPnlMinor ?? 0);
-  const pnlMinor = isGroup ? group?.totalPnlMinor ?? null : position?.unrealisedPnlMinor ?? null;
   const quote = isGroup ? group!.marginCurrency : position!.marginCurrency;
-  const roe = !isGroup && position ? calcRoePct(position) : null;
-  const totalWeight = isGroup && group ? group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0) : 0;
-  const weightedRoeSum = isGroup && group ? group.positions.reduce((acc, pos) => {
-    const r = calcRoePct(pos);
-    return r !== null ? acc + r * Number(pos.quantity) : acc;
-  }, 0) : 0;
-  const groupRoe = isGroup && totalWeight > 0 ? weightedRoeSum / totalWeight : null;
-  const effectiveRoe = isGroup ? groupRoe : roe;
+
+  const totalEffectiveQty = useMemo(() => {
+    if (!isGroup) return Number(position?.quantity ?? 0);
+    return selectedGroupPositions.reduce((acc, p) => acc + Number(p.quantity || 0), 0);
+  }, [isGroup, position, selectedGroupPositions]);
+
+  const totalEffectiveMarginMinor = useMemo(() => {
+    if (!isGroup) return position?.lockedMarginMinor ?? null;
+    return selectedGroupPositions.reduce<string | null>((acc, p) => {
+      if (!p.lockedMarginMinor) return acc;
+      return acc === null ? p.lockedMarginMinor : addMinors(acc, p.lockedMarginMinor);
+    }, null);
+  }, [isGroup, position, selectedGroupPositions]);
+
+  const effectivePnlMinor = useMemo(() => {
+    if (!isGroup) return position?.unrealisedPnlMinor ?? null;
+    return selectedGroupPositions.reduce<string | null>((acc, p) => {
+      if (!p.unrealisedPnlMinor) return acc;
+      return acc === null ? p.unrealisedPnlMinor : addMinors(acc, p.unrealisedPnlMinor);
+    }, null);
+  }, [isGroup, position, selectedGroupPositions]);
+
+  const pnlNum = Number(effectivePnlMinor ?? 0);
+
+  const effectiveRoe = useMemo(() => {
+    if (!isGroup && position) return calcRoePct(position);
+    if (!isGroup) return null;
+    const totalWeight = selectedGroupPositions.reduce((acc, p) => acc + Number(p.quantity || 0), 0);
+    if (totalWeight <= 0) return null;
+    const weightedSum = selectedGroupPositions.reduce((acc, p) => {
+      const r = calcRoePct(p);
+      return r !== null ? acc + r * Number(p.quantity || 0) : acc;
+    }, 0);
+    return weightedSum / totalWeight;
+  }, [isGroup, position, selectedGroupPositions]);
 
   const side = isGroup ? group!.side : position!.side;
   const sideColor = side === 'long' ? 'var(--ok)' : side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
 
   return (
     <div className="position-modal-overlay" onClick={() => { if (!isExecuting) onClose(); }}>
-      <div className="position-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+      <div className="position-modal quick-exit-modal-box" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="position-modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.25)', background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, transparent 100%)' }}>
           <div>
@@ -5562,10 +5698,11 @@ export function QuickExitModal({
               <span>EMERGENCY KILL SWITCH ACTIVE: Market exits and order cancellations are strictly locked.</span>
             </div>
           )}
+
           {/* Key Metrics */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isGroup ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(4, 1fr)',
             gap: 10,
             background: 'var(--panel-2)',
             padding: 14,
@@ -5574,10 +5711,12 @@ export function QuickExitModal({
           }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {isGroup ? 'Total Qty' : 'Quantity'}
+                {isGroup ? 'Selected Qty' : 'Quantity'}
               </div>
-              <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
-                {isGroup ? group!.totalQty.toFixed(4).replace(/\.?0+$/, '') : position!.quantity}
+              <div className="mono" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+                {isGroup
+                  ? `${totalEffectiveQty.toFixed(4).replace(/\.?0+$/, '')} ${group!.asset}`
+                  : position!.quantity}
               </div>
             </div>
 
@@ -5599,23 +5738,31 @@ export function QuickExitModal({
             )}
 
             {isGroup && group && (
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Accounts</div>
-                <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
-                  {group.positions.length}
+              <>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Accounts</div>
+                  <div className="mono" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+                    {selectedAccountsCount} of {totalAccountsCount}
+                  </div>
                 </div>
-              </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margin Rel.</div>
+                  <div className="mono" style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>
+                    {totalEffectiveMarginMinor ? fmtMinor(totalEffectiveMarginMinor, quote) : '—'}
+                  </div>
+                </div>
+              </>
             )}
 
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Unrealized PnL</div>
               <div className="mono" style={{
-                fontSize: 15,
+                fontSize: 14.5,
                 fontWeight: 800,
                 color: pnlNum > 0 ? '#10b981' : pnlNum < 0 ? '#ef4444' : 'var(--text-dim)',
                 marginTop: 2,
               }}>
-                {pnlText(pnlMinor, quote)}
+                {pnlText(effectivePnlMinor, quote)}
                 {effectiveRoe !== null && (
                   <span style={{ fontSize: 11.5, fontWeight: 700, display: 'block' }}>
                     {roeText(effectiveRoe).trim()}
@@ -5624,6 +5771,167 @@ export function QuickExitModal({
               </div>
             </div>
           </div>
+
+          {/* Group Accounts Selection Toolbar and List */}
+          {isGroup && group && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="quick-exit-selection-bar">
+                <div className="quick-exit-chips">
+                  <button
+                    type="button"
+                    className={`quick-exit-chip-btn ${isAllSelected ? 'active' : ''}`}
+                    onClick={isAllSelected ? handleDeselectAll : handleSelectAll}
+                    disabled={isExecuting}
+                    title={isAllSelected ? 'Deselect all accounts' : 'Select all accounts'}
+                  >
+                    <span>{isAllSelected ? 'Deselect All' : 'Select All'}</span>
+                    <span className="quick-exit-badge-counter">{selectedAccountsCount}/{totalAccountsCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-exit-chip-btn profit"
+                    onClick={handleSelectProfit}
+                    disabled={isExecuting || profitGroupPositions.length === 0}
+                    title="Select only accounts with positive PnL"
+                  >
+                    <span>Winning</span>
+                    <span className="quick-exit-badge-counter">{profitGroupPositions.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-exit-chip-btn loss"
+                    onClick={handleSelectLoss}
+                    disabled={isExecuting || lossGroupPositions.length === 0}
+                    title="Select only accounts with negative PnL"
+                  >
+                    <span>Losing</span>
+                    <span className="quick-exit-badge-counter">{lossGroupPositions.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-exit-chip-btn"
+                    onClick={handleInvert}
+                    disabled={isExecuting}
+                    title="Invert current account selection"
+                  >
+                    <span>Invert</span>
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="text"
+                    className="card-account-search"
+                    placeholder="Search accounts…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    disabled={isExecuting}
+                    style={{ width: 150 }}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      onClick={() => setSearchQuery('')}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Accounts Table */}
+              <div className="quick-exit-table-wrap">
+                <table className="quick-exit-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 34, textAlign: 'center', padding: '8px 6px' }}>
+                        <input
+                          ref={masterCheckboxRef}
+                          type="checkbox"
+                          className="quick-exit-checkbox"
+                          checked={isAllSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) handleSelectAll();
+                            else handleDeselectAll();
+                          }}
+                          disabled={isExecuting}
+                          aria-label="Select all accounts"
+                        />
+                      </th>
+                      <th style={{ textAlign: 'left' }}>Account</th>
+                      <th style={{ textAlign: 'right' }}>Qty</th>
+                      <th style={{ textAlign: 'right' }}>Entry</th>
+                      <th style={{ textAlign: 'right' }}>PnL (ROE)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredGroupPositions.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', padding: '18px 12px', color: 'var(--muted)', fontSize: 12 }}>
+                          No accounts match &ldquo;{searchQuery}&rdquo;
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredGroupPositions.map((p) => {
+                        const isSelected = selectedIds.has(p.venuePositionId);
+                        const accPnlNum = Number(p.unrealisedPnlMinor ?? 0);
+                        const accRoe = calcRoePct(p);
+                        return (
+                          <tr
+                            key={p.venuePositionId}
+                            className={isSelected ? 'row-selected' : ''}
+                            onClick={() => handleTogglePosition(p.venuePositionId)}
+                          >
+                            <td style={{ textAlign: 'center', padding: '8px 6px' }} onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                className="quick-exit-checkbox"
+                                checked={isSelected}
+                                onChange={() => handleTogglePosition(p.venuePositionId)}
+                                disabled={isExecuting}
+                                aria-label={`Select account ${p.accountName}`}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span>{p.accountName}</span>
+                                {p.leverage ? (
+                                  <span className="badge" style={{ fontSize: 10, padding: '1px 5px', color: 'var(--text-dim)' }}>
+                                    {p.leverage}×
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="mono" style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              {p.quantity}
+                            </td>
+                            <td className="mono" style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-dim)' }}>
+                              {fmtPrice(p.avgEntryPrice)}
+                            </td>
+                            <td className="mono" style={{
+                              padding: '8px 12px',
+                              textAlign: 'right',
+                              fontWeight: 700,
+                              color: accPnlNum > 0 ? '#10b981' : accPnlNum < 0 ? '#ef4444' : 'var(--text-dim)',
+                            }}>
+                              <div>{pnlText(p.unrealisedPnlMinor, p.marginCurrency)}</div>
+                              {accRoe !== null && (
+                                <div style={{ fontSize: 10.5, fontWeight: 600 }}>
+                                  {roeText(accRoe).trim()}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Warning Banner */}
           <div style={{
@@ -5642,44 +5950,12 @@ export function QuickExitModal({
             </svg>
             <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#fca5a5' }}>
               <strong>Immediate Market Exit:</strong> This will place a market order on CoinDCX to close{' '}
-              {isGroup ? `all positions in ${group!.positions.length} account(s)` : `the position for ${position!.accountName}`}.
+              {isGroup
+                ? `the ${selectedAccountsCount} selected position(s) in ${group!.asset}`
+                : `the position for ${position!.accountName}`}.
               Any open Stop Loss or Take Profit orders will be cancelled automatically on the exchange.
             </div>
           </div>
-
-          {/* Group Accounts Breakdown */}
-          {isGroup && group && group.positions.length > 1 && (
-            <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--radius)', background: 'var(--panel-2)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--line)', color: 'var(--muted)', background: 'rgba(0,0,0,0.2)' }}>
-                    <th style={{ padding: '6px 12px', textAlign: 'left' }}>Account</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'right' }}>Qty</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'right' }}>PnL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.positions.map((p) => {
-                    const accPnlNum = Number(p.unrealisedPnlMinor ?? 0);
-                    return (
-                      <tr key={p.venuePositionId} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '6px 12px', fontWeight: 600 }}>{p.accountName}</td>
-                        <td className="mono" style={{ padding: '6px 12px', textAlign: 'right' }}>{p.quantity}</td>
-                        <td className="mono" style={{
-                          padding: '6px 12px',
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: accPnlNum > 0 ? '#10b981' : accPnlNum < 0 ? '#ef4444' : 'var(--text-dim)',
-                        }}>
-                          {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
 
           {/* Progress / Status */}
           {progress && (
@@ -5738,20 +6014,20 @@ export function QuickExitModal({
               type="button"
               className="btn"
               onClick={handleConfirmExit}
-              disabled={isExecuting || isHalted || execResult?.kind === 'ok'}
+              disabled={isExecuting || isHalted || execResult?.kind === 'ok' || (isGroup && isNoneSelected)}
               style={{
                 padding: '8px 20px',
                 fontSize: 13,
                 fontWeight: 700,
-                background: '#ef4444',
+                background: isNoneSelected ? 'var(--surface-3)' : '#ef4444',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 'var(--radius)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                cursor: isExecuting || isHalted || execResult?.kind === 'ok' ? 'not-allowed' : 'pointer',
-                opacity: isExecuting || isHalted || execResult?.kind === 'ok' ? 0.6 : 1,
+                cursor: isExecuting || isHalted || execResult?.kind === 'ok' || (isGroup && isNoneSelected) ? 'not-allowed' : 'pointer',
+                opacity: isExecuting || isHalted || execResult?.kind === 'ok' || (isGroup && isNoneSelected) ? 0.6 : 1,
               }}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -5760,9 +6036,11 @@ export function QuickExitModal({
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
               {isExecuting
-                ? 'Closing Positions…'
+                ? `Closing ${selectedAccountsCount} Position${selectedAccountsCount === 1 ? '' : 's'}…`
                 : isGroup
-                  ? `Confirm & Close ${group!.positions.length} Position${group!.positions.length === 1 ? '' : 's'}`
+                  ? isNoneSelected
+                    ? 'Select at least 1 account'
+                    : `Confirm & Close ${selectedAccountsCount} Selected Position${selectedAccountsCount === 1 ? '' : 's'}`
                   : 'Confirm & Close Position'}
             </button>
           </div>

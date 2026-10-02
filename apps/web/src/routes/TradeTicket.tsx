@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade, syncAccount } from '../api.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
+
+export function parseCoinFromPair(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.trim().toUpperCase();
+  if (s.startsWith('B-')) s = s.slice(2);
+  else if (s.startsWith('DCX-')) s = s.slice(4);
+  s = s.replace(/[/_]?(USDT|INR|USD|USDC)$/i, '');
+  return s || null;
+}
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
 
@@ -957,7 +966,14 @@ export function TradeTicket() {
   const accountPickerRef = useRef<HTMLDivElement>(null);
   const accountSearchInputRef = useRef<HTMLInputElement>(null);
   const [isSyncingAccount, setIsSyncingAccount] = useState<boolean>(false);
+  const [searchParams] = useSearchParams();
+  const urlCoin = useMemo(() => {
+    const raw = searchParams.get('coin') || searchParams.get('pair') || searchParams.get('asset') || searchParams.get('symbol');
+    return parseCoinFromPair(raw);
+  }, [searchParams]);
+
   const [asset, setAsset] = useState<string>(() => {
+    if (urlCoin) return urlCoin;
     try {
       return draft.asset || localStorage.getItem('tradex_selected_asset') || 'BTC';
     } catch {
@@ -1093,6 +1109,17 @@ export function TradeTicket() {
       try { localStorage.setItem('tradex_selected_asset', asset); } catch {}
     }
   }, [asset]);
+
+  useEffect(() => {
+    if (urlCoin && urlCoin !== asset) {
+      setAsset(urlCoin);
+      try { localStorage.setItem('tradex_selected_asset', urlCoin); } catch {}
+    }
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'chart' || (urlCoin && window.innerWidth <= 768)) {
+      setRightPanelTab('chart');
+    }
+  }, [urlCoin, searchParams]);
 
   useEffect(() => {
     if (marginCurrency) {
