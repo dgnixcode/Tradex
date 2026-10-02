@@ -239,15 +239,20 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
     const simulatedContext = {
       market: {
         getPrice: async () => candle.close,
-        getCandles: async (limit?: number) => {
-          const count = limit ? Math.min(limit, 1000) : 300;
-          const startIdx = Math.max(0, i + 1 - count);
+        getCandles: async (arg1?: unknown, arg2?: unknown, arg3?: unknown) => {
+          // Supports getCandles(pair, timeframe, limit), getCandles(pair, limit), or getCandles(limit)
+          let count = 300;
+          if (typeof arg1 === 'number' && !isNaN(arg1) && arg1 > 0) count = arg1;
+          else if (typeof arg2 === 'number' && !isNaN(arg2) && arg2 > 0) count = arg2;
+          else if (typeof arg3 === 'number' && !isNaN(arg3) && arg3 > 0) count = arg3;
+          const safeCount = Math.max(10, Math.min(count, 1000));
+          const startIdx = Math.max(0, i + 1 - safeCount);
           return candles.slice(startIdx, i + 1);
         },
       },
       positions: {
-        get: async (p: string) => {
-          if (p !== pair || !sim.currentPos) return null;
+        get: async (p?: string) => {
+          if ((p && p !== pair) || !sim.currentPos) return null;
           const pos = sim.currentPos;
           const unrealized = pos.side === 'long'
             ? (candle.close - pos.entryPrice) * pos.size

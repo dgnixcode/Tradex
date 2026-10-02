@@ -369,6 +369,40 @@ describe('Binance Historical Candle Engine', () => {
     // Downsampled equity curve should have fewer than 1000 points
     expect(result.equityCurve.length).toBeLessThan(1000);
   });
+
+  it('correctly handles getCandles(pair, timeframe, limit) without slicing entire history', async () => {
+    const candles: CandleData[] = [];
+    const baseTime = Date.now() - 1000 * 900_000;
+    for (let i = 0; i < 1000; i++) {
+      candles.push({
+        open: 100 + i,
+        high: 105 + i,
+        low: 95 + i,
+        close: 102 + i,
+        volume: 50,
+        time: baseTime + i * 900_000,
+      });
+    }
+
+    const script = `
+      export default async function run({ market, params }) {
+        const c = await market.getCandles(params.pair, params.timeframe, 50);
+        if (c.length > 50) {
+          throw new Error("getCandles exceeded requested limit: " + c.length);
+        }
+      }
+    `;
+
+    const result = await runBacktest({
+      script,
+      pair: 'B-ZEC_USDT',
+      timeframe: '15m',
+      initialCapital: 10000,
+      customCandles: candles,
+    });
+
+    expect(result.candleCount).toBe(1000);
+  });
 });
 
 describe('Currency Scale Conversions', () => {
