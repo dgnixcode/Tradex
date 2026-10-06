@@ -226,34 +226,32 @@ export function CoinPositionsDrawer({
     return groups;
   }, [groups, pnlFilter]);
 
-  // Aggregated Net PnL and ROE for the active scope
+  // Aggregated Net PnL and ROE for the active scope separated by currency
   const summaryKpis = useMemo(() => {
     const byCurrency: Record<string, string> = {};
+    const roeByCurrency: Record<string, { sum: number; count: number }> = {};
     let totalQty = 0;
-    let totalWeight = 0;
-    let weightedRoeSum = 0;
 
     for (const p of targetRows) {
+      const cur = p.marginCurrency;
       if (p.unrealisedPnlMinor !== null) {
-        const cur = p.marginCurrency;
         byCurrency[cur] = byCurrency[cur] === undefined
           ? p.unrealisedPnlMinor
           : addMinors(byCurrency[cur]!, p.unrealisedPnlMinor);
       }
-      const q = Number(p.quantity) || 0;
-      totalQty += q;
       const roe = calcRoePct(p);
-      if (roe !== null && q > 0) {
-        weightedRoeSum += roe * q;
-        totalWeight += q;
+      if (roe !== null) {
+        if (!roeByCurrency[cur]) roeByCurrency[cur] = { sum: 0, count: 0 };
+        roeByCurrency[cur].sum += roe;
+        roeByCurrency[cur].count += 1;
       }
+      totalQty += Number(p.quantity) || 0;
     }
 
-    const netRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
     return {
       pnlByCurrency: byCurrency,
+      roeByCurrency,
       totalQty,
-      netRoe,
       count: targetRows.length,
     };
   }, [targetRows]);
@@ -288,12 +286,13 @@ export function CoinPositionsDrawer({
     });
   };
 
-  const pnlCurrencies = Object.keys(summaryKpis.pnlByCurrency);
-  const primaryCur = pnlCurrencies.includes('USDT') ? 'USDT' : pnlCurrencies[0] || 'USDT';
-  const primaryPnlMinor = summaryKpis.pnlByCurrency[primaryCur] ?? '0';
-  const netPnlNum = Number(primaryPnlMinor);
-  const isNetProfit = netPnlNum > 0;
-  const isNetLoss = netPnlNum < 0;
+  // Currency breakdown for the header
+  const hasUsdt = summaryKpis.pnlByCurrency['USDT'] !== undefined;
+  const hasInr = summaryKpis.pnlByCurrency['INR'] !== undefined;
+  const usdtPnlMinor = summaryKpis.pnlByCurrency['USDT'] ?? '0';
+  const inrPnlMinor = summaryKpis.pnlByCurrency['INR'] ?? '0';
+  const usdtRoe = summaryKpis.roeByCurrency['USDT'] ? summaryKpis.roeByCurrency['USDT'].sum / summaryKpis.roeByCurrency['USDT'].count : null;
+  const inrRoe = summaryKpis.roeByCurrency['INR'] ? summaryKpis.roeByCurrency['INR'].sum / summaryKpis.roeByCurrency['INR'].count : null;
 
   return (
     <div
@@ -301,13 +300,14 @@ export function CoinPositionsDrawer({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        maxHeight: '100%',
         minHeight: 0,
         flex: '1 1 0%',
         overflow: 'hidden',
         boxSizing: 'border-box',
       }}
     >
-      {/* ── Fixed Header: Scope Switcher + Live Net PnL + Sync ── */}
+      {/* ── Fixed Header: Scope Switcher + Dual Currency PnL (USDT & INR) + Sync ── */}
       <div
         style={{
           display: 'flex',
@@ -319,7 +319,7 @@ export function CoinPositionsDrawer({
           flexShrink: 0,
         }}
       >
-        {/* Row 1: Scope Pills + Live Net PnL + Sync */}
+        {/* Row 1: Scope Pills + Live PnL (USDT and/or INR) + Sync */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
           {/* Scope Segmented Pill */}
           <div
@@ -397,35 +397,131 @@ export function CoinPositionsDrawer({
             </button>
           </div>
 
-          {/* Right side: Live Scope PnL + Sync button */}
+          {/* Right side: Dual/Single Currency PnL + Sync button */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {targetRows.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 800,
-                    fontFamily: 'monospace',
-                    color: isNetProfit ? '#10b981' : isNetLoss ? '#ef4444' : '#c9d1d9',
-                  }}
-                >
-                  {pnlText(primaryPnlMinor, primaryCur as 'INR' | 'USDT')}
-                </span>
-                {summaryKpis.netRoe !== null && (
+              hasUsdt && hasInr ? (
+                /* BOTH USDT AND INR EXIST: Show BOTH cleanly stacked */
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                  {/* USDT Line */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="trade-drawer-curr-badge usdt" style={{ fontSize: 9, padding: '0 3px' }}>
+                      USDT
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 800,
+                        fontFamily: 'monospace',
+                        color: Number(usdtPnlMinor) > 0 ? '#10b981' : Number(usdtPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
+                      }}
+                    >
+                      {pnlText(usdtPnlMinor, 'USDT')}
+                    </span>
+                    {usdtRoe !== null && (
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 800,
+                          color: usdtRoe >= 0 ? '#34d399' : '#f87171',
+                        }}
+                      >
+                        {roeText(usdtRoe).trim()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* INR Line */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="trade-drawer-curr-badge inr" style={{ fontSize: 9, padding: '0 3px' }}>
+                      INR
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 800,
+                        fontFamily: 'monospace',
+                        color: Number(inrPnlMinor) > 0 ? '#10b981' : Number(inrPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
+                      }}
+                    >
+                      {pnlText(inrPnlMinor, 'INR')}
+                    </span>
+                    {inrRoe !== null && (
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 800,
+                          color: inrRoe >= 0 ? '#34d399' : '#f87171',
+                        }}
+                      >
+                        {roeText(inrRoe).trim()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : hasInr ? (
+                /* ONLY INR POSITIONS: Show ONLY INR */
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span className="trade-drawer-curr-badge inr" style={{ fontSize: 9, padding: '1px 4px' }}>
+                    INR
+                  </span>
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 13,
                       fontWeight: 800,
-                      padding: '1px 4px',
-                      borderRadius: 3,
-                      color: summaryKpis.netRoe >= 0 ? '#34d399' : '#f87171',
-                      background: summaryKpis.netRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      fontFamily: 'monospace',
+                      color: Number(inrPnlMinor) > 0 ? '#10b981' : Number(inrPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
                     }}
                   >
-                    {roeText(summaryKpis.netRoe).trim()}
+                    {pnlText(inrPnlMinor, 'INR')}
                   </span>
-                )}
-              </div>
+                  {inrRoe !== null && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 4px',
+                        borderRadius: 3,
+                        color: inrRoe >= 0 ? '#34d399' : '#f87171',
+                        background: inrRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      }}
+                    >
+                      {roeText(inrRoe).trim()}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                /* ONLY USDT POSITIONS: Show ONLY USDT */
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span className="trade-drawer-curr-badge usdt" style={{ fontSize: 9, padding: '1px 4px' }}>
+                    USDT
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 800,
+                      fontFamily: 'monospace',
+                      color: Number(usdtPnlMinor) > 0 ? '#10b981' : Number(usdtPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
+                    }}
+                  >
+                    {pnlText(usdtPnlMinor, 'USDT')}
+                  </span>
+                  {usdtRoe !== null && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 4px',
+                        borderRadius: 3,
+                        color: usdtRoe >= 0 ? '#34d399' : '#f87171',
+                        background: usdtRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      }}
+                    >
+                      {roeText(usdtRoe).trim()}
+                    </span>
+                  )}
+                </div>
+              )
             )}
 
             {/* Sync button */}
@@ -585,14 +681,23 @@ export function CoinPositionsDrawer({
         </div>
       )}
 
-      {/* ── Scrollable Body: Major Info & Main Action Buttons Only ── */}
+      {/* ── Scrollable Body: Strictly Bounded for Guaranteed Vertical Scrolling ── */}
       <div
         className="coin-positions-scroll-body"
         style={{
+          flex: '1 1 0%',
+          minHeight: 0,
+          height: '100%',
+          maxHeight: '100%',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
           padding: '8px 10px 24px',
           display: 'flex',
           flexDirection: 'column',
           gap: 8,
+          boxSizing: 'border-box',
         }}
       >
         {targetRows.length === 0 ? (
@@ -650,6 +755,7 @@ export function CoinPositionsDrawer({
           displayedGroups.map((g) => {
             const isGrouped = g.positions.length > 1 || scope === 'all';
             const isCollapsed = collapsedGroups.has(g.key);
+            const isGroupInr = g.marginCurrency === 'INR';
             const groupPnlNum = Number(g.totalPnlMinor ?? 0);
             const groupRoe = calcRoePct({
               avgEntryPrice: String(g.positions.reduce((acc, p) => acc + Number(p.avgEntryPrice || 0), 0) / (g.positions.length || 1)),
@@ -659,7 +765,7 @@ export function CoinPositionsDrawer({
             });
 
             return (
-              <div key={g.key} className="trade-drawer-group">
+              <div key={g.key} className={`trade-drawer-group ${isGroupInr ? 'inr-group' : 'usdt-group'}`}>
                 {/* Group Summary Banner (when grouped) */}
                 {isGrouped && (
                   <div
@@ -670,6 +776,10 @@ export function CoinPositionsDrawer({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ fontWeight: 800, fontSize: 13, color: '#f0f6fc' }}>
                           {g.asset}
+                        </span>
+                        {/* Distinct Currency Badge on Group */}
+                        <span className={`trade-drawer-curr-badge ${isGroupInr ? 'inr' : 'usdt'}`} style={{ fontSize: 9.5, padding: '1px 5px' }}>
+                          {isGroupInr ? '₹ INR' : '$ USDT'}
                         </span>
                         <span className={`trade-drawer-side-pill ${g.side}`}>
                           {g.side.toUpperCase()}
@@ -727,10 +837,11 @@ export function CoinPositionsDrawer({
                   </div>
                 )}
 
-                {/* Individual Position Cards */}
+                {/* Individual Position Cards with INR vs USDT Distinct Themes */}
                 {!isCollapsed && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: isGrouped ? '6px' : 0 }}>
                     {g.positions.map((p) => {
+                      const isCurrInr = p.marginCurrency === 'INR';
                       const roe = calcRoePct(p);
                       const tpSl = calcEstimatedTpSl(p);
                       const pnlNum = Number(p.unrealisedPnlMinor ?? 0);
@@ -738,10 +849,13 @@ export function CoinPositionsDrawer({
                       const isLoss = pnlNum < 0;
 
                       return (
-                        <div key={p.venuePositionId} className="trade-drawer-card">
-                          {/* Top: Account Link + Side/Lev + PnL/ROE */}
+                        <div
+                          key={p.venuePositionId}
+                          className={`trade-drawer-card ${isCurrInr ? 'inr-card' : 'usdt-card'}`}
+                        >
+                          {/* Top: Account Link + Currency Badge + Side/Lev + PnL/ROE */}
                           <div className="trade-drawer-card-top">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flexWrap: 'wrap' }}>
                               <Link
                                 to={`/app/accounts/${p.accountId}`}
                                 className="trade-drawer-acc-link"
@@ -749,9 +863,16 @@ export function CoinPositionsDrawer({
                               >
                                 {p.accountName}
                               </Link>
+
+                              {/* Prominent High-Contrast Currency Badge (INR vs USDT) */}
+                              <span className={`trade-drawer-curr-badge ${isCurrInr ? 'inr' : 'usdt'}`}>
+                                {isCurrInr ? '₹ INR' : '$ USDT'}
+                              </span>
+
                               <span className={`trade-drawer-side-pill ${p.side}`}>
                                 {p.side.toUpperCase()} {p.leverage ? `${p.leverage}×` : ''}
                               </span>
+
                               {p.groupName && !isGrouped && (
                                 <span className="trade-drawer-grp-tag">
                                   {p.groupName}
@@ -774,28 +895,37 @@ export function CoinPositionsDrawer({
                           {/* Major Information Grid: 2x2 Clean Layout */}
                           <div className="trade-drawer-grid">
                             <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">Entry → Mark</span>
+                              <span className="trade-drawer-lbl">
+                                Entry → Mark {isCurrInr ? '(₹)' : '($)'}
+                              </span>
                               <span className="trade-drawer-val mono">
-                                {fmtPrice(p.avgEntryPrice)} <span style={{ color: '#64748b' }}>→</span> {fmtPrice(p.markPrice)}
+                                {isCurrInr ? `₹${fmtPrice(p.avgEntryPrice)}` : fmtPrice(p.avgEntryPrice)}{' '}
+                                <span style={{ color: '#64748b' }}>→</span>{' '}
+                                {isCurrInr ? `₹${fmtPrice(p.markPrice)}` : fmtPrice(p.markPrice)}
                               </span>
                             </div>
 
                             <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">Margin · Qty</span>
+                              <span className="trade-drawer-lbl">
+                                Margin {isCurrInr ? '(₹)' : '($)'} · Qty
+                              </span>
                               <span className="trade-drawer-val mono">
-                                {p.lockedMarginMinor ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : '—'} <span style={{ color: '#64748b' }}>·</span> {p.quantity}
+                                {p.lockedMarginMinor ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : '—'}{' '}
+                                <span style={{ color: '#64748b' }}>·</span> {p.quantity}
                               </span>
                             </div>
 
                             <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">Liq Price</span>
+                              <span className="trade-drawer-lbl">
+                                Liq Price {isCurrInr ? '(₹)' : '($)'}
+                              </span>
                               <span
                                 className="trade-drawer-val mono"
                                 style={{
                                   color: p.liqBufferBp !== null && p.liqBufferBp < 1000 ? '#ef4444' : '#facc15',
                                 }}
                               >
-                                {fmtPrice(p.liquidationPrice)}
+                                {isCurrInr ? `₹${fmtPrice(p.liquidationPrice)}` : fmtPrice(p.liquidationPrice)}
                                 {p.liqBufferBp !== null && (
                                   <span
                                     style={{
@@ -820,12 +950,12 @@ export function CoinPositionsDrawer({
                                   <span style={{ display: 'inline-flex', gap: 3 }}>
                                     {tpSl.hasTp && (
                                       <span className="trade-drawer-target-pill tp">
-                                        TP {tpSl.tpPriceText}
+                                        TP {isCurrInr ? `₹${tpSl.tpPriceText}` : tpSl.tpPriceText}
                                       </span>
                                     )}
                                     {tpSl.hasSl && (
                                       <span className="trade-drawer-target-pill sl">
-                                        SL {tpSl.slPriceText}
+                                        SL {isCurrInr ? `₹${tpSl.slPriceText}` : tpSl.slPriceText}
                                       </span>
                                     )}
                                   </span>

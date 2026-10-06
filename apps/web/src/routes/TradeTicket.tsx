@@ -2869,7 +2869,7 @@ export function TradeTicket() {
         </div>
 
         {/* Tab 3: Coin Positions */}
-        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, height: '100%', overflow: 'hidden' }}>
+        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, maxHeight: 'calc(100% - 38px)', height: 'calc(100% - 38px)', overflow: 'hidden' }}>
           <CoinPositionsDrawer
             coin={asset || 'BTC'}
             onSelectCoin={(newAsset) => {
