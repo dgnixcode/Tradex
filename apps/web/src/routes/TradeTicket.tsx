@@ -1620,7 +1620,10 @@ export function TradeTicket() {
         style={{ display: isPanelOpen ? 'flex' : 'none' }}
       >
         {/* Panel Header Strip */}
-        <div className="panel-header-strip">
+        <div
+          className="panel-header-strip"
+          style={rightPanelTab === 'position' ? { padding: '10px 12px 8px', marginBottom: 0 } : undefined}
+        >
           <div className="panel-header-title">
             {rightPanelTab === 'trade' ? (
               <>
@@ -2853,7 +2856,7 @@ export function TradeTicket() {
         </div>
 
         {/* Tab 2: Watchlist */}
-        <div style={{ display: rightPanelTab === 'watchlist' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 480 }}>
+        <div style={{ display: rightPanelTab === 'watchlist' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, height: '100%', overflow: 'hidden' }}>
           <WatchlistPanel
             selectedAsset={asset || 'BTC'}
             onSelectAsset={(newAsset) => {
@@ -2866,7 +2869,7 @@ export function TradeTicket() {
         </div>
 
         {/* Tab 3: Coin Positions */}
-        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 480 }}>
+        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, height: '100%', overflow: 'hidden' }}>
           <CoinPositionsDrawer
             coin={asset || 'BTC'}
             onSelectCoin={(newAsset) => {
