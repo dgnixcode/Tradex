@@ -1622,7 +1622,22 @@ export function TradeTicket() {
         {/* Panel Header Strip */}
         <div
           className="panel-header-strip"
-          style={rightPanelTab === 'position' ? { padding: '10px 12px 8px', marginBottom: 0 } : undefined}
+          style={
+            rightPanelTab === 'position'
+              ? {
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 20,
+                  background: '#08090c',
+                  padding: '8px 12px',
+                  minHeight: 38,
+                  maxHeight: 38,
+                  boxSizing: 'border-box',
+                  marginBottom: 0,
+                  borderBottom: '1px solid #1c2027',
+                }
+              : undefined
+          }
         >
           <div className="panel-header-title">
             {rightPanelTab === 'trade' ? (
@@ -2869,7 +2884,7 @@ export function TradeTicket() {
         </div>
 
         {/* Tab 3: Coin Positions */}
-        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, maxHeight: 'calc(100% - 38px)', height: 'calc(100% - 38px)', overflow: 'hidden' }}>
+        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', width: '100%' }}>
           <CoinPositionsDrawer
             coin={asset || 'BTC'}
             onSelectCoin={(newAsset) => {

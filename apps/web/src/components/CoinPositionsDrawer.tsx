@@ -299,24 +299,23 @@ export function CoinPositionsDrawer({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
-        maxHeight: '100%',
-        minHeight: 0,
-        flex: '1 1 0%',
-        overflow: 'hidden',
+        width: '100%',
         boxSizing: 'border-box',
       }}
     >
-      {/* ── Fixed Header: Scope Switcher + Dual Currency PnL (USDT & INR) + Sync ── */}
+      {/* ── Fixed Sticky Header: Scope Switcher + Dual Currency PnL (USDT & INR) + Sync ── */}
       <div
         style={{
+          position: 'sticky',
+          top: 38,
+          zIndex: 15,
           display: 'flex',
           flexDirection: 'column',
           gap: 6,
           padding: '8px 10px',
           background: '#0a0d12',
           borderBottom: '1px solid #1a1e27',
-          flexShrink: 0,
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.45)',
         }}
       >
         {/* Row 1: Scope Pills + Live PnL (USDT and/or INR) + Sync */}
@@ -641,16 +640,19 @@ export function CoinPositionsDrawer({
       {message && (
         <div
           style={{
+            position: 'sticky',
+            top: 104,
+            zIndex: 14,
             padding: '6px 10px',
             fontSize: 11,
             fontWeight: 600,
-            background: message.kind === 'ok' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-            color: message.kind === 'ok' ? '#34d399' : '#f87171',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            background: message.kind === 'ok' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)',
+            color: '#ffffff',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            flexShrink: 0,
+            backdropFilter: 'blur(8px)',
           }}
         >
           <span>{message.text}</span>
@@ -668,36 +670,31 @@ export function CoinPositionsDrawer({
       {isHalted && (
         <div
           style={{
-            background: 'rgba(239, 68, 68, 0.18)',
+            position: 'sticky',
+            top: 104,
+            zIndex: 14,
+            background: 'rgba(239, 68, 68, 0.95)',
             borderBottom: '1px solid var(--danger)',
             padding: '6px 10px',
             fontSize: 11,
-            color: '#fca5a5',
+            color: '#ffffff',
             fontWeight: 700,
-            flexShrink: 0,
           }}
         >
           KILL SWITCH ACTIVE — Exits locked (Read-Only).
         </div>
       )}
 
-      {/* ── Scrollable Body: Strictly Bounded for Guaranteed Vertical Scrolling ── */}
+      {/* ── Position Cards Container: Flows naturally for smooth outer panel scrolling ── */}
       <div
-        className="coin-positions-scroll-body"
+        className="coin-positions-cards-container"
         style={{
-          flex: '1 1 0%',
-          minHeight: 0,
-          height: '100%',
-          maxHeight: '100%',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          WebkitOverflowScrolling: 'touch',
-          overscrollBehavior: 'contain',
-          padding: '8px 10px 24px',
+          padding: '8px 10px 48px',
           display: 'flex',
           flexDirection: 'column',
           gap: 8,
           boxSizing: 'border-box',
+          width: '100%',
         }}
       >
         {targetRows.length === 0 ? (
