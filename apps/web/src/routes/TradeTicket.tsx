@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade, syncAccount } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade, syncAccount } from '../api.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
 
 export function parseCoinFromPair(raw: string | null | undefined): string | null {
@@ -15,6 +15,7 @@ export function parseCoinFromPair(raw: string | null | undefined): string | null
 }
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
+import { CoinPositionsDrawer } from '../components/CoinPositionsDrawer.tsx';
 
 // The futures trade ticket — plan/phase-15 T15.10.
 //
@@ -983,15 +984,28 @@ export function TradeTicket() {
   const [side, setSide] = useState<Side>(() => draft.side || 'buy');
   const [orderType, setOrderType] = useState<OrderType>(() => draft.orderType || 'market');
   const [limitPrice, setLimitPrice] = useState<string>(() => draft.limitPrice || '');
-  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'chart' | 'watchlist' | null>(() => {
+  const [rightPanelTab, setRightPanelTab] = useState<'trade' | 'chart' | 'watchlist' | 'position' | null>(() => {
     try {
       const saved = localStorage.getItem('tradex_active_tab');
       if (saved === 'closed') return null;
-      return (saved === 'chart' || saved === 'watchlist') ? saved : 'trade';
+      return (saved === 'chart' || saved === 'watchlist' || saved === 'position') ? saved : 'trade';
     } catch {
       return 'trade';
     }
   });
+
+  // Query live positions to show position count badge on rail & drawer
+  const positionsQuery = useQuery({
+    queryKey: ['futures-positions'],
+    queryFn: fetchFuturesPositions,
+    refetchInterval: 5000,
+  });
+
+  const coinPositionsCount = useMemo(() => {
+    const rows = positionsQuery.data?.views ?? [];
+    const target = (asset || '').trim().toUpperCase();
+    return rows.filter((r) => !r.hideFromPositions && (parseCoinFromPair(r.pair) || '').toUpperCase() === target).length;
+  }, [positionsQuery.data, asset]);
 
   // Futures shape — every field required except the two conditionals + reduceOnly.
   const [leverage, setLeverage] = useState<string>(() => draft.leverage || '5');
@@ -1575,7 +1589,7 @@ export function TradeTicket() {
     preview.mutate(req);
   };
 
-  const isPanelOpen = rightPanelTab === 'trade' || rightPanelTab === 'watchlist';
+  const isPanelOpen = rightPanelTab === 'trade' || rightPanelTab === 'watchlist' || rightPanelTab === 'position';
 
   return (
     <div className={`trading-terminal-layout ${!isPanelOpen ? 'panel-closed' : ''}`}>
@@ -1600,9 +1614,9 @@ export function TradeTicket() {
         </div>
       </div>
 
-      {/* Right Column: Collapsible Drawer Panel (Trade Order vs Watchlist) */}
+      {/* Right Column: Collapsible Drawer Panel (Trade Order vs Watchlist vs Positions) */}
       <div
-        className={`trading-right-panel ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}
+        className={`trading-right-panel ${rightPanelTab === 'position' ? 'positions-active' : ''} ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}
         style={{ display: isPanelOpen ? 'flex' : 'none' }}
       >
         {/* Panel Header Strip */}
@@ -1613,10 +1627,23 @@ export function TradeTicket() {
                 <span className="panel-header-text">Order Ticket</span>
                 <span className="panel-header-pill">{asset}/{quoteCurrency}</span>
               </>
-            ) : (
+            ) : rightPanelTab === 'watchlist' ? (
               <>
                 <span className="panel-header-text">Market Watchlist</span>
                 <span className="panel-header-pill">{quoteCurrency}</span>
+              </>
+            ) : (
+              <>
+                <span className="panel-header-text">{asset} Positions</span>
+                <span
+                  className="panel-header-pill"
+                  style={{
+                    background: coinPositionsCount > 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                    color: coinPositionsCount > 0 ? '#34d399' : '#8b949e',
+                  }}
+                >
+                  {coinPositionsCount > 0 ? `${coinPositionsCount} Open` : '0 Open'}
+                </span>
               </>
             )}
           </div>
@@ -2837,6 +2864,18 @@ export function TradeTicket() {
             quoteCurrency={quoteCurrency}
           />
         </div>
+
+        {/* Tab 3: Coin Positions */}
+        <div style={{ display: rightPanelTab === 'position' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 480 }}>
+          <CoinPositionsDrawer
+            coin={asset || 'BTC'}
+            onSelectCoin={(newAsset) => {
+              setAsset(newAsset);
+            }}
+            onSwitchToOrder={() => setRightPanelTab('trade')}
+            onClose={() => setRightPanelTab(null)}
+          />
+        </div>
       </div>
 
       {/* Far Right Column: 1-Side Vertical Panel Rail */}
@@ -2878,6 +2917,42 @@ export function TradeTicket() {
             </svg>
           </span>
           <span className="rail-tab-label">Watch</span>
+        </button>
+
+        <button
+          type="button"
+          className={`rail-tab-btn ${rightPanelTab === 'position' ? 'active' : ''}`}
+          onClick={() => setRightPanelTab((prev) => (prev === 'position' ? null : 'position'))}
+          title={rightPanelTab === 'position' ? `Close ${asset} Positions (Full width chart)` : `Open ${asset} Positions (${coinPositionsCount} open)`}
+          aria-label="Positions"
+        >
+          <span className="rail-tab-icon" style={{ position: 'relative' }}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+            </svg>
+            {coinPositionsCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -5,
+                  right: -7,
+                  background: '#10b981',
+                  color: '#ffffff',
+                  fontSize: 9,
+                  fontWeight: 800,
+                  borderRadius: 10,
+                  padding: '1px 4px',
+                  minWidth: 14,
+                  textAlign: 'center',
+                  boxShadow: '0 0 5px rgba(16, 185, 129, 0.7)',
+                }}
+              >
+                {coinPositionsCount}
+              </span>
+            )}
+          </span>
+          <span className="rail-tab-label">Position</span>
         </button>
 
         {isPanelOpen && (

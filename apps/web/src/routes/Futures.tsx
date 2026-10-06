@@ -364,7 +364,7 @@ export function calcGroupRoePct(group: PositionGroup): number | null {
 
 /* ─── per-account row inside a group card ─── */
 
-function AccountRow({
+export function AccountRow({
   p,
   onManage,
   onQuickExit,
@@ -554,7 +554,7 @@ function AccountRow({
 
 /* ─── per-account mobile position card (<= 768px) ─── */
 
-function AccountMobileCard({
+export function AccountMobileCard({
   p,
   onManage,
   onQuickExit,
@@ -751,7 +751,7 @@ function AccountMobileCard({
 
 /* ─── group card with high-scale account handling ─── */
 
-function GroupCard({
+export function GroupCard({
   group,
   collapsed,
   onToggle,
@@ -2967,14 +2967,14 @@ export function PositionManageModal({
 
 /* ─── Group Position Management Modal (Safe Bulk Actions & Eligibility Fan-Out) ─── */
 
-interface GroupPositionManageModalProps {
+export interface GroupPositionManageModalProps {
   readonly group: PositionGroup;
   readonly onClose: () => void;
   readonly onRefreshPositions: () => void;
   readonly isHalted?: boolean | undefined;
 }
 
-function GroupPositionManageModal({
+export function GroupPositionManageModal({
   group,
   onClose,
   onRefreshPositions,

@@ -2200,6 +2200,20 @@ body:has(.panel-dark)::before {
   max-width: 420px;
 }
 
+.trading-right-panel.positions-active {
+  width: 540px;
+  min-width: 460px;
+  max-width: 620px;
+}
+
+@media (max-width: 1280px) {
+  .trading-right-panel.positions-active {
+    width: 480px;
+    min-width: 420px;
+    max-width: 520px;
+  }
+}
+
 /* 1-Side Vertical Rail */
 .trading-vertical-rail {
   width: 48px;
