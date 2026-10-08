@@ -2191,7 +2191,7 @@ export function AccountDetail() {
                                         textTransform: 'uppercase',
                                       }}
                                     >
-                                      {t.side} {t.leverage ? `${t.leverage}` : ''}
+                                      {t.side} {t.leverage ? (t.leverage.endsWith('x') || t.leverage.endsWith('X') ? t.leverage : `${t.leverage}x`) : ''}
                                     </span>
                                   </td>
                                   <td className="mono" style={{ textAlign: 'right' }}>{t.quantity}</td>

@@ -464,7 +464,13 @@ export async function buildTradingAnalytics(
       leverage: t.leverage ? (t.leverage.endsWith('x') ? t.leverage : `${t.leverage}x`) : null,
       realizedPnlMinor: t.realizedPnlMinor,
       marginCurrency: t.marginCurrency,
-      roePct: t.roePct,
+      roePct: t.roePct ?? (() => {
+        const entry = Number(t.avgEntryPrice);
+        const exit = Number(t.avgExitPrice);
+        const lev = Number(t.leverage?.replace(/x$/i, '')) || 1;
+        const dir = t.side === 'long' ? 1 : -1;
+        return (entry > 0 && exit > 0) ? ((exit - entry) / entry) * 100 * lev * dir : null;
+      })(),
       durationMs: t.durationMs ?? 0,
       openedAtMs: t.openedAt ? t.openedAt.getTime() : t.closedAt.getTime(),
       closedAtMs: t.closedAt.getTime(),

@@ -409,6 +409,52 @@ const enginePorts = {};
         if ((!buyOrdersRes.ok || buyOrdersRes.orders.length < 100) && (!sellOrdersRes.ok || sellOrdersRes.orders.length < 100)) break;
       }
 
+      // 4. Preload position and trade leverage mappings for this account
+      const posRows = await tdb.selectFrom('futures_position')
+        .select(['venue_position_id', 'pair', 'margin_currency', 'leverage'])
+        .where('account_id', '=', accountId)
+        .execute()
+        .catch(() => []);
+      const posByVenueId = new Map();
+      const posByPairCur = new Map();
+      for (const p of posRows) {
+        if (p.venue_position_id && p.leverage) {
+          posByVenueId.set(p.venue_position_id, p.leverage);
+        }
+        if (p.pair && p.margin_currency && p.leverage) {
+          posByPairCur.set(`${p.pair}_${p.margin_currency}`, p.leverage);
+        }
+      }
+
+      const childOrderRows = await db.selectFrom('child_order as co')
+        .innerJoin('group_trade as gt', 'gt.id', 'co.group_trade_id')
+        .select(['co.venue_position_id', 'co.exchange_order_id', 'gt.leverage'])
+        .where('co.tenant_id', '=', tenantId)
+        .where('co.account_id', '=', accountId)
+        .where('gt.leverage', 'is not', null)
+        .execute()
+        .catch(() => []);
+      const tradeByVenuePosId = new Map();
+      const tradeByOrderId = new Map();
+      for (const co of childOrderRows) {
+        if (co.venue_position_id && co.leverage) tradeByVenuePosId.set(co.venue_position_id, co.leverage);
+        if (co.exchange_order_id && co.leverage) tradeByOrderId.set(co.exchange_order_id, co.leverage);
+      }
+
+      const existingClosedRows = await tdb.selectFrom('futures_closed_trade')
+        .select(['venue_position_id', 'venue_order_id', 'leverage'])
+        .where('account_id', '=', accountId)
+        .where('leverage', 'is not', null)
+        .where('leverage', '!=', '1')
+        .execute()
+        .catch(() => []);
+      const existingClosedByPosId = new Map();
+      const existingClosedByOrderId = new Map();
+      for (const ec of existingClosedRows) {
+        if (ec.venue_position_id && ec.leverage) existingClosedByPosId.set(ec.venue_position_id, ec.leverage);
+        if (ec.venue_order_id && ec.leverage) existingClosedByOrderId.set(ec.venue_order_id, ec.leverage);
+      }
+
       const allowedStages = new Set(['exit', 'tpsl_exit', 'liquidation', 'default']);
       const tradeInputs = [];
       for (const t of groupedOrders.values()) {
@@ -423,7 +469,17 @@ const enginePorts = {};
         const qtyNum = order?.filledQuantity ? Number(order.filledQuantity) : (
           order?.totalQuantity ? Number(order.totalQuantity) : 0
         );
-        const levNum = order?.leverage ?? 1;
+
+        const rawLev = (t.positionId ? posByVenueId.get(t.positionId) : null)
+          ?? (t.positionId ? tradeByVenuePosId.get(t.positionId) : null)
+          ?? (t.positionId ? existingClosedByPosId.get(t.positionId) : null)
+          ?? (t.parentId ? tradeByOrderId.get(t.parentId) : null)
+          ?? (t.parentId ? existingClosedByOrderId.get(t.parentId) : null)
+          ?? (order?.leverage && Number(order.leverage) > 1 ? order.leverage : null)
+          ?? posByPairCur.get(`${t.pair}_${t.marginCurrency}`)
+          ?? order?.leverage
+          ?? 1;
+        const levNum = Number(rawLev) || 1;
 
         const isUsdtContract = t.pair.includes('USDT') || t.pair.endsWith('USDT');
         const peg = (t.marginCurrency === 'INR' && isUsdtContract)

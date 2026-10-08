@@ -304,13 +304,14 @@ export function Analytics() {
   const handleExportCsv = () => {
     const dateStr = new Date().toISOString().slice(0, 10);
     if (activeTab === 'closed') {
-      const headers = ['Closed Time', 'Account', 'Group', 'Pair', 'Side', 'Quantity', 'Entry Price', 'Exit Price', 'Realized PnL', 'Currency', 'ROE %', 'Outcome'];
+      const headers = ['Closed Time', 'Account', 'Group', 'Pair', 'Side', 'Leverage', 'Quantity', 'Entry Price', 'Exit Price', 'Realized PnL', 'Currency', 'ROE %', 'Outcome'];
       const rows = filteredClosedTrades.map((t) => [
         new Date(t.closedAtMs).toLocaleString('en-IN'),
         t.accountName,
         t.groupName ?? '—',
         t.pair,
         t.side.toUpperCase(),
+        t.leverage ?? '—',
         t.quantity,
         t.avgEntryPrice,
         t.avgExitPrice,
@@ -963,7 +964,7 @@ export function Analytics() {
                               textTransform: 'uppercase',
                             }}
                           >
-                            {t.side} {t.leverage ? `${t.leverage}` : ''}
+                            {t.side} {t.leverage ? (t.leverage.endsWith('x') || t.leverage.endsWith('X') ? t.leverage : `${t.leverage}x`) : ''}
                           </span>
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>{t.quantity}</td>
