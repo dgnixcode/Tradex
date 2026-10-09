@@ -60,7 +60,7 @@ export interface FuturesInstrument {
   readonly exitOnly: boolean;
   /**
    * Per-notional leverage tiers, ordered by threshold ascending. The tier a
-   * position falls into determines its max leverage. Empty = venue default.
+   * position falls into determines its max leverage. Empty = limits unavailable.
    */
   readonly leverageTiers: readonly {
     readonly upToNotional: string;
@@ -150,6 +150,9 @@ export interface FuturesPositionSnapshot {
   readonly marginCurrency: FuturesMarginCurrency;
   /** Signed base quantity: positive = long, negative = short, 0 = closed. */
   readonly activePos: string;
+  /** Open entry quantities, used to include pending limit orders in tier checks. */
+  readonly inactivePosBuy?: string | null;
+  readonly inactivePosSell?: string | null;
   readonly avgEntryPrice: string | null;
   /**
    * Mark price is stale-by-design in the REST payload (research/04 F2 "not

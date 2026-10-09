@@ -26,6 +26,23 @@ async function serve(body: string): Promise<string> {
 const sign = async (_body: string) => ({ apiKey: 'test', signature: 'test' });
 
 describe('futures decimal precision at the exchange boundary', () => {
+  it('reads dynamic leverage limits and ignores deprecated 100x fields', async () => {
+    const baseUrl = await serve('{"max_leverage_long":100,"max_leverage_short":100,"dynamic_position_leverage_details":{"10":500000,"20":100000}}');
+    const result = await fetchFuturesInstrument('B-ETH_USDT', 'USDT', { baseUrl });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.instrument.leverageTiers).toEqual([{ upToNotional: '100000', maxLeverage: 20 }, { upToNotional: '500000', maxLeverage: 10 }]);
+  });
+  it('leaves missing dynamic leverage limits unavailable', async () => {
+    const baseUrl = await serve('{"max_leverage_long":100,"max_leverage_short":100}');
+    const result = await fetchFuturesInstrument('B-ETH_USDT', 'INR', { baseUrl });
+    if (result.ok) expect(result.instrument.leverageTiers).toEqual([]);
+    else throw new Error('instrument should parse');
+  });
+  it('refuses rules for a different pair or margin wallet', async () => {
+    const baseUrl = await serve('{"pair":"B-BTC_USDT","margin_currency_short_name":"INR","dynamic_position_leverage_details":{"100":100000}}');
+    const result = await fetchFuturesInstrument('B-ETH_USDT', 'USDT', { baseUrl });
+    expect(result.ok).toBe(false);
+  });
   it('signs the exact numeric quantity without rounding upward or changing the venue type', () => {
     expect(requestBody({ order: { total_quantity: exactQuantityForWire('09007199254740993.123456789123456789') } }, 1))
       .toBe('{"order":{"total_quantity":9007199254740993.123456789123456789},"timestamp":1}');

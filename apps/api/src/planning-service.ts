@@ -32,7 +32,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { add, cmp, div, mul, scaledFromString } from '@tradex/money';
-import { freeBalanceMinor, futuresPairOf } from '@tradex/exchange';
+import { freeBalanceMinor, futuresPairOf, maxInstrumentLeverage } from '@tradex/exchange';
 import type { Balance, FuturesInstrument, MarketRef, MarketRules, OrderBook } from '@tradex/exchange';
 import type { Kysely } from 'kysely';
 import {
@@ -328,6 +328,7 @@ export class PlanningService {
     const allRules = await loadMarketRules(this.deps.db, version);
     let candidates = allRules.filter((r) => r.market.asset === req.asset);
 
+    let leverageTiers: FuturesInstrument['leverageTiers'] | undefined;
     // When planning futures, enrich candidates with live futures instrument rules
     // (exact quantity_increment step, precision, and min quantity) rather than spot.
     if (req.isFutures && this.deps.getFuturesInstrument !== undefined) {
@@ -340,6 +341,10 @@ export class PlanningService {
           throw new PlanningError('Current futures instrument rules are unavailable; try a fresh preview.', 'no_market_data');
         }
         if (instRes?.ok && instRes.instrument && instRes.instrument.quantityIncrement && instRes.instrument.quantityIncrement !== '0') {
+          leverageTiers = instRes.instrument.leverageTiers;
+          const maxLeverage = maxInstrumentLeverage(leverageTiers);
+          if (maxLeverage === 0) throw new PlanningError('Current leverage limits are unavailable; try a fresh preview.', 'no_market_data');
+          if (Number(req.leverage) > maxLeverage) throw new PlanningError(`This instrument supports at most ${maxLeverage}× leverage.`, 'bad_mode');
           const step = instRes.instrument.quantityIncrement;
           const dot = step.indexOf('.');
           const qPrecision = dot >= 0 ? step.length - dot - 1 : 0;
@@ -461,6 +466,16 @@ export class PlanningService {
         req, candidates, platform, caps, states, balancesByAccount, books, marketModes, dayStartMs,
         holdingsByAccount, usdtInrMid,
       }));
+    }
+    if (leverageTiers !== undefined) {
+      for (const child of children) {
+        if (child.state !== 'planned' || !child.finalQuantity || !child.priceUsed) continue;
+        const notional = toStr(mul(nat(child.finalQuantity), nat(child.priceUsed), GUARD_SCALE));
+        const maxLeverage = maxInstrumentLeverage(leverageTiers, notional);
+        if (maxLeverage === 0 || Number(req.leverage) > maxLeverage) {
+          throw new PlanningError(`The planned position size for account ${child.accountId} exceeds the venue limit at ${req.leverage}×; lower the size or leverage and preview again.`, 'bad_mode');
+        }
+      }
     }
 
     const trade: NewGroupTrade = {

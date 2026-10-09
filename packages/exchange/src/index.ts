@@ -6,3 +6,4 @@ export * from './funding.js';
 export * from './probe-port.js';
 export * from './order-state.js';
 export * from './futures-adapter.js';
+export * from './leverage.js';

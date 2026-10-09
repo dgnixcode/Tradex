@@ -12,6 +12,7 @@ import { parseCoinFromPair } from './TradeTicket.tsx';
 import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 import { planPositionAddition, planPositionReduction } from '../position-addition.ts';
 import { PositionCurrencyBadge } from '../components/PositionCurrencyBadge.tsx';
+import { leverageForBalance, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -1133,9 +1134,7 @@ export function PositionManageModal({
 
   const matchedAccount = useMemo(() => {
     if (!accountsQuery.data) return null;
-    return accountsQuery.data.find(
-      (a) => a.id === position.accountId || a.name.trim().toLowerCase() === position.accountName.trim().toLowerCase(),
-    ) ?? null;
+    return accountsQuery.data.find((a) => a.id === position.accountId) ?? null;
   }, [accountsQuery.data, position.accountId, position.accountName]);
 
   const accountFreeCashMinor = matchedAccount
@@ -1144,9 +1143,11 @@ export function PositionManageModal({
     : null;
 
   const [isSyncingBalance, setIsSyncingBalance] = useState(false);
+  const [balanceSyncError, setBalanceSyncError] = useState<string | null>(null);
   const handleSyncBalance = async () => {
     if (!position.accountId) return;
     setIsSyncingBalance(true);
+    setBalanceSyncError(null);
     try {
       await syncAccount(position.accountId);
       await Promise.all([
@@ -1154,6 +1155,7 @@ export function PositionManageModal({
         qc.invalidateQueries({ queryKey: ['futures-positions'] }),
       ]);
     } catch (err) {
+      setBalanceSyncError('Balance refresh failed. Refresh the account before using the balance slider.');
       console.error('Failed to sync account balance', err);
     } finally {
       setIsSyncingBalance(false);
@@ -1388,16 +1390,24 @@ export function PositionManageModal({
 
   // Adjust Leverage State & Calculations
   const currentLev = position.leverage !== null && Number(position.leverage) > 0 ? Number(position.leverage) : 1;
-  const [targetLeverage, setTargetLeverage] = useState<string>(() => String(currentLev));
+  const [targetLeverage, setTargetLeverageValue] = useState<string>(() => String(currentLev));
+  const [balanceBudgetPercent, setBalanceBudgetPercent] = useState<number | null>(null);
+  const setTargetLeverage = (value: string) => {
+    setTargetLeverageValue(value);
+    setBalanceBudgetPercent(null);
+  };
   const [isUpdatingLeverage, setIsUpdatingLeverage] = useState(false);
+  const leverageActionPending = useRef(false);
   const dialogRef = useSafeDialog(onClose, isExiting || isAdjusting || isProtecting || isUpdatingLeverage);
   const [leverageMsg, setLeverageMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const targetLevNum = Number(targetLeverage);
-  const isTargetLevValid = !Number.isNaN(targetLevNum) && targetLevNum >= 1 && targetLevNum <= 100;
+  const leverageLimits = useLeverageLimits(position.pair, position.marginCurrency, [position]);
+  const maxLeverage = leverageLimits.maxLeverage;
+  const isTargetLevValid = /^\d+$/.test(targetLeverage) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
 
   const posPeg = (position.marginCurrency === 'INR' && (position.pair.endsWith('_USDT') || position.pair.includes('USDT')))
-    ? (position.settlementCurrencyAvgPrice && Number(position.settlementCurrencyAvgPrice) > 0 ? Number(position.settlementCurrencyAvgPrice) : 100)
+    ? (position.settlementCurrencyAvgPrice && Number(position.settlementCurrencyAvgPrice) > 0 ? Number(position.settlementCurrencyAvgPrice) : 0)
     : 1;
 
   const posMarkPrice = position.markPrice ? Number(position.markPrice) : (position.avgEntryPrice ? Number(position.avgEntryPrice) : 0);
@@ -1408,17 +1418,17 @@ export function PositionManageModal({
     ? lockedMarginMajor
     : (totalQty > 0 && posEntryPrice > 0 && currentLev > 0 ? (totalQty * posEntryPrice * posPeg) / currentLev : 0);
 
-  // New required margin when leverage changes to targetLevNum:
-  // Scales inversely with leverage: NewMargin = CurrentMargin * (currentLev / targetLevNum)
+  const leverageNotionalMajor = totalQty * posEntryPrice * posPeg;
+  // Estimate from exposure, rather than scaling collateral that may include added margin.
   const newMarginMajor = isTargetLevValid && targetLevNum > 0
-    ? (currentMarginMajor > 0 && currentLev > 0
-        ? currentMarginMajor * (currentLev / targetLevNum)
-        : (totalQty > 0 && posEntryPrice > 0 ? (totalQty * posEntryPrice * posPeg) / targetLevNum : 0))
+    ? leverageNotionalMajor / targetLevNum
     : 0;
 
   const marginDeltaMajor = newMarginMajor - currentMarginMajor;
 
   const isLevShortfall = marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor;
+  const balanceSliderValid = maxLeverage > 0 && leverageNotionalMajor > 0 && lockedMarginMajor > 0 && freeBalanceMajor > 0;
+  const balanceSliderPercent = isTargetLevValid && freeBalanceMajor > 0 ? Math.min(100, Math.max(0, marginDeltaMajor / freeBalanceMajor * 100)) : 0;
   const levShortfallMajor = isLevShortfall ? (marginDeltaMajor - freeBalanceMajor) : 0;
 
   const estNewLiqPrice = useMemo(() => {
@@ -1435,7 +1445,8 @@ export function PositionManageModal({
   }, [isTargetLevValid, targetLevNum, posEntryPrice, position.side]);
 
   const handleExecuteAdjustLeverage = async () => {
-    if (!isTargetLevValid || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted) return;
+    if (!isTargetLevValid || leverageNotionalMajor <= 0 || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || leverageActionPending.current || isHalted) return;
+    leverageActionPending.current = true;
     setIsUpdatingLeverage(true);
     setLeverageMsg(null);
     try {
@@ -1458,6 +1469,7 @@ export function PositionManageModal({
       });
     } finally {
       setIsUpdatingLeverage(false);
+      leverageActionPending.current = false;
     }
   };
 
@@ -2678,9 +2690,13 @@ export function PositionManageModal({
                   </div>
                 </div>
 
+                <p role="status" style={{ margin: '0 0 8px', fontSize: 12, color: maxLeverage > 0 ? 'var(--muted)' : 'var(--danger)' }}>
+                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — choose a whole number within this limit.' : ''}
+                  {maxLeverage === 0 && <button type="button" className="btn btn-sm secondary" onClick={() => void leverageLimits.query.refetch()}>Retry</button>}
+                </p>
                 {/* Preset Chips */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {LEVERAGE_PRESET_CHIPS.map((chip) => (
+                  {LEVERAGE_PRESET_CHIPS.filter((chip) => chip <= maxLeverage).map((chip) => (
                     <button
                       key={chip}
                       type="button"
@@ -2708,10 +2724,10 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm secondary"
                     style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={Number(targetLeverage) <= 1}
+                    disabled={maxLeverage === 0 || Number(targetLeverage) <= 1}
                     onClick={() => {
                       const cur = Number(targetLeverage) || 1;
-                      const next = Math.max(1, Math.round((cur - 0.5) * 10) / 10);
+                      const next = Math.max(1, Math.floor(cur) - 1);
                       setTargetLeverage(String(next));
                     }}
                   >
@@ -2720,13 +2736,14 @@ export function PositionManageModal({
                   <div style={{ flex: 1, position: 'relative' }}>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={targetLeverage}
+                      aria-label="Target leverage"
                       onChange={(e) => {
                         const val = e.target.value.replace(/[^\d.]/g, '');
                         setTargetLeverage(val);
                       }}
-                      placeholder="e.g. 3.5"
+                      placeholder="e.g. 3"
                       style={{
                         width: '100%',
                         padding: '6px 28px 6px 12px',
@@ -2747,10 +2764,10 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm secondary"
                     style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={Number(targetLeverage) >= 100}
+                    disabled={maxLeverage === 0 || Number(targetLeverage) >= maxLeverage}
                     onClick={() => {
                       const cur = Number(targetLeverage) || 1;
-                      const next = Math.min(100, Math.round((cur + 0.5) * 10) / 10);
+                      const next = Math.min(maxLeverage, Math.floor(cur) + 1);
                       setTargetLeverage(String(next));
                     }}
                   >
@@ -2758,26 +2775,26 @@ export function PositionManageModal({
                   </button>
                 </div>
 
-                {/* Interactive Leverage Slider */}
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
-                    <span>1× (Low risk)</span>
-                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>Slide to adjust: {targetLeverage}×</span>
-                    <span>100× (High risk)</span>
+                <div style={{ marginBottom: 12 }}>
+                  <label htmlFor="leverage-balance-slider" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span>Available balance to use</span><strong>{(balanceBudgetPercent ?? balanceSliderPercent).toFixed(0)}%</strong>
+                  </label>
+                  <input id="leverage-balance-slider" type="range" min="0" max="100" step="1"
+                    value={balanceBudgetPercent ?? balanceSliderPercent} disabled={!balanceSliderValid || isRefreshing || balanceSyncError !== null}
+                    onChange={(e) => {
+                      const target = leverageForBalance(leverageNotionalMajor, currentMarginMajor, freeBalanceMajor, Number(e.target.value), maxLeverage);
+                      if (target !== null) {
+                        setTargetLeverage(String(target));
+                        setBalanceBudgetPercent(Number(e.target.value));
+                      }
+                    }} style={{ width: '100%', accentColor: '#818cf8' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)' }}>
+                    <span>0%</span><span>100% of available balance</span>
                   </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="100"
-                    step="0.5"
-                    value={Number(targetLeverage) || 1}
-                    onChange={(e) => setTargetLeverage(e.target.value)}
-                    style={{
-                      width: '100%',
-                      cursor: 'pointer',
-                      accentColor: '#818cf8',
-                    }}
-                  />
+                  <p style={{ margin: '6px 0', fontSize: 11, color: 'var(--muted)' }}>
+                    Estimated extra margin: {position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}. Whole-number leverage may use less than selected.
+                  </p>
+                  {balanceSyncError && <p role="alert" style={{ color: 'var(--danger)', fontSize: 12 }}>{balanceSyncError}</p>}
                 </div>
 
                 {/* Financial Breakdown Grid */}
@@ -2787,7 +2804,7 @@ export function PositionManageModal({
                     <strong>{currentMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${currentMarginMajor.toFixed(2)}` : `${currentMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: 'var(--muted)' }}>New Required Margin: </span>
+                    <span style={{ color: 'var(--muted)' }}>Estimated Required Margin: </span>
                     <strong>{newMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${newMarginMajor.toFixed(2)}` : `${newMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
                   </div>
                   <div>
@@ -2873,7 +2890,7 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm"
                     style={{ background: '#6366f1', color: '#ffffff', fontWeight: 700, border: 'none' }}
-                    disabled={!isTargetLevValid || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted}
+                    disabled={!isTargetLevValid || leverageNotionalMajor <= 0 || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted}
                     onClick={handleExecuteAdjustLeverage}
                   >
                     {isUpdatingLeverage
@@ -3365,12 +3382,14 @@ export function GroupPositionManageModal({
     );
   }, [evaluatedAccounts, modalSearch]);
 
-  const targetLevNum = parseFloat(groupTargetLeverage);
-  const isTargetLevValid = !isNaN(targetLevNum) && targetLevNum >= 1 && targetLevNum <= 100;
+  const targetLevNum = Number(groupTargetLeverage);
+  const leverageLimits = useLeverageLimits(group.pair, group.marginCurrency, group.positions);
+  const maxLeverage = leverageLimits.maxLeverage;
+  const isTargetLevValid = /^\d+$/.test(groupTargetLeverage) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
 
   const evaluatedLeverageAccounts = useMemo(() => {
     return group.positions.map((p) => {
-      const acc = accountsMap.get(p.accountId) ?? accountsMap.get(p.accountName.toLowerCase().trim()) ?? null;
+      const acc = accountsMap.get(p.accountId) ?? null;
       const quoteScale = quoteScaleOf(p.marginCurrency);
       const freeCashMinor = acc
         ? (acc.balancesByCurrency?.[p.marginCurrency] ?? (acc.allocatedCurrency === p.marginCurrency ? acc.allocatedCapitalMinor : '0'))
@@ -3382,7 +3401,7 @@ export function GroupPositionManageModal({
       const currentLev = (p.leverage && Number(p.leverage) > 0) ? Number(p.leverage) : 1;
 
       const posPeg = (p.marginCurrency === 'INR' && (p.pair.endsWith('_USDT') || p.pair.includes('USDT')))
-        ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 100)
+        ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 0)
         : 1;
 
       const currentMarginMajor = p.lockedMarginMinor && Number(p.lockedMarginMinor) > 0
@@ -3390,13 +3409,11 @@ export function GroupPositionManageModal({
         : (currentLev > 0 && posQty > 0 && entryOrMark > 0 ? (posQty * entryOrMark * posPeg) / currentLev : 0);
 
       const newMarginMajor = isTargetLevValid && targetLevNum > 0
-        ? (currentMarginMajor > 0 && currentLev > 0
-            ? currentMarginMajor * (currentLev / targetLevNum)
-            : (posQty > 0 && entryOrMark > 0 ? (posQty * entryOrMark * posPeg) / targetLevNum : 0))
+        ? (posQty * entryOrMark * posPeg) / targetLevNum
         : currentMarginMajor;
 
       const marginDeltaMajor = newMarginMajor - currentMarginMajor;
-      const isEligible = isTargetLevValid && (marginDeltaMajor <= 0 || freeBalanceMajor >= marginDeltaMajor);
+      const isEligible = isTargetLevValid && posQty > 0 && entryOrMark > 0 && posPeg > 0 && (marginDeltaMajor <= 0 || freeBalanceMajor >= marginDeltaMajor);
       const isSame = isTargetLevValid && Math.abs(currentLev - targetLevNum) < 0.01;
       const shortfallMajor = (marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor) ? (marginDeltaMajor - freeBalanceMajor) : 0;
 
@@ -4991,9 +5008,13 @@ export function GroupPositionManageModal({
                   <strong style={{ fontSize: 16, color: '#818cf8', fontWeight: 800 }}>{groupTargetLeverage}×</strong>
                 </div>
 
+                <p role="status" style={{ margin: '0 0 8px', fontSize: 12, color: maxLeverage > 0 ? 'var(--muted)' : 'var(--danger)' }}>
+                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — choose a whole number within this limit.' : ''}
+                  {maxLeverage === 0 && <button type="button" className="btn btn-sm secondary" onClick={() => void leverageLimits.query.refetch()}>Retry</button>}
+                </p>
                 {/* Preset Chips */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {LEVERAGE_PRESET_CHIPS.map((chip) => (
+                  {LEVERAGE_PRESET_CHIPS.filter((chip) => chip <= maxLeverage).map((chip) => (
                     <button
                       key={chip}
                       type="button"
@@ -5021,10 +5042,10 @@ export function GroupPositionManageModal({
                     type="button"
                     className="btn btn-sm secondary"
                     style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={Number(groupTargetLeverage) <= 1}
+                    disabled={maxLeverage === 0 || Number(groupTargetLeverage) <= 1}
                     onClick={() => {
                       const cur = Number(groupTargetLeverage) || 1;
-                      const next = Math.max(1, Math.round((cur - 0.5) * 10) / 10);
+                      const next = Math.max(1, Math.floor(cur) - 1);
                       setGroupTargetLeverage(String(next));
                     }}
                   >
@@ -5033,8 +5054,9 @@ export function GroupPositionManageModal({
                   <div style={{ flex: 1, position: 'relative' }}>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={groupTargetLeverage}
+                      aria-label="Target group leverage"
                       onChange={(e) => {
                         const val = e.target.value.replace(/[^\d.]/g, '');
                         setGroupTargetLeverage(val);
@@ -5060,37 +5082,15 @@ export function GroupPositionManageModal({
                     type="button"
                     className="btn btn-sm secondary"
                     style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={Number(groupTargetLeverage) >= 100}
+                    disabled={maxLeverage === 0 || Number(groupTargetLeverage) >= maxLeverage}
                     onClick={() => {
                       const cur = Number(groupTargetLeverage) || 1;
-                      const next = Math.min(100, Math.round((cur + 0.5) * 10) / 10);
+                      const next = Math.min(maxLeverage, Math.floor(cur) + 1);
                       setGroupTargetLeverage(String(next));
                     }}
                   >
                     +
                   </button>
-                </div>
-
-                {/* Interactive Slider */}
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
-                    <span>1× (Low risk)</span>
-                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>Slide to adjust: {groupTargetLeverage}×</span>
-                    <span>100× (High risk)</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="100"
-                    step="0.5"
-                    value={Number(groupTargetLeverage) || 1}
-                    onChange={(e) => setGroupTargetLeverage(e.target.value)}
-                    style={{
-                      width: '100%',
-                      cursor: 'pointer',
-                      accentColor: '#818cf8',
-                    }}
-                  />
                 </div>
 
                 {/* Aggregated Financial Breakdown Grid */}

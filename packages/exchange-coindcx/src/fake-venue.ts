@@ -521,6 +521,7 @@ export class FakeVenue {
         taker_fee: '0.0005',
         funding_frequency_hours: 8,
         exit_only: false,
+        dynamic_position_leverage_details: { '100': '1000000000' },
       }));
       return;
     }

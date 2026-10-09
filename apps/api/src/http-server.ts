@@ -1295,6 +1295,17 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    if (method === 'GET' && path === '/api/futures/instrument') {
+      requireAction(principal, 'view.dashboards');
+      const pair = ctx.url.searchParams.get('pair') ?? '';
+      const margin = ctx.url.searchParams.get('marginCurrency');
+      if (!/^B-[A-Z0-9]{1,30}_(USDT|INR)$/.test(pair) || (margin !== 'INR' && margin !== 'USDT')) throw new HttpError(400, 'invalid futures instrument');
+      const result = await deps.getFuturesInstrument?.(pair, margin);
+      if (!result?.ok || !result.instrument?.leverageTiers?.length) throw new HttpError(503, 'Current leverage limits are unavailable; try again.');
+      sendJson(ctx.res, 200, { pair, marginCurrency: margin, leverageTiers: result.instrument.leverageTiers });
+      return;
+    }
+
     // ---- GET /api/futures/prices — bulk real-time market prices for all pairs ----
     if (method === 'GET' && path === '/api/futures/prices') {
       requireAction(principal, 'view.dashboards');
@@ -1533,11 +1544,11 @@ export function createHttpServer(deps: HttpDeps): Server {
         rawLev === undefined ||
         (typeof rawLev !== 'string' && typeof rawLev !== 'number') ||
         Number(rawLev) <= 0 ||
-        Number(rawLev) > 100 ||
+        Number(rawLev) > 200 ||
         !Number.isInteger(Number(rawLev)) ||
         !Number.isFinite(Number(rawLev))
       ) {
-        throw new HttpError(400, 'leverage must be a positive number between 1 and 100');
+        throw new HttpError(400, 'leverage must be a whole number between 1 and 200, within the instrument limit');
       }
       const levOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futLevMatch[1] as string);
       if (levOwner === null) throw new HttpError(404, 'no such futures position');

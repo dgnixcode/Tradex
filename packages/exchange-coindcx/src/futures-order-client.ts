@@ -176,6 +176,8 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     pair,
     marginCurrency: margin as FuturesMarginCurrency,
     activePos,
+    inactivePosBuy: decimalField(row['inactive_pos_buy']),
+    inactivePosSell: decimalField(row['inactive_pos_sell']),
     avgEntryPrice: decimalField(row['avg_price']),
     markPrice: decimalField(row['mark_price']),
     liquidationPrice: decimalField(row['liquidation_price']),
@@ -842,6 +844,9 @@ export async function fetchFuturesInstrument(
   const r = row as Record<string, unknown>;
   const s = (k: string, fallback = ''): string => strOrNull(r[k]) ?? fallback;
   const d = (k: string, fallback = '0'): string => decimalField(r[k]) ?? fallback;
+  if (s('pair', pair) !== pair || s('margin_currency_short_name', marginCurrency) !== marginCurrency) {
+    return { ok: false, failure: classify({ status: 200, message: 'instrument response did not match the requested pair and margin currency' }) };
+  }
   const instrument: FuturesInstrument = {
     pair: s('pair', pair),
     baseAsset: s('underlying_currency_short_name', s('position_currency_short_name')),
@@ -858,7 +863,17 @@ export async function fetchFuturesInstrument(
     takerFee: d('taker_fee'),
     fundingFrequencyHours: Number.parseInt(s('funding_frequency', s('funding_frequency_hours', '8')), 10) || 8,
     exitOnly: r['exit_only'] === true,
-    leverageTiers: [],
+    // Deprecated max_leverage_long/short are explicitly not authoritative.
+    leverageTiers: (() => {
+      const details = r['dynamic_position_leverage_details'];
+      if (details === null || typeof details !== 'object' || Array.isArray(details)) return [];
+      const tiers = Object.entries(details).map(([leverage, size]) => ({
+        maxLeverage: /^\d+$/.test(leverage) ? Number(leverage) : 0,
+        upToNotional: decimalField(size) ?? '0',
+      }));
+      if (tiers.some((t) => !Number.isSafeInteger(t.maxLeverage) || t.maxLeverage < 1 || !/^\d+(?:\.\d{1,18})?$/.test(t.upToNotional) || Number(t.upToNotional) <= 0)) return [];
+      return tiers.sort((a, b) => Number(a.upToNotional) - Number(b.upToNotional));
+    })(),
   };
   return { ok: true, instrument };
 }

@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
 import { useTradeBalances } from '../hooks/useTradeBalances.ts';
+import { useLeverageLimits } from '../hooks/useLeverageLimits.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
 import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 
@@ -41,9 +42,6 @@ type OrderType = 'market' | 'limit';
 type MarginCurrency = 'INR' | 'USDT';
 type PositionMarginType = 'isolated' | 'crossed';
 type SlTpMode = 'price' | 'percent';
-
-/** The client-side ceiling. The venue enforces a per-tier max on top of this. */
-const MAX_LEVERAGE = 100;
 
 /** Common SL percentage distances for quick-select chips. */
 const SL_PERCENT_CHIPS = [1, 2, 5, 10] as const;
@@ -1026,6 +1024,8 @@ export function TradeTicket() {
   });
   // Futures trade exclusively on USDT pairs.
   const quoteCurrency: MarginCurrency = 'USDT';
+  const leverageLimits = useLeverageLimits(`B-${asset}_${quoteCurrency}`, marginCurrency);
+  const maxLeverage = leverageLimits.maxLeverage;
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>(() => draft.positionMarginType || 'isolated');
   const [percent, setPercent] = useState<string>(() => draft.percent || '');
   const [quantity, setQuantity] = useState<string>(() => draft.quantity || '');
@@ -1356,10 +1356,10 @@ export function TradeTicket() {
   const bumpLeverage = (delta: number): void => {
     const n = Number(leverage);
     const base = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
-    setLeverage(String(Math.min(MAX_LEVERAGE, Math.max(1, base + delta))));
+    if (maxLeverage > 0) setLeverage(String(Math.min(maxLeverage, Math.max(1, base + delta))));
   };
-  const leverageAtMin = Number(leverage) <= 1;
-  const leverageAtMax = Number(leverage) >= MAX_LEVERAGE;
+  const leverageAtMin = maxLeverage === 0 || Number(leverage) <= 1;
+  const leverageAtMax = maxLeverage === 0 || Number(leverage) >= maxLeverage;
 
   const sizingRefPrice = orderType === 'limit' ? limitPrice : marketRefPrice;
 
@@ -1432,8 +1432,8 @@ export function TradeTicket() {
     ? (accountId !== '' && Boolean(selectedAccount))
     : (groupId !== '' && accountCount > 0);
 
-  const leverageValid = /^\d+(\.\d+)?$/.test(leverage)
-    && Number(leverage) >= 1 && Number(leverage) <= MAX_LEVERAGE;
+  const leverageValid = /^\d+$/.test(leverage)
+    && Number(leverage) >= 1 && Number(leverage) <= maxLeverage;
   const percentValid = /^\d+(\.\d+)?$/.test(percent) && Number(percent) > 0 && Number(percent) <= 100;
   const quantityValid = /^\d+(\.\d+)?$/.test(quantity) && Number(quantity) > 0;
   const priceOk = (p: string): boolean => p === '' || (/^\d+(\.\d+)?$/.test(p) && Number(p) > 0);
@@ -2417,7 +2417,7 @@ export function TradeTicket() {
         <div className="field" style={{ margin: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <label htmlFor="lev" style={{ margin: 0 }}>Leverage</label>
-            <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Max {MAX_LEVERAGE}×</span>
+            <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{leverageLimits.message}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button
@@ -2432,7 +2432,7 @@ export function TradeTicket() {
             </button>
             <input
               id="lev"
-              inputMode="decimal"
+              inputMode="numeric"
               value={leverage}
               placeholder="5"
               style={{ flex: 1, minWidth: 0, textAlign: 'center', fontWeight: 600, padding: '4px 6px', fontSize: 13 }}
@@ -2450,7 +2450,7 @@ export function TradeTicket() {
             </button>
           </div>
           <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-            {[1, 5, 10, 20].map((v) => {
+            {[1, 5, 10, 20].filter((v) => v <= maxLeverage).map((v) => {
               const active = Number(leverage) === v;
               return (
                 <button
@@ -2475,6 +2475,8 @@ export function TradeTicket() {
               );
             })}
           </div>
+          {maxLeverage > 0 && !leverageValid && <p role="alert" className="error" style={{ margin: '4px 0', fontSize: 11 }}>Choose a whole-number leverage from 1 to {maxLeverage}×.</p>}
+          {maxLeverage === 0 && !leverageLimits.query.isPending && <button type="button" className="btn btn-sm secondary" onClick={() => void leverageLimits.query.refetch()}>Retry leverage limits</button>}
         </div>
 
         {/* Margin mode */}

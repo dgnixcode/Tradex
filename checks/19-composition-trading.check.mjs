@@ -57,6 +57,18 @@ export async function run(assert) {
     const intent = { groupId, asset: 'BTC', side: 'buy', orderType: 'market', sizingMode: 'base_quantity', sizingValue: '0.01',
       isFutures: true, leverage: '5', marginCurrency: 'USDT', quoteCurrency: 'USDT', positionMarginType: 'isolated', stopLossPrice: '70000', takeProfitPrice: '90000',
       trailingStopLoss: true, trailingStepBasis: 'roe', trailingStepBp: 100, trailingDistanceBp: 500 };
+    const rules = { pair: 'B-BTC_USDT', margin_currency_short_name: 'USDT', underlying_currency_short_name: 'BTC', quote_currency_short_name: 'USDT',
+      contract_size: '1', price_increment: '0.5', quantity_increment: '0.00001', min_quantity: '0.00001', max_quantity: '9500',
+      min_notional: '100', max_market_order_quantity: '9500', max_leverage_long: 100, max_leverage_short: 100,
+      dynamic_position_leverage_details: { '20': '1000', '10': '500000' } };
+    venue.setFuturesInstrument('B-BTC_USDT', 'USDT', rules);
+    const metadata = await fetch(`${base}/api/futures/instrument?pair=B-BTC_USDT&marginCurrency=USDT`, { headers: { cookie } });
+    const limits = await metadata.json();
+    assert(metadata.status === 200 && limits.leverageTiers[0].maxLeverage === 20, 'authenticated instrument endpoint exposes the current dynamic 20x limit');
+    const overLimit = await post('/api/group-trades/preview', { ...intent, leverage: '21' }, cookie);
+    assert(overLimit.status === 400, 'a coin capped at 20x refuses a 21x group preview');
+    const overSize = await post('/api/group-trades/preview', { ...intent, leverage: '20', sizingValue: '0.02' }, cookie);
+    assert(overSize.status === 400, '20x preview refuses a position size that belongs to the 10x tier');
     const previewRes = await post('/api/group-trades/preview', intent, cookie); const preview = await previewRes.json();
     assert(previewRes.status === 200 && preview.plannedCount === 1, `group market preview must plan: ${JSON.stringify(preview)}`);
     assert(preview.trailingStepBasis === 'roe' && preview.trailingStepBp === '100', 'preview reports the persisted ROE trailing intent for confirmation');
@@ -88,6 +100,8 @@ export async function run(assert) {
     assert(reservation.status === 'completed' && BigInt(reservation.risk_margin_inr_minor) > 0n, 'successful increase must keep its durable daily margin reservation');
     const leverage = await post(`/api/futures/positions/${position.venue_position_id}/leverage`, { leverage: '10' }, cookie, randomUUID());
     assert(leverage.status === 200, `leverage mutation must work under the action lock: ${JSON.stringify(await leverage.json())}`);
+    const invalidLeverage = await post(`/api/futures/positions/${position.venue_position_id}/leverage`, { leverage: '21' }, cookie, randomUUID());
+    assert(invalidLeverage.status === 400 && (await invalidLeverage.json()).message.includes('20'), 'position management rejects leverage above the live coin limit before updating the exchange');
     const protection = await post(`/api/futures/positions/${position.venue_position_id}/tpsl`, { stopLossPrice: '71000', takeProfitPrice: '89000', moveExisting: true }, cookie, randomUUID());
     const protectedResult = await protection.json();
     assert(protection.status === 200 && protectedResult.stopLoss?.ok && protectedResult.takeProfit?.ok, `protection replacement must cancel old legs and confirm new ones: ${JSON.stringify(protectedResult)}`);
@@ -131,6 +145,14 @@ export async function run(assert) {
     assert(missingSl.state === 'untriggered' && missingSl.exchange_order_id && missingSl.refusal_code === 'TRAILING_INACTIVE', 'order history retains the confirmed SL id and surfaces inactive trailing separately');
     const inactive = await ctx.tdb.selectFrom('futures_trailing_sl').selectAll().where('account_id', '=', accountId).executeTakeFirstOrThrow();
     assert(inactive.status === 'failed' && inactive.step_basis === 'roe', 'missing collateral cannot silently enable an incorrect trailing calculation');
+    const staleRes = await post('/api/group-trades/preview', { ...intent, trailingStopLoss: false, stopLossPrice: undefined, takeProfitPrice: undefined }, cookie);
+    const stale = await staleRes.json();
+    assert(staleRes.status === 200 && stale.plannedCount === 1, 'preview succeeds with the original leverage rules');
+    const createsBeforeChangedLimit = venue.futuresOrdersSnapshot().length;
+    venue.setFuturesInstrument('B-BTC_USDT', 'USDT', { ...rules, dynamic_position_leverage_details: { '2': '500000' } });
+    await post(`/api/group-trades/${stale.groupTradeId}/confirm`, { previewToken: stale.previewToken }, cookie);
+    const refused = await ctx.tdb.selectFrom('child_order').select(['state', 'refusal_code']).where('group_trade_id', '=', stale.groupTradeId).where('leg_kind', '=', 'entry').executeTakeFirstOrThrow();
+    assert(venue.futuresOrdersSnapshot().length === createsBeforeChangedLimit && refused.state === 'rejected', 'a leverage limit reduced after preview prevents every new exchange order');
   } finally {
     if (api && api.exitCode === null) { const stopped = once(api, 'exit'); api.kill(); await stopped; }
     await venue.stop(); await teardown(ctx);

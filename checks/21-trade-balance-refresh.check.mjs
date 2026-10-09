@@ -48,7 +48,7 @@ export async function run(assert) {
       cookieSecret: Buffer.alloc(32, 7), verifySecondFactor: async () => false, kms: new LocalKms(),
       pepper: Buffer.alloc(32, 8), probe: async () => { throw new Error('not used'); }, codeVersion: 'balance-refresh-test',
       secureCookies: false,
-      getFuturesInstrument: async () => ({ ok: true, instrument: { quantityIncrement: '0.00001', priceIncrement: '0.01', minNotional: '1', minQuantity: '0.00001' } }),
+      getFuturesInstrument: async () => ({ ok: true, instrument: { quantityIncrement: '0.00001', priceIncrement: '0.01', minNotional: '1', minQuantity: '0.00001', leverageTiers: [{ upToNotional: '1000000000', maxLeverage: 100 }] } }),
       accountSync: async ({ tenantId, accountId }) => {
         assert(tenantId === TENANT, 'every sync uses the authenticated tenant');
         reads.push(accountId); active++; peak = Math.max(peak, active);

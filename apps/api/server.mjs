@@ -32,7 +32,8 @@ import { reservePositionIncrease } from './dist/futures/risk-reservation.js';
 import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances, recordVenueBasis, upsertFuturesClosedTrades } from '../../packages/db/dist/index.js';
 import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
 import { Signer } from '../signer/dist/index.js';
-import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor } from '../../packages/exchange/dist/index.js';
+import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor, maxInstrumentLeverage } from '../../packages/exchange/dist/index.js';
+import { add, cmp, mul, scaledFromString, toPlainString } from '../../packages/money/dist/index.js';
 import {
   mapOrderBook, probeCredential, send,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
@@ -670,13 +671,35 @@ const accountSync = async ({ tenantId, accountId }) => {
   };
 
   const futuresInstrumentCache = new Map();
+  const futuresInstrumentReads = new Map();
+  const leverageBookReads = new Map();
+  function getLeverageBook(pair) {
+    let pending = leverageBookReads.get(pair);
+    if (!pending) {
+      pending = getOrderBook({ asset: pair.slice(2).split('_')[0], quote: pair.split('_')[1] })
+        .finally(() => leverageBookReads.delete(pair));
+      leverageBookReads.set(pair, pending);
+    }
+    return pending;
+  }
+  // Concurrent group accounts share one public read; completed reads are not reused at send.
+  function getFreshFuturesInstrument(pair, marginCurrency) {
+    const key = `${pair}|${marginCurrency}`;
+    let pending = futuresInstrumentReads.get(key);
+    if (!pending) {
+      pending = fetchFuturesInstrument(pair, marginCurrency, { baseUrl: VENUE_BASE })
+        .finally(() => futuresInstrumentReads.delete(key));
+      futuresInstrumentReads.set(key, pending);
+    }
+    return pending;
+  }
   async function getFuturesInstrumentCached(pair, marginCurrency) {
     const cacheKey = `${pair}|${marginCurrency}`;
     const cached = futuresInstrumentCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < 300_000) {
+    if (cached && Date.now() - cached.at < 30_000) {
       return cached.result;
     }
-    const result = await fetchFuturesInstrument(pair, marginCurrency, { baseUrl: VENUE_BASE });
+    const result = await getFreshFuturesInstrument(pair, marginCurrency);
     if (result.ok) {
       futuresInstrumentCache.set(cacheKey, { at: Date.now(), result });
     }
@@ -713,7 +736,11 @@ if (sending) {
     create: async (intent) => {
       const sendQuantity = intent.quantity;
       try {
-        const inst = await getFuturesInstrumentCached(intent.pair, spec.marginCurrency);
+        const [inst, positions, book] = await Promise.all([
+          getFreshFuturesInstrument(intent.pair, spec.marginCurrency),
+          spec.allowReduce === true ? null : fetchFuturesPositionsSigned(sign, [spec.marginCurrency], { baseUrl: VENUE_BASE }),
+          spec.allowReduce === true ? null : getLeverageBook(intent.pair),
+        ]);
         if (!inst?.ok || !inst.instrument) {
           return { kind: 'rejected', orderMayExist: false, code: 'instrument_unavailable', detail: 'Cannot verify futures trading rules; preview again.' };
         }
@@ -726,6 +753,19 @@ if (sending) {
         }
         if (inst.instrument.exitOnly && spec.allowReduce !== true) {
           return { kind: 'rejected', orderMayExist: false, code: 'exit_only', detail: 'This futures instrument allows exits only.' };
+        }
+        if (spec.allowReduce !== true) {
+          // Re-read at the mutation boundary: a queued preview may outlive a tier change.
+          if (!positions?.ok) return { kind: 'rejected', orderMayExist: false, code: 'positions_unreadable', detail: 'Cannot verify current position size against leverage limits.' };
+          const existing = positions.positions.filter((p) => p.pair === intent.pair && p.marginCurrency === spec.marginCurrency);
+          const quantity = existing.reduce((sum, p) => [p.activePos, p.inactivePosBuy ?? '0', p.inactivePosSell ?? '0']
+            .reduce((subtotal, q) => add(subtotal, scaledFromString(q.replace(/^-/, ''), 18)), sum), scaledFromString(sendQuantity, 18));
+          const references = [intent.price, book?.asks[0]?.price, book?.bids[0]?.price, ...existing.flatMap((p) => [p.markPrice, p.avgEntryPrice])]
+            .filter((v) => typeof v === 'string' && /^\d+(?:\.\d{1,18})?$/.test(v)).map((v) => scaledFromString(v, 18));
+          const reference = references.reduce((a, b) => cmp(a, b) >= 0 ? a : b, scaledFromString('0', 18));
+          if (reference.v <= 0n) return { kind: 'rejected', orderMayExist: false, code: 'price_unavailable', detail: 'Cannot verify position notional against leverage limits.' };
+          const max = maxInstrumentLeverage(inst.instrument.leverageTiers, toPlainString(mul(quantity, reference, 18)));
+          if (max === 0 || Number(spec.leverage) > max) return { kind: 'rejected', orderMayExist: false, code: 'leverage_limit', detail: `The current instrument/position limit is ${max}×; preview again with a lower size or leverage.` };
         }
       } catch (e) {
         return { kind: 'rejected', orderMayExist: false, code: 'invalid_order', detail: e instanceof Error ? e.message : 'Cannot verify the futures order.' };
@@ -1279,6 +1319,16 @@ if (sending) {
       return { ok: false, code: 'no_position', detail: 'the exchange reports no open position with that id' };
     }
 
+    const [instrument, leverageBook] = await Promise.all([
+      getFreshFuturesInstrument(pos.pair, pos.marginCurrency), getLeverageBook(pos.pair),
+    ]);
+    if (!instrument.ok) return { ok: false, code: 'instrument_unavailable', detail: 'Cannot verify current leverage limits; try again.' };
+    const quantity = scaledFromString(pos.activePos.replace(/^-/, ''), 18);
+    const references = [pos.markPrice, pos.avgEntryPrice, leverageBook.asks[0]?.price, leverageBook.bids[0]?.price]
+      .filter((v) => typeof v === 'string' && /^\d+(?:\.\d{1,18})?$/.test(v)).map((v) => scaledFromString(v, 18));
+    const reference = references.reduce((a, b) => cmp(a, b) >= 0 ? a : b, scaledFromString('0', 18));
+    const max = reference.v > 0n && quantity.v > 0n ? maxInstrumentLeverage(instrument.instrument.leverageTiers, toPlainString(mul(quantity, reference, 18))) : 0;
+    if (max === 0 || Number(args.leverage) > max) return { ok: false, code: 'leverage_limit', detail: `This position currently supports at most ${max}× leverage.` };
     const out = await updateFuturesLeverageSigned(sign, {
       pair: pos.pair,
       marginCurrency: pos.marginCurrency,

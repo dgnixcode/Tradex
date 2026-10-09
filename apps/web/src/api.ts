@@ -1035,6 +1035,10 @@ export interface FuturesPricesResponse {
 export const fetchFuturesPrices = (): Promise<FuturesPricesResponse> =>
   request<FuturesPricesResponse>('/futures/prices');
 
+export const fetchFuturesInstrument = (pair: string, marginCurrency: 'INR' | 'USDT'): Promise<{
+  pair: string; marginCurrency: 'INR' | 'USDT'; leverageTiers: { upToNotional: string; maxLeverage: number }[];
+}> => request(`/futures/instrument?pair=${encodeURIComponent(pair)}&marginCurrency=${marginCurrency}`);
+
 /**
  * Fetch the current market price (best bid/ask) for a futures pair.
  * Used to auto-fill the limit price field on the trade ticket.
