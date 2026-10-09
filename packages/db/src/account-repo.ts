@@ -113,8 +113,14 @@ export interface ObservedBalances {
  * The balances write is an upsert per `(account_id, currency)`: re-reading the
  * same account later updates the row in place rather than accumulating duplicates
  * (DATA-MODEL: account_balance is current-only).
+ * Funding currencies, omitted-currency zeros, and returned balances commit as
+ * one complete snapshot; an invalid row rolls back the entire refresh.
  */
 export async function recordObservedBalances(tdb: TenantDb, input: ObservedBalances): Promise<void> {
+  return tdb.transaction(async (tx) => recordBalanceSnapshot(tx, input));
+}
+
+async function recordBalanceSnapshot(tdb: TenantDb, input: ObservedBalances): Promise<void> {
   const at = new Date(input.atMs ?? Date.now());
   const updated = await tdb.updateTable('exchange_account')
     .set({ funding_currencies: [...input.fundingCurrencies] } as never)
@@ -125,6 +131,16 @@ export async function recordObservedBalances(tdb: TenantDb, input: ObservedBalan
   if (updated === undefined) {
     throw new AccountRepoError(`account ${input.accountId} was not found or is disconnected`);
   }
+
+  // This port receives a complete wallet snapshot. The mapper omits zero rows,
+  // so currencies absent from a successful read must not retain old funds.
+  let missing = tdb.updateTable('account_balance')
+    .set({ free_minor: '0', locked_minor: '0', observed_at: at } as never)
+    .where('account_id' as never, '=', input.accountId as never);
+  if (input.balances.length > 0) {
+    missing = missing.where('currency' as never, 'not in', input.balances.map((b) => b.currency) as never);
+  }
+  await missing.execute();
 
   for (const b of input.balances) {
     await tdb.insertInto('account_balance', {

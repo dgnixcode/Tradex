@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react';
+import { lazy, StrictMode, Suspense, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom';
@@ -41,6 +41,9 @@ import { NotFound } from './routes/NotFound.tsx';
 import { WhatsAppWidget } from './components/WhatsAppWidget.tsx';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary.tsx';
 import './styles.css';
+import './desk.css';
+
+const Research = lazy(() => import('./routes/Research.tsx').then((module) => ({ default: module.Research })));
 
 // A single query client. Previews are never cached — a plan is priced against a
 // book that ages, so re-previewing must always hit the server, never a stale
@@ -232,6 +235,8 @@ function PageTitleSync() {
       pageTitle = 'Order Blotter';
     } else if (path === '/app/algo') {
       pageTitle = 'Algorithmic Trading Desk';
+    } else if (path === '/app/research') {
+      pageTitle = 'Investment Research';
     } else if (path === '/app/trading') {
       pageTitle = 'Trading Desk Controls';
     } else if (path === '/app/report') {
@@ -307,6 +312,7 @@ const router = createBrowserRouter([
           { path: 'accounts', element: <Accounts /> },
           { path: 'positions', element: <Futures /> },
           { path: 'algo', element: <AlgoTrading /> },
+          { path: 'research', element: <Suspense fallback={<p className="sub" role="status">Loading research desk…</p>}><Research /></Suspense> },
           { path: 'algo/rules', element: <AlgoRules /> },
           { path: 'analytics', element: <Analytics /> },
           { path: 'activity', element: <Blotter /> },

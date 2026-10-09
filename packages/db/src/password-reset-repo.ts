@@ -77,13 +77,23 @@ export async function consumeResetTokenAndUpdatePassword(
   userId: string,
   newPasswordHash: string,
   now: Date,
-): Promise<void> {
-  await db.transaction().execute(async (trx) => {
-    await trx.updateTable('password_reset_token')
+): Promise<boolean> {
+  return db.transaction().execute(async (trx) => {
+    // Serialize recovery for one user, including requests using different links.
+    const user = await trx.selectFrom('app_user').select('id').where('id', '=', userId)
+      .where('disabled_at', 'is', null).forUpdate().executeTakeFirst();
+    if (!user) return false;
+    const claimed = await trx.updateTable('password_reset_token')
       .set({ used_at: now } as never)
       .where('id', '=', tokenId)
+      .where('user_id', '=', userId)
       .where('used_at', 'is', null)
-      .execute();
+      .where('expires_at', '>', now)
+      .returning('id').executeTakeFirst();
+    if (!claimed) return false;
+
+    await trx.updateTable('password_reset_token').set({ used_at: now })
+      .where('user_id', '=', userId).where('used_at', 'is', null).execute();
 
     await trx.updateTable('app_user')
       .set({ password_hash: newPasswordHash } as never)
@@ -95,5 +105,6 @@ export async function consumeResetTokenAndUpdatePassword(
       .where('user_id', '=', userId)
       .where('revoked_at', 'is', null)
       .execute();
+    return true;
   });
 }

@@ -6,7 +6,7 @@ import type { DB } from '@tradex/db';
 import * as indicators from './algo-indicators.js';
 import type { CandleData } from './algo-indicators.js';
 import { fetchHistoricalCandles } from './algo-sdk.js';
-import type { AlgoPosition, AlgoTradeOptions } from './algo-sdk.js';
+import type { AlgoContext, AlgoPosition, AlgoTradeOptions } from './algo-sdk.js';
 import { compileStrategyForBacktest } from './algo-runner.js';
 import { loadHistoricalCandles } from './binance-history.js';
 
@@ -115,6 +115,8 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
   const timeframe = options.timeframe ?? '5m';
   const initialCapital = options.initialCapital ?? 10_000;
   const candleLimit = options.candleLimit ?? 300;
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0 || !Number.isInteger(candleLimit) || candleLimit < 25 || candleLimit > 100_000
+    || (options.customCandles?.length ?? 0) > 100_000) throw new Error('Invalid backtest capital or candle limit');
   const params = { ...(options.params ?? {}), pair, timeframe };
 
   // Institutional default fee rates: Binance VIP 0 (0.02% maker, 0.05% taker)
@@ -141,7 +143,8 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
   }
 
   // Compile strategy script once to eliminate per-candle VM compilation overhead
-  const strategyRunner = compileStrategyForBacktest(options.script);
+  const strategyRunner = await compileStrategyForBacktest(options.script);
+  try {
 
   const sim: SimState = {
     equity: initialCapital,
@@ -158,8 +161,11 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
   const logs: string[] = [];
 
   const minWarmup = 20;
+  const deadline = Date.now() + 30_000;
 
   for (let i = minWarmup; i < candles.length; i++) {
+    if (Date.now() >= deadline) throw new Error('Backtest execution exceeded 30 seconds');
+    if (i % 50 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
     const candle = candles[i]!;
 
     // 1. Check TP/SL triggers against high/low of current candle
@@ -490,8 +496,9 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
 
     // 3. Execute compiled strategy function for current candle
     try {
-      await strategyRunner(simulatedContext as unknown as import('./algo-sdk.js').AlgoContext);
+      await strategyRunner(simulatedContext as unknown as AlgoContext);
     } catch (err) {
+      if (err instanceof Error && /interrupt|timed out|memory/i.test(err.message)) throw err;
       if (logs.length < 50) {
         logs.push(`[${new Date(candle.time).toISOString()}] Tick error: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -621,4 +628,5 @@ export async function runBacktest(options: RunBacktestOptions): Promise<Backtest
     trades,
     logs,
   };
+  } finally { strategyRunner.dispose(); }
 }

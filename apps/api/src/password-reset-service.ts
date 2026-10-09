@@ -33,7 +33,7 @@ export class PasswordResetService {
     this.now = deps.now ?? (() => Date.now());
   }
 
-  async requestReset(email: string, requestHost?: string): Promise<{ ok: boolean; message: string }> {
+  async requestReset(email: string, _requestHost?: string): Promise<{ ok: boolean; message: string }> {
     const trimmed = typeof email === 'string' ? email.trim().toLowerCase() : '';
     if (!trimmed) {
       return { ok: true, message: 'If an account exists with that email, a password reset link has been sent.' };
@@ -53,7 +53,8 @@ export class PasswordResetService {
 
       await createPasswordResetToken(this.db, user.id, tokenHash, expiresAt);
 
-      const baseUrl = this.appUrl || requestHost || 'http://localhost:8080';
+      if (!this.appUrl && process.env['NODE_ENV'] === 'production') throw new Error('APP_URL is required for password recovery');
+      const baseUrl = this.appUrl || 'http://localhost:8080';
       const resetLink = `${baseUrl.replace(/\/+$/, '')}/reset-password?token=${rawToken}`;
 
       await this.sendEmail(user.email, resetLink);
@@ -66,8 +67,7 @@ export class PasswordResetService {
 
   private async sendEmail(toEmail: string, resetLink: string): Promise<void> {
     if (!this.resendApiKey) {
-      console.warn('[PasswordResetService] RESEND_API_KEY not configured. Generated reset link:');
-      console.warn(`[PasswordResetService] Target: ${toEmail} | Link: ${resetLink}`);
+      console.warn('[PasswordResetService] RESEND_API_KEY not configured; password recovery email could not be sent.');
       return;
     }
 
@@ -153,13 +153,13 @@ export class PasswordResetService {
           console.error(`[PasswordResetService] Fallback dispatch failed (${fallbackRes.status}): ${fallbackErr}`);
         }
 
-        console.warn(`[PasswordResetService] Fallback reset link for ${toEmail}: ${resetLink}`);
+        console.warn('[PasswordResetService] Password recovery email could not be sent.');
       } else {
         console.log(`[PasswordResetService] Password reset email successfully dispatched to ${toEmail} via Resend (${this.resendFrom})`);
       }
     } catch (err) {
       console.error('[PasswordResetService] Failed to send email via Resend:', err);
-      console.warn(`[PasswordResetService] Fallback reset link for ${toEmail}: ${resetLink}`);
+      console.warn('[PasswordResetService] Password recovery email could not be sent.');
     }
   }
 
@@ -191,7 +191,8 @@ export class PasswordResetService {
     }
 
     const newHash = await hashPassword(newPassword);
-    await consumeResetTokenAndUpdatePassword(this.db, valid.id, valid.userId, newHash, now);
+    const consumed = await consumeResetTokenAndUpdatePassword(this.db, valid.id, valid.userId, newHash, new Date(this.now()));
+    if (!consumed) return { ok: false, code: 'invalid_or_expired_token', message: 'The password reset link is invalid or has expired. Please request a new one.' };
 
     return { ok: true, message: 'Password has been successfully reset. You can now log in.' };
   }

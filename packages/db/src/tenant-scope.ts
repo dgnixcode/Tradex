@@ -14,6 +14,7 @@
 import type { DeleteQueryBuilder, InsertQueryBuilder, Kysely, SelectQueryBuilder, UpdateQueryBuilder } from 'kysely';
 import type { DB, TenantScopedTable } from './schema.js';
 import { isTenantScoped } from './schema.js';
+import { sql } from 'kysely';
 
 export class TenancyError extends Error {
   override readonly name = 'TenancyError';
@@ -163,7 +164,20 @@ export class TenantDb {
    * does outside one.
    */
   async transaction<T>(fn: (tx: TenantDb) => Promise<T>): Promise<T> {
+    if (this.db.isTransaction) return fn(this);
     return this.db.transaction().execute((trx) => fn(new TenantDb(trx, new TenantContext(this.tenantId))));
+  }
+
+  /** Serialize preview reservations across API processes, within a transaction. */
+  async lockPlanning(): Promise<void> {
+    if (!this.db.isTransaction) throw new TenancyError('planning lock requires a transaction');
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`tradex:plan:${this.tenantId}`}, 0))`.execute(this.db);
+  }
+
+  /** Serialize research quotas and idempotency across API replicas. */
+  async lockResearch(): Promise<void> {
+    if (!this.db.isTransaction) throw new TenancyError('research lock requires a transaction');
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`tradex:research:${this.tenantId}`}, 0))`.execute(this.db);
   }
 }
 

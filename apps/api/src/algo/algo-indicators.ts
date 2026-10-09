@@ -255,7 +255,6 @@ export function supertrend(
   let prevUpperBand = 0;
   let prevLowerBand = 0;
   let prevSupertrend = 0;
-  let prevTrend: 'up' | 'down' = 'up';
 
   for (let i = 0; i < candles.length; i++) {
     const c = candles[i]!;
@@ -268,23 +267,22 @@ export function supertrend(
     }
 
     const hl2 = (c.high + c.low) / 2;
-    let basicUpperBand = hl2 + multiplier * currAtr;
-    let basicLowerBand = hl2 - multiplier * currAtr;
+    const basicUpperBand = hl2 + multiplier * currAtr;
+    const basicLowerBand = hl2 - multiplier * currAtr;
 
     const prevClose = i > 0 ? candles[i - 1]!.close : c.close;
 
-    let finalUpperBand =
+    const finalUpperBand =
       basicUpperBand < prevUpperBand || prevClose > prevUpperBand
         ? basicUpperBand
         : prevUpperBand;
 
-    let finalLowerBand =
+    const finalLowerBand =
       basicLowerBand > prevLowerBand || prevClose < prevLowerBand
         ? basicLowerBand
         : prevLowerBand;
 
-    let currentTrend: 'up' | 'down' = prevTrend;
-    let currentSupertrend = 0;
+    let currentTrend: 'up' | 'down';
 
     if (prevSupertrend === prevUpperBand) {
       currentTrend = c.close > finalUpperBand ? 'up' : 'down';
@@ -292,12 +290,11 @@ export function supertrend(
       currentTrend = c.close < finalLowerBand ? 'down' : 'up';
     }
 
-    currentSupertrend = currentTrend === 'up' ? finalLowerBand : finalUpperBand;
+    const currentSupertrend = currentTrend === 'up' ? finalLowerBand : finalUpperBand;
 
     prevUpperBand = finalUpperBand;
     prevLowerBand = finalLowerBand;
     prevSupertrend = currentSupertrend;
-    prevTrend = currentTrend;
 
     supertrendArr.push(currentSupertrend);
     trendArr.push(currentTrend);

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { confirmTrade, fetchKillSwitchStatus, fetchTrade } from '../api.ts';
@@ -39,6 +39,7 @@ export function Confirmation() {
 
   const [expired, setExpired] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
+  const confirmLock = useRef(false);
   const onExpire = useCallback(() => setExpired(true), []);
 
   const confirm = useMutation({
@@ -52,6 +53,7 @@ export function Confirmation() {
       } catch {}
       if (data.dryRun === false) navigate(`/app/trades/${result.groupTradeId}/progress`);
     },
+    onError: () => { confirmLock.current = false; },
   });
 
   if (trade.isLoading) return <div className="panel">Loading the plan…</div>;
@@ -66,23 +68,15 @@ export function Confirmation() {
 
   const canConfirm = !expired && !isHalted && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
 
-  const draft = (() => {
-    try {
-      const raw = localStorage.getItem('tradex_ticket_draft');
-      return raw ? (JSON.parse(raw) as { leverage?: string; side?: string; asset?: string; orderType?: string; marginMode?: string }) : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  const leverage = result.leverage ?? draft?.leverage ?? null;
-  const side = result.side ?? draft?.side ?? null;
-  const asset = result.asset ?? draft?.asset ?? null;
-  const orderType = result.orderType ?? draft?.orderType ?? null;
-  const marginMode = result.positionMarginType ?? draft?.marginMode ?? null;
+  const leverage = result.leverage ?? null;
+  const side = result.side ?? null;
+  const asset = result.asset ?? null;
+  const orderType = result.orderType ?? null;
+  const marginMode = result.positionMarginType ?? null;
 
   return (
-    <div className="panel full-width-page">
+    <div className="panel full-width-page desk-confirmation-page">
+      <div className="desk-flow-steps" aria-label="Order progress"><span>01 Build order</span><strong aria-current="step">02 Review & confirm</strong><span>03 Execution</span></div>
       {isHalted && (
         <div
           style={{
@@ -111,7 +105,7 @@ export function Confirmation() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Confirm — {plannedCount} to place, {skippedCount} skipped</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Review your order</h2>
           {leverage && (
             <span
               className="pos-lev-pill"
@@ -141,7 +135,7 @@ export function Confirmation() {
             <svg viewBox="0 0 20 20" fill="currentColor" width="11" height="11">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
-            Live exchange balances synced
+            Saved server plan
           </span>
         </div>
         <div>
@@ -241,6 +235,11 @@ export function Confirmation() {
           {result.takeProfitPrice && (
             <span style={{ fontSize: 11, color: '#34d399' }}>
               TP: <strong className="mono">{result.takeProfitPrice}</strong>
+            </span>
+          )}
+          {result.trailingStopLoss && (
+            <span style={{ fontSize: 11, color: '#93c5fd' }}>
+              Trailing: {Number(result.trailingStepBp ?? '100') / 100}% {result.trailingStepBasis === 'roe' ? 'ROE' : 'price'} step
             </span>
           )}
         </div>
@@ -358,14 +357,20 @@ export function Confirmation() {
           engine wired. The plan and the would-send bodies are stored for review.
         </div>
       ) : (
-        <div className="row" style={{ marginTop: 8 }}>
-          <button className="btn secondary" onClick={() => navigate('/app')}>Back to ticket</button>
+        <div className="desk-confirm-footer" style={{ marginTop: 8 }}>
+          <div className="desk-confirm-scope"><span className="desk-eyebrow">YOU ARE AUTHORISING</span><strong>{side === 'buy' ? 'Long' : side === 'sell' ? 'Short' : 'Order'} {asset} · {orderType} · {plannedCount} account{plannedCount === 1 ? '' : 's'}</strong><span>{skippedCount ? `${skippedCount} skipped · ` : ''}{result.marginCurrency || '—'} margin · {leverage || '—'}× leverage</span></div>
+          <button type="button" className="btn secondary" disabled={confirm.isPending} onClick={() => navigate('/app')}>Back to ticket</button>
           {/* The only forward action: authorise the server to confirm. Disabled
               once expired, or until skips are acknowledged. */}
           <button
-            className="btn"
+            type="button"
+            className={`btn desk-send-button ${side === 'sell' ? 'is-short' : ''}`}
             disabled={!canConfirm || confirm.isPending}
-            onClick={() => confirm.mutate(result)}
+            onClick={() => {
+              if (!canConfirm || confirmLock.current || confirm.isPending) return;
+              confirmLock.current = true;
+              confirm.mutate(result);
+            }}
           >
             {isHalted
               ? 'Trading halted (Kill Switch)'
@@ -373,7 +378,7 @@ export function Confirmation() {
                 ? 'Preview expired'
                 : confirm.isPending
                   ? 'Confirming…'
-                  : `Confirm ${plannedCount}`}
+                  : `Confirm ${side === 'sell' ? 'short' : side === 'buy' ? 'long' : 'order'} · ${plannedCount} account${plannedCount === 1 ? '' : 's'}`}
           </button>
         </div>
       )}

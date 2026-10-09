@@ -8,6 +8,10 @@ export interface TrailingSlConfig {
   readonly stepBp: string;
   readonly highWaterMark: string;
   readonly currentSlPrice: string;
+  readonly stepBasis?: 'price' | 'roe' | undefined;
+  readonly stepAnchorPrice?: string | undefined;
+  readonly positionBasisKey?: string | undefined;
+  readonly status?: 'active' | 'failed' | undefined;
 }
 
 export async function upsertTrailingSl(
@@ -23,7 +27,10 @@ export async function upsertTrailingSl(
     step_bp: config.stepBp,
     high_water_mark: config.highWaterMark,
     current_sl_price: config.currentSlPrice,
-    status: 'active' as const,
+    step_basis: config.stepBasis ?? 'price',
+    step_anchor_price: config.stepBasis === 'roe' ? (config.stepAnchorPrice ?? config.highWaterMark) : null,
+    position_basis_key: config.stepBasis === 'roe' ? (config.positionBasisKey ?? null) : null,
+    status: config.status ?? 'active',
     last_evaluated_at: new Date(),
   };
 
@@ -35,7 +42,10 @@ export async function upsertTrailingSl(
         step_bp: config.stepBp,
         high_water_mark: config.highWaterMark,
         current_sl_price: config.currentSlPrice,
-        status: 'active',
+        step_basis: values.step_basis,
+        step_anchor_price: values.step_anchor_price,
+        position_basis_key: values.position_basis_key,
+        status: values.status,
         last_evaluated_at: new Date(),
       } as never)
     )

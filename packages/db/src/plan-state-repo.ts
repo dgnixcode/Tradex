@@ -256,39 +256,76 @@ export async function dailySpentMinor(
   accountId: string,
   quote: SupportedQuote,
   sinceMs: number,
+  marginBasis = false,
+  usdtInrMid?: string,
 ): Promise<string> {
   const rows = await tdb.selectFrom('child_order')
     .leftJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
     .select([
       'child_order.notional_minor as notional_minor',
       'child_order.state as state',
+      'child_order.position_mutation_request_id as position_mutation_request_id',
       'group_trade.status as group_trade_status',
       'group_trade.preview_expires_at as preview_expires_at',
+      'group_trade.is_futures as is_futures',
+      'group_trade.leverage as leverage',
+      'child_order.quote_currency as quote_currency',
     ])
     .where('child_order.account_id' as never, '=', accountId as never)
-    .where('child_order.quote_currency' as never, '=', quote as never)
-    .where('child_order.created_at' as never, '>=', new Date(sinceMs) as never)
+    .$if(usdtInrMid === undefined, (q) => q.where('child_order.quote_currency' as never, '=', quote as never))
+    .where((eb) => eb.or([
+      eb('child_order.created_at' as never, '>=', new Date(sinceMs) as never),
+      eb('child_order.send_started_at' as never, '>=', new Date(sinceMs) as never),
+    ]))
     .execute();
   let sum = 0n;
   const now = new Date();
   for (const row of rows as ReadonlyArray<{
     notional_minor: string | null;
     state: string;
+    position_mutation_request_id: string | null;
     group_trade_status: string | null;
     preview_expires_at: Date | null;
+    is_futures: boolean | null;
+    leverage: string | number | null;
+    quote_currency: string | null;
   }>) {
     if (row.notional_minor === null) continue;
+    // The durable receipt already reserves the margin for this direct action.
+    // Reductions/exits free margin; their audit rows must not charge it again.
+    if (row.position_mutation_request_id !== null) continue;
     if (row.state === 'skipped' || row.state === 'rejected' || row.state === 'not_placed') continue;
     // An unconfirmed preview that has expired or been abandoned never spent anything
     if (
       row.state === 'planned' &&
-      (row.group_trade_status === 'abandoned' || (row.preview_expires_at !== null && row.preview_expires_at < now))
+      (row.group_trade_status === 'abandoned' || ((row.group_trade_status === 'previewed' || row.group_trade_status === 'draft')
+        && row.preview_expires_at !== null && row.preview_expires_at < now))
     ) {
       continue;
     }
-    sum += BigInt(row.notional_minor);
+    const notional = BigInt(row.notional_minor);
+    const leverage = marginBasis && row.is_futures ? BigInt(row.leverage ?? 1) : 1n;
+    sum += convertSpend((notional + leverage - 1n) / leverage, row.quote_currency ?? quote, quote, usdtInrMid);
+  }
+  const mutations = await tdb.selectFrom('position_mutation').select('risk_margin_inr_minor')
+    .where('account_id', '=', accountId).where('created_at' as never, '>=', new Date(sinceMs) as never)
+    .where('risk_margin_inr_minor', 'is not', null).execute();
+  for (const mutation of mutations) {
+    sum += convertSpend(BigInt(mutation.risk_margin_inr_minor as string), 'INR', quote, usdtInrMid);
   }
   return String(sum);
+}
+
+/** Convert INR paise / USDT 1e-8 units, rounding spend UP so caps cannot be bypassed. */
+function convertSpend(value: bigint, from: string, to: string, rate?: string): bigint {
+  if (from === to) return value;
+  if (rate === undefined || !/^\d+(\.\d{1,18})?$/.test(rate)) throw new PlanStateError('INR/USDT rate is required to apply daily limits');
+  const [whole, fraction = ''] = rate.split('.');
+  const scaled = BigInt(whole as string) * 10n ** 18n + BigInt(fraction.padEnd(18, '0'));
+  if (scaled <= 0n) throw new PlanStateError('INR/USDT rate must be positive');
+  const numerator = from === 'INR' ? value * 10n ** 24n : value * scaled;
+  const denominator = from === 'INR' ? scaled : 10n ** 24n;
+  return (numerator + denominator - 1n) / denominator;
 }
 
 /** The child-order states that count as "still in flight" for gate 12. */
@@ -307,45 +344,7 @@ export async function hasInFlightOrder(tdb: TenantDb, accountId: string, market:
     .orderBy('created_at' as never, 'desc' as never)
     .limit(1)
     .executeTakeFirst();
-  if (row === undefined) return false;
-
-  const r = row as unknown as { id: string; state: string; createdAt: Date | string | null };
-  const ageMs = r.createdAt ? Date.now() - new Date(r.createdAt).getTime() : 0;
-
-  // Active / recent orders (< 5 minutes old) are considered in flight
-  if (ageMs < 5 * 60 * 1000) return true;
-
-  // Orders older than 5 minutes:
-  // Transient states ('sending', 'ambiguous', 'unknown', 'needs_human') older than 5 minutes
-  // are stale/abandoned and must not permanently lock the account from trading.
-  if (r.state === 'sending' || r.state === 'ambiguous' || r.state === 'unknown' || r.state === 'needs_human') {
-    return false;
-  }
-
-  // For older 'open', 'acked', 'partially_filled' orders:
-  // Check if there is an active position for this account and market.
-  // If the position is closed/flat or missing, the old order has long since finished.
-  try {
-    const pos = await tdb.selectFrom('futures_position')
-      .select('active_pos as activePos')
-      .where('account_id' as never, '=', accountId as never)
-      .where((eb: any) => eb.or([
-        eb('pair' as never, '=', market as never),
-        eb('pair' as never, '=', `B-${market.replace('-', '_')}` as never),
-        eb('pair' as never, '=', market.replace('-', '') as never),
-      ]))
-      .limit(1)
-      .executeTakeFirst();
-    if (pos === undefined) {
-      return false;
-    }
-    const p = pos as { activePos: string | null };
-    if (!p.activePos || p.activePos === '0' || p.activePos === '0.0' || Number(p.activePos) === 0) {
-      return false;
-    }
-  } catch {
-    if (ageMs > 15 * 60 * 1000) return false;
-  }
-
-  return true;
+  // An old unresolved order still exists. A flat/missing local position is
+  // particularly uninformative for resting limit orders and delayed read-back.
+  return row !== undefined;
 }

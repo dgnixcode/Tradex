@@ -10,6 +10,8 @@
     "packages/*"
   ],
   "scripts": {
+    "research:worker": "npm run typecheck && node --env-file-if-exists=.env apps/api/research-worker.mjs",
+    "research:test": "python -m unittest discover -s apps/research-engine/tests -v",
     "typecheck": "tsc --build",
     "lint": "eslint .",
     "test": "vitest run",

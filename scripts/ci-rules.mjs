@@ -11,7 +11,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'coverage', 'research', 'plan', '.tmpwork',
+  'node_modules', '.git', 'dist', 'coverage', 'research', 'plan', '.tmpwork', '.kilo',
+  '.venv', '.research-venv', '__pycache__',
 ]);
 
 /**

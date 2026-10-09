@@ -15,3 +15,6 @@ secrets/
 
 # historical candle data storage
 data/
+__pycache__/
+.venv/
+.research-venv/

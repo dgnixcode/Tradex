@@ -2,9 +2,9 @@
 //
 // The books must never value a holding at a CURRENT market price: no unrealised
 // P&L, no mark-to-market, no equity/valuation path. That is the read/display
-// boundary (rescoped 2026-09-05). This is a source-scan invariant: the ledger,
-// sizing and API code must not reference a valuation vocabulary at all — if a
-// future phase reverses §6a it has to ADD that vocabulary on purpose.
+// boundary (rescoped 2026-09-05). Phase 15 futures views and risk checks require
+// mark prices; those display values must never enter the realized ledger fold.
+// Keep this source invariant on the ledger and sizing core.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,7 +17,6 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/
 const SCAN = [
   'packages/ledger/src',
   'packages/sizing/src',
-  'apps/api/src',
 ];
 
 const FORBIDDEN = [

@@ -111,7 +111,11 @@ export async function run(assert) {
   // ------------------------------------------------------ 3. money-type safety
   // Asserted against comment-free SQL: this is a claim about what the schema
   // DECLARES, not about what the migrations talk about.
-  const badTypes = allCode.match(/\b(float\d*|double\s+precision|real|money)\b/gi);
+  // Migration 032 is checksummed production history. 036 removes its lone
+  // percentage float without editing that history; no new float is permitted.
+  assert(/ALTER TABLE futures_closed_trade ALTER COLUMN roe_pct TYPE text/i.test(allCode), 'historical ROE float must be removed by a forward migration');
+  const currentTypes = allCode.replace(/\broe_pct\s+double\s+precision\b/gi, 'roe_pct text');
+  const badTypes = currentTypes.match(/\b(float\d*|double\s+precision|real|money)\b/gi);
   assert(badTypes === null,
     `a floating-point or money column type appears in the migrations (${badTypes?.join(', ')})`
       + ' — DECISIONS.md D01 forbids it');

@@ -1,6 +1,6 @@
 // Strategy SDK runtime interfaces, market data helpers, and strategy templates.
 
-import * as indicators from './algo-indicators.js';
+import type * as indicators from './algo-indicators.js';
 import type { CandleData } from './algo-indicators.js';
 import { getFuturesRtPrices, findRtPrice, normalizeFuturesPair } from '../futures/rt-prices.js';
 
@@ -91,6 +91,8 @@ export async function fetchHistoricalCandles(
   limit = 100,
   baseUrl = 'https://public.coindcx.com',
 ): Promise<CandleData[]> {
+  if (typeof pair !== 'string' || !/^(?:[A-Z]+-)?[A-Z0-9]{1,30}(?:_?(?:USDT|INR))?$/i.test(pair)
+    || typeof timeframe !== 'string' || timeframe.length > 5 || !Number.isInteger(limit) || limit < 1 || limit > 100_000) throw new Error('Invalid candle request');
   const normPair = normalizeFuturesPair(pair);
   const cacheKey = `${normPair}_${timeframe}_${limit}`;
   const now = Date.now();
@@ -100,8 +102,8 @@ export async function fetchHistoricalCandles(
     return cached.data;
   }
 
-  let resolution = '5';
-  let secondsPerCandle = 300;
+  let resolution: string;
+  let secondsPerCandle: number;
 
   switch (timeframe.toLowerCase()) {
     case '1m':
@@ -113,6 +115,11 @@ export async function fetchHistoricalCandles(
     case '5':
       resolution = '5';
       secondsPerCandle = 300;
+      break;
+    case '3m':
+    case '3':
+      resolution = '3';
+      secondsPerCandle = 180;
       break;
     case '15m':
     case '15':
@@ -190,11 +197,11 @@ export async function fetchLatestPrice(pair: string): Promise<number> {
   const rtMap = await getFuturesRtPrices();
   const rt = findRtPrice(rtMap, pair);
   if (rt && rt.markPrice) {
-    const p = parseFloat(rt.markPrice);
+    const p = Number(rt.markPrice);
     if (!isNaN(p) && p > 0) return p;
   }
   if (rt && rt.lastPrice) {
-    const p = parseFloat(rt.lastPrice);
+    const p = Number(rt.lastPrice);
     if (!isNaN(p) && p > 0) return p;
   }
   return 0;

@@ -17,10 +17,51 @@
 import type { AccountListItem, AnalyticsReport, BlotterChildRow, ExecutionReport, PlanRequest, PreviewResult } from '@tradex/api';
 import type { GroupHeader, GroupMember, GroupSummary } from '@tradex/db';
 import type { PositionAlertConfig } from './audio-alerts.ts';
+import type { ResearchCapabilities, ResearchJob, ResearchRequest } from '@tradex/api';
+
+export const fetchResearchCapabilities = (): Promise<ResearchCapabilities> => request('/research/capabilities');
+export const fetchResearchJobs = (): Promise<ResearchJob[]> => request('/research/jobs');
+export const fetchResearchJob = (id: string): Promise<ResearchJob> => request(`/research/jobs/${encodeURIComponent(id)}`);
+export const createResearchJob = (body: ResearchRequest, key: string): Promise<ResearchJob> => request('/research/jobs', {
+  method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body: JSON.stringify(body),
+});
+export const cancelResearchJob = (id: string): Promise<ResearchJob> => request(`/research/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
 
 export const SESSION_EXPIRED_EVENT = 'tradex-session-expired';
 
 let lastExpiredNotificationMs = 0;
+
+interface QueuedPositionAction {
+  id: string; action: string; body: unknown; requestId: string;
+  resolve: (value: unknown) => void; reject: (error: unknown) => void;
+}
+let positionActions: QueuedPositionAction[] = [];
+
+// Group actions share one request, avoiding the browser's connection queue.
+function queuePositionAction<T>(id: string, action: string, body: unknown): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const schedule = positionActions.length === 0;
+    positionActions.push({ id, action, body, requestId: crypto.randomUUID(), resolve: (value) => resolve(value as T), reject });
+    if (schedule) queueMicrotask(() => {
+      const pending = positionActions;
+      positionActions = [];
+      for (let offset = 0; offset < pending.length; offset += 100) {
+        const batch = pending.slice(offset, offset + 100);
+        void request<{ results: Array<{ requestId: string; status: number; body: unknown }> }>('/futures/positions/batch', {
+          method: 'POST', body: JSON.stringify({ actions: batch.map(({ id, action, body, requestId }) => ({ id, action, body, requestId })) }),
+        }).then(({ results }) => {
+          const byId = new Map(results.map((r) => [r.requestId, r]));
+          for (const item of batch) {
+            const result = byId.get(item.requestId);
+            if (result && result.status >= 200 && result.status < 300) item.resolve(result.body);
+            else item.reject(new ApiError(result?.status ?? 502,
+              (result?.body as { message?: string } | undefined)?.message ?? 'Outcome unavailable; verify the exchange before retrying.'));
+          }
+        }).catch((error: unknown) => { for (const item of batch) item.reject(error); });
+      }
+    });
+  });
+}
 
 export function notifySessionExpired(): void {
   const now = Date.now();
@@ -35,6 +76,10 @@ export function notifySessionExpired(): void {
 
 /** A minimal fetch wrapper that throws a readable error on a non-2xx response. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const position = /^\/futures\/positions\/([^/]+)\/(adjust|exit|leverage|tpsl)$/.exec(path);
+  if (init?.method === 'POST' && position !== null && typeof init.body === 'string') {
+    return queuePositionAction<T>(decodeURIComponent(position[1]!), position[2]!, JSON.parse(init.body));
+  }
   const res = await fetch(`/api${path}`, {
     headers: { 'content-type': 'application/json' },
     ...init,
@@ -868,6 +913,14 @@ export async function stepUp(code: string): Promise<{ ok: boolean }> {
   return (await res.json()) as { ok: boolean };
 }
 
+export const fetchResearchAiSettings = () => request<import('@tradex/api').ResearchAiSettings>('/settings/research-ai');
+export const saveResearchAiSettings = (input: import('@tradex/api').SaveResearchAiSettings) =>
+  request<import('@tradex/api').ResearchAiSettings>('/settings/research-ai', { method: 'PUT', body: JSON.stringify(input) });
+export const removeResearchAiSettings = () =>
+  request<import('@tradex/api').ResearchAiSettings>('/settings/research-ai', { method: 'DELETE' });
+export const testResearchAiModels = (input: import('@tradex/api').SaveResearchAiSettings) =>
+  request<import('@tradex/api').ResearchAiTestResult>('/settings/research-ai/test', { method: 'POST', body: JSON.stringify(input), cache: 'no-store' });
+
 // --- phase-15 futures ---------------------------------------------------------
 
 export interface FuturesPositionRow {
@@ -1045,7 +1098,7 @@ export const setFuturesProtection = (
 
 export const setTrailingProtection = (
   venuePositionId: string,
-  body: { readonly enable: boolean; readonly distanceBp?: string; readonly stepBp?: string; readonly currentSlPrice?: string },
+  body: { readonly enable: boolean; readonly stepBasis?: 'price' | 'roe'; readonly distanceBp?: string; readonly stepBp?: string; readonly currentSlPrice?: string },
 ): Promise<{ readonly ok: boolean; readonly message?: string }> =>
   request(`/futures/positions/${encodeURIComponent(venuePositionId)}/trailing-tpsl`, {
     method: 'POST',

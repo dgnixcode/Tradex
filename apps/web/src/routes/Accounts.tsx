@@ -176,7 +176,7 @@ export function Accounts() {
   }, [accounts.data]);
 
   return (
-    <div className="panel full-width-page">
+    <div className="panel full-width-page desk-accounts-page">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Accounts</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

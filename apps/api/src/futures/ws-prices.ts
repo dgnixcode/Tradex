@@ -17,6 +17,8 @@ const EVENT = 'currentPrices@futures#update';
 // The shared in-memory price map.  Initialised empty; the first REST fetch or
 // the first WS update will populate it.
 const livePrices = new Map<string, FuturesRtPrice>();
+const observedAt = new Map<string, number>();
+export const livePriceObservedAt = (pair: string): number => observedAt.get(pair) ?? 0;
 
 // EventEmitter for SSE relay.  Each `update` event carries the incremental diff
 // as a Record<string, FuturesRtPrice> so subscribers can push only changed pairs.
@@ -40,6 +42,7 @@ export function getLivePrices(): Map<string, FuturesRtPrice> {
 export function seedPrices(prices: Map<string, FuturesRtPrice>): void {
   for (const [k, v] of prices.entries()) {
     livePrices.set(k, v);
+    observedAt.set(k, Date.now());
   }
 }
 
@@ -100,6 +103,7 @@ export function startWsPriceFeed(): void {
             priceChangePercent: typeof pc === 'number' ? pc : (livePrices.get(pair)?.priceChangePercent ?? 0),
           };
           livePrices.set(pair, entry);
+          observedAt.set(pair, Date.now());
           diff[pair] = entry;
           count++;
         }

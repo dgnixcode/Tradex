@@ -11,7 +11,7 @@ describe('LoginSecurityService', () => {
       headers: { 'x-forwarded-for': '203.0.113.195, 70.41.3.18' },
       socket: { remoteAddress: '127.0.0.1' },
     } as never;
-    expect(service.extractClientIp(mockReq1)).toBe('203.0.113.195');
+    expect(service.extractClientIp(mockReq1)).toBe('127.0.0.1');
 
     const mockReq2 = {
       headers: {},

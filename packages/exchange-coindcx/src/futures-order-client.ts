@@ -32,8 +32,25 @@ import type {
 import type { HttpResult } from './http.js';
 import { DEFAULT_DEADLINE_MS, send, TransportError } from './http.js';
 import { DEFAULT_BASE_URL } from './probe.js';
-import { signBody, plaintextSigner, signRequest } from './signing.js';
+import { signBody, plaintextSigner } from './signing.js';
 import type { BodySigner } from './signing.js';
+import { parseDecimalJson } from './decimal-json.js';
+import { plainDecimal } from './market-rules.js';
+
+/** The venue expects a JSON number, but a JavaScript number can round a close upward. */
+export function exactQuantityForWire(quantity: string): unknown {
+  if (typeof quantity !== 'string' || quantity.length > 80 || !/^\d+(?:\.\d{1,18})?$/.test(quantity)) {
+    throw new Error('quantity must be a positive plain decimal with at most 18 fractional digits');
+  }
+  const normalized = quantity.replace(/^0+(?=\d)/, '');
+  if (!/[1-9]/.test(normalized)) throw new Error('quantity must be positive');
+  return (JSON as unknown as { rawJSON(text: string): unknown }).rawJSON(normalized);
+}
+
+function decimalField(v: unknown): string | null {
+  if (typeof v !== 'string' && typeof v !== 'number') return null;
+  try { return plainDecimal(String(v), 'futures decimal'); } catch { return null; }
+}
 
 const FUTURES_CREATE_PATH = '/exchange/v1/derivatives/futures/orders/create';
 const FUTURES_POSITIONS_PATH = '/exchange/v1/derivatives/futures/positions';
@@ -107,9 +124,9 @@ function toOrderSnapshot(row: Record<string, unknown>, request: FuturesPlaceOrde
     pair: asStr(row['pair'], request.pair),
     side: request.side,
     orderType: request.orderType,
-    quantity: asStr(row['total_quantity'], request.quantity),
-    filledQuantity: asStr(row['filled_quantity'], '0'),
-    avgFillPrice: typeof row['avg_price'] === 'string' ? (row['avg_price'] as string) : null,
+    quantity: decimalField(row['total_quantity']) ?? request.quantity,
+    filledQuantity: decimalField(row['filled_quantity']) ?? '0',
+    avgFillPrice: decimalField(row['avg_price']),
     leverage: request.leverage,
     marginCurrency: request.marginCurrency,
     venueStatusRaw: statusRaw,
@@ -138,7 +155,7 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     return Math.round(num * 1e8).toString();
   };
   const pair = asStr(row['pair']);
-  const activePos = asStr(row['active_pos']);
+  const activePos = decimalField(row['active_pos']);
   const margin = asStr(row['margin_currency_short_name']);
   const venuePositionId = asStr(row['id']);
   if (pair === null || activePos === null || margin === null || venuePositionId === null) return null;
@@ -159,9 +176,9 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     pair,
     marginCurrency: margin as FuturesMarginCurrency,
     activePos,
-    avgEntryPrice: asStr(row['avg_price']),
-    markPrice: asStr(row['mark_price']),
-    liquidationPrice: asStr(row['liquidation_price']),
+    avgEntryPrice: decimalField(row['avg_price']),
+    markPrice: decimalField(row['mark_price']),
+    liquidationPrice: decimalField(row['liquidation_price']),
     leverage: (typeof row['leverage'] === 'number') ? (row['leverage'] as number)
       : (typeof row['leverage'] === 'string' && row['leverage'] !== '') ? Number(row['leverage']) : null,
     lockedMarginMinor: toLockedMarginMinor(row['locked_margin'], margin, peg),
@@ -169,7 +186,8 @@ function toPositionSnapshot(row: Record<string, unknown>, observedAtMs: number):
     takeProfitTrigger: triggerVal(row['take_profit_trigger']),
     marginType: (row['margin_type'] === 'isolated' || row['margin_type'] === 'crossed')
       ? (row['margin_type'] as FuturesPositionMarginType) : null,
-    fundingRateBp: (typeof row['funding_rate_bp'] === 'number') ? (row['funding_rate_bp'] as number) : null,
+    fundingRateBp: row['funding_rate_bp'] !== null && row['funding_rate_bp'] !== undefined && Number.isFinite(Number(row['funding_rate_bp']))
+      ? Number(row['funding_rate_bp']) : null,
     settlementCurrencyAvgPrice: peg,
     observedAtMs,
     updatedAtMs: toUpdatedAtMs(row['updated_at']),
@@ -206,9 +224,7 @@ export async function submitFuturesOrderSigned(
     pair: request.pair,
     side: request.side,
     order_type: toVenueOrderType(request.orderType),
-    total_quantity: typeof request.quantity === 'string' && Number.isFinite(Number(request.quantity))
-      ? Number(request.quantity)
-      : request.quantity,
+    total_quantity: exactQuantityForWire(request.quantity),
     leverage: request.leverage,
     margin_currency_short_name: request.marginCurrency,
     position_margin_type: request.positionMarginType,
@@ -254,7 +270,7 @@ export async function submitFuturesOrderSigned(
   }
   if (result.status >= 200 && result.status < 300) {
     let parsed: unknown = null;
-    try { parsed = JSON.parse(result.body); } catch { /* fall through */ }
+    try { parsed = parseDecimalJson(result.body); } catch { /* fall through */ }
     if (parsed === null) {
       return {
         kind: 'rejected',
@@ -314,7 +330,7 @@ export async function fetchFuturesPositionsSigned(
   }
   if (result.status >= 200 && result.status < 300) {
     let parsed: unknown = null;
-    try { parsed = JSON.parse(result.body); } catch { /* fall through */ }
+    try { parsed = parseDecimalJson(result.body); } catch { /* fall through */ }
     if (!Array.isArray(parsed)) {
       return { ok: false, failure: classify({ status: 200, message: 'positions response was not an array' }) };
     }
@@ -633,18 +649,25 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
     }
   }
 
-  const totQty = strOrNull(row['total_quantity']);
-  const remQty = strOrNull(row['remaining_quantity']);
-  const canQty = strOrNull(row['cancelled_quantity']);
+  const totQty = decimalField(row['total_quantity']);
+  const remQty = decimalField(row['remaining_quantity']);
+  const canQty = decimalField(row['cancelled_quantity']);
   let filledQty: string | null = null;
-  if (totQty !== null) {
-    const totNum = Number(totQty);
-    const remNum = Number(remQty ?? 0);
-    const canNum = Number(canQty ?? 0);
-    const diff = totNum - remNum - canNum;
-    if (Number.isFinite(diff) && diff >= 0) {
-      filledQty = diff.toFixed(8).replace(/\.?0+$/, '');
+  if (totQty !== null && remQty !== null) {
+    const parts = [totQty, remQty, canQty ?? '0'];
+    if (parts.every((value) => /^\d+(?:\.\d{1,18})?$/.test(value))) {
+      const scaled = parts.map((value) => {
+        const [whole = '0', fraction = ''] = value.split('.');
+        return BigInt(whole + fraction.padEnd(18, '0'));
+      });
+      const diff = scaled[0]! - scaled[1]! - scaled[2]!;
+      if (diff >= 0n) {
+        const digits = diff.toString().padStart(19, '0');
+        filledQty = `${digits.slice(0, -18)}.${digits.slice(-18)}`.replace(/0+$/, '').replace(/\.$/, '');
+      }
     }
+  } else if (canonicalFuturesOrderState(statusRaw) === 'filled') {
+    filledQty = totQty;
   }
 
   const curRaw = strOrNull(row['margin_currency_short_name']);
@@ -657,15 +680,15 @@ function toListedOrder(row: Record<string, unknown>): FuturesListedOrder | null 
     side: strOrNull(row['side']) ?? '',
     orderType: fromVenueOrderType(strOrNull(row['order_type'])),
     totalQuantity: totQty,
-    price: strOrNull(row['price']),
-    avgPrice: strOrNull(row['avg_price']),
+    price: decimalField(row['price']),
+    avgPrice: decimalField(row['avg_price']),
     stage: strOrNull(row['stage']),
     filledQuantity: filledQty,
     remainingQuantity: remQty,
     cancelledQuantity: canQty,
     leverage: Number.isFinite(levNum) ? levNum : null,
     marginCurrency: cur,
-    settlementConversionPrice: strOrNull(row['settlement_currency_conversion_price']),
+    settlementConversionPrice: decimalField(row['settlement_currency_conversion_price']),
     statusRaw,
     status: canonicalFuturesOrderState(statusRaw),
     createdAtMs,
@@ -691,9 +714,11 @@ export async function listFuturesOrdersSigned(
   opts: FuturesCallOptions = {},
 ): Promise<FuturesListOrdersOutcome> {
   if (req.side === undefined) {
-    const buyResult = await listFuturesOrdersSigned(sign, { ...req, side: 'buy' }, opts);
+    const [buyResult, sellResult] = await Promise.all([
+      listFuturesOrdersSigned(sign, { ...req, side: 'buy' }, opts),
+      listFuturesOrdersSigned(sign, { ...req, side: 'sell' }, opts),
+    ]);
     if (!buyResult.ok) return buyResult;
-    const sellResult = await listFuturesOrdersSigned(sign, { ...req, side: 'sell' }, opts);
     if (!sellResult.ok) return sellResult;
     return { ok: true, orders: [...buyResult.orders, ...sellResult.orders] };
   }
@@ -727,7 +752,7 @@ export async function listFuturesOrdersSigned(
     return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
   }
   let parsed: unknown = null;
-  try { parsed = JSON.parse(result.body); } catch { /* handled below */ }
+  try { parsed = parseDecimalJson(result.body); } catch { /* handled below */ }
   const rows = Array.isArray(parsed)
     ? parsed
     : (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>)['data'])
@@ -800,7 +825,7 @@ export async function fetchFuturesInstrument(
     return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
   }
   let parsed: unknown = null;
-  try { parsed = JSON.parse(result.body); } catch { /* handled below */ }
+  try { parsed = parseDecimalJson(result.body); } catch { /* handled below */ }
   // Both envelopes are accepted rather than one being guessed at, the same way the
   // orders list does it: getting this wrong turns a readable instrument into an
   // outage, and the caller cannot round a quantity without it.
@@ -816,20 +841,21 @@ export async function fetchFuturesInstrument(
   }
   const r = row as Record<string, unknown>;
   const s = (k: string, fallback = ''): string => strOrNull(r[k]) ?? fallback;
+  const d = (k: string, fallback = '0'): string => decimalField(r[k]) ?? fallback;
   const instrument: FuturesInstrument = {
     pair: s('pair', pair),
     baseAsset: s('underlying_currency_short_name', s('position_currency_short_name')),
     quoteAsset: s('quote_currency_short_name'),
     marginCurrency: (s('margin_currency_short_name', marginCurrency) === 'INR' ? 'INR' : 'USDT'),
-    contractSize: s('contract_size', s('unit_contract_value', '1')),
-    priceIncrement: s('price_increment', '0'),
-    quantityIncrement: s('quantity_increment', '0'),
-    minQuantity: s('min_quantity', s('min_trade_size', '0')),
-    maxQuantity: s('max_quantity', '0'),
-    minNotional: s('min_notional', '0'),
-    maxMarketOrderQuantity: s('max_market_order_quantity', '0'),
-    makerFee: s('maker_fee', '0'),
-    takerFee: s('taker_fee', '0'),
+    contractSize: d('contract_size', d('unit_contract_value', '1')),
+    priceIncrement: d('price_increment'),
+    quantityIncrement: d('quantity_increment'),
+    minQuantity: d('min_quantity', d('min_trade_size')),
+    maxQuantity: d('max_quantity'),
+    minNotional: d('min_notional'),
+    maxMarketOrderQuantity: d('max_market_order_quantity'),
+    makerFee: d('maker_fee'),
+    takerFee: d('taker_fee'),
     fundingFrequencyHours: Number.parseInt(s('funding_frequency', s('funding_frequency_hours', '8')), 10) || 8,
     exitOnly: r['exit_only'] === true,
     leverageTiers: [],
@@ -999,7 +1025,7 @@ export async function listFuturesPositionsTransactionsSigned(
     return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
   }
   let parsed: unknown = null;
-  try { parsed = JSON.parse(result.body); } catch { /* handled below */ }
+  try { parsed = parseDecimalJson(result.body); } catch { /* handled below */ }
   const rows = Array.isArray(parsed)
     ? parsed
     : (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>)['data'])

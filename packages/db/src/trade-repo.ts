@@ -64,6 +64,7 @@ export interface NewGroupTrade {
   readonly trailing_stop_loss?: boolean | undefined;
   readonly trailing_distance_bp?: string | null | undefined;
   readonly trailing_step_bp?: string | null | undefined;
+  readonly trailing_step_basis?: 'price' | 'roe' | undefined;
   readonly reduceOnly?: boolean | undefined;
 }
 
@@ -147,6 +148,10 @@ export async function persistPlan(
       position_margin_type: (trade.positionMarginType as 'isolated' | 'crossed' | null) ?? null,
       stop_loss_price: trade.stopLossPrice ?? null,
       take_profit_price: trade.takeProfitPrice ?? null,
+      trailing_stop_loss: trade.trailing_stop_loss ?? false,
+      trailing_distance_bp: trade.trailing_distance_bp ?? null,
+      trailing_step_bp: trade.trailing_step_bp ?? null,
+      trailing_step_basis: trade.trailing_step_basis ?? 'price',
       reduce_only: trade.reduceOnly ?? false,
     })
       .returning('id')
@@ -242,6 +247,7 @@ export interface GroupTradeRow {
   readonly trailingStopLoss?: boolean | undefined;
   readonly trailingDistanceBp?: string | null | undefined;
   readonly trailingStepBp?: string | null | undefined;
+  readonly trailingStepBasis?: 'price' | 'roe' | undefined;
   readonly reduceOnly?: boolean | undefined;
 }
 
@@ -281,12 +287,14 @@ export async function getGroupTrade(tdb: TenantDb, groupTradeId: string): Promis
     trailingStopLoss: Boolean(r['trailing_stop_loss']),
     trailingDistanceBp: (r['trailing_distance_bp'] as string | null) ?? null,
     trailingStepBp: (r['trailing_step_bp'] as string | null) ?? null,
+    trailingStepBasis: (r['trailing_step_basis'] as 'price' | 'roe') ?? 'price',
     reduceOnly: Boolean(r['reduce_only']),
   };
 }
 
 export interface ChildOrderRow {
   readonly id: string;
+  readonly legKind: 'entry' | 'stop_loss' | 'take_profit';
   readonly accountId: string;
   readonly legSeq: number;
   readonly state: ChildOrderState;
@@ -320,6 +328,7 @@ export async function getChildOrders(tdb: TenantDb, groupTradeId: string): Promi
     .execute();
   return (rows as Record<string, unknown>[]).map((r) => ({
     id: r['id'] as string,
+    legKind: (r['leg_kind'] ?? 'entry') as ChildOrderRow['legKind'],
     accountId: r['account_id'] as string,
     legSeq: r['leg_seq'] as number,
     state: r['state'] as ChildOrderState,
@@ -458,7 +467,7 @@ export const CANCELLABLE_STATES: ReadonlySet<string> = new Set(['open', 'partial
  * terminal refusal/skip — the trade is `completed` (T09.7).
  */
 export const WORKING_CHILD_STATES: ReadonlySet<string> =
-  new Set(['planned', 'sending', 'ambiguous', 'acked', 'open']);
+  new Set(['planned', 'sending', 'ambiguous', 'acked', 'open', 'partially_filled', 'unknown', 'needs_human']);
 
 /** One leg a Phase-09 sweep or fan-out acts on, with the handle the venue needs. */
 export interface LiveChildRow {
@@ -565,6 +574,7 @@ export async function beginExecution(
   groupTradeId: string,
   token: string,
   atMs?: number,
+  enqueue?: (tx: TenantDb) => Promise<void>,
 ): Promise<void> {
   const at = new Date(atMs ?? Date.now());
   await tdb.transaction(async (tx) => {
@@ -596,10 +606,13 @@ export async function beginExecution(
       .set({ status: 'executing', dry_run: false, send_suppressed: false, submitted_at: at } as never)
       .where('id' as never, '=', groupTradeId as never)
       .execute();
+    if (enqueue !== undefined) await enqueue(tx);
   });
 }
 
 export interface RecordDirectOrderInput {
+  readonly mutationRequestId?: string;
+  readonly reduceOnly?: boolean;
   readonly groupTradeId: string;
   readonly accountId: string;
   readonly createdBy: string;
@@ -681,7 +694,7 @@ export async function recordDirectOrder(
       margin_currency: isFutures ? (input.marginCurrency ?? 'INR') : null,
       quote_currency: isFutures ? (input.marginCurrency ?? 'INR') : null,
       position_margin_type: isFutures ? 'isolated' : null,
-      reduce_only: isFutures,
+      reduce_only: input.reduceOnly ?? isFutures,
       dry_run: false,
       send_suppressed: false,
       submitted_at: at,
@@ -692,20 +705,23 @@ export async function recordDirectOrder(
       .execute();
 
     // 3. Insert child_order
-    const notional = (input.quantity && input.price) ? Number(input.quantity) * Number(input.price) : 0;
-    const notionalMinor = notional > 0
-      ? (input.marginCurrency === 'USDT'
-          ? Math.round(notional * 100_000_000).toString()
-          : Math.round(notional * 100).toString())
-      : null;
+    const decimal = (value: string): bigint => {
+      if (!/^\d+(\.\d{1,18})?$/.test(value)) throw new TradeRepoError('Invalid direct-order decimal', 'empty_plan');
+      const [whole = '0', fraction = ''] = value.split('.');
+      return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0'));
+    };
+    const quote = input.pair.endsWith('USDT') ? 'USDT' : 'INR';
+    const divisor = 10n ** BigInt(36 - (quote === 'USDT' ? 8 : 2));
+    const notionalMinor = input.price ? String(decimal(input.quantity) * decimal(input.price) / divisor) : null;
 
     const childRow = await tx.insertInto('child_order', {
       group_trade_id: input.groupTradeId,
+      position_mutation_request_id: input.mutationRequestId ?? null,
       account_id: input.accountId,
       leg_seq: 0,
       market: input.pair,
       pair: input.pair,
-      quote_currency: input.marginCurrency ?? null,
+      quote_currency: quote,
       state: input.state ?? 'filled',
       final_quantity: input.quantity,
       filled_quantity: input.quantity,

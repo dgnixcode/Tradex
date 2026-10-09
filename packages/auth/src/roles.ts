@@ -15,6 +15,7 @@ export type Role = 'owner' | 'trader' | 'viewer';
 export const ROLES: readonly Role[] = ['owner', 'trader', 'viewer'];
 
 export type Action =
+  | 'research.run'
   | 'view.dashboards'
   | 'view.audit'
   | 'trade.place'
@@ -40,6 +41,7 @@ export interface Permission {
 }
 
 export const MATRIX: Readonly<Record<Action, Permission>> = {
+  'research.run': { roles: ['owner', 'trader'], requiresReauth: false, reason: 'starting or cancelling research is a desk action' },
   'view.dashboards': { roles: ['owner', 'trader', 'viewer'], requiresReauth: false, reason: 'read-only' },
   'view.audit': { roles: ['owner', 'trader'], requiresReauth: false, reason: 'audit is not visible to viewers' },
 

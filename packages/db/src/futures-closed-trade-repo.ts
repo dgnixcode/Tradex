@@ -78,7 +78,7 @@ export async function upsertFuturesClosedTrades(
       realized_pnl_minor: t.realizedPnlMinor,
       margin_currency: t.marginCurrency,
       fee_minor: t.feeMinor ?? null,
-      roe_pct: t.roePct ?? null,
+      roe_pct: t.roePct !== null && t.roePct !== undefined && Number.isFinite(t.roePct) ? String(t.roePct) : null,
       duration_ms: t.durationMs ?? null,
       opened_at: t.openedAt ?? null,
       closed_at: t.closedAt,

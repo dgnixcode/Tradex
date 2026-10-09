@@ -54,6 +54,7 @@ export function normalizeSymbol(input: string): {
   cleaned = cleaned.replace(/^B-/, '');
   cleaned = cleaned.replace(/_USDT$/, '');
   cleaned = cleaned.replace(/USDT$/, '');
+  if (!/^[A-Z0-9]{1,30}$/.test(cleaned)) throw new Error('Invalid candle symbol');
 
   const symbol = cleaned;
   const binancePair = `${symbol}USDT`;
@@ -103,14 +104,11 @@ export function extractZipCsv(buffer: Buffer): string {
   const cdOffset = buffer.readUInt32LE(eocdOffset + 16);
   const cdEntries = buffer.readUInt16LE(eocdOffset + 10);
 
-  let cur = cdOffset;
+  const cur = cdOffset;
   for (let e = 0; e < cdEntries; e++) {
     if (buffer.readUInt32LE(cur) !== 0x02014b50) break;
     const compMethod = buffer.readUInt16LE(cur + 10);
     const compSize = buffer.readUInt32LE(cur + 20);
-    const fnLen = buffer.readUInt16LE(cur + 28);
-    const extraLen = buffer.readUInt16LE(cur + 30);
-    const commentLen = buffer.readUInt16LE(cur + 32);
     const localHeaderOffset = buffer.readUInt32LE(cur + 42);
 
     const lhFnLen = buffer.readUInt16LE(localHeaderOffset + 26);
@@ -189,6 +187,10 @@ export function getMonthlyChunkFilePath(
   year: number,
   month: number,
 ): { dir: string; gzFile: string; jsonFile: string } {
+  if (!/^[A-Z0-9]{1,30}USDT$/.test(binancePair) || !SUPPORTED_CANDLE_TIMEFRAMES.includes(timeframe as SupportedTimeframe)
+    || !Number.isInteger(year) || year < 2017 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error('Invalid candle path parameters');
+  }
   const baseDir = getCandleDataDir();
   const dir = path.join(baseDir, binancePair, timeframe);
   const monthStr = String(month).padStart(2, '0');
@@ -296,7 +298,7 @@ export async function downloadMonthlyChunk(
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Timeout downloading ${binancePair} ${timeframe} ${year}-${monthStr}`);
+      throw new Error(`Timeout downloading ${binancePair} ${timeframe} ${year}-${monthStr}`, { cause: err });
     }
     throw err;
   }
@@ -306,10 +308,11 @@ export async function downloadMonthlyChunk(
  * Generate list of year and month pairs for past N years.
  */
 export function generateMonthList(lookbackYears = 4): Array<{ year: number; month: number }> {
+  if (!Number.isInteger(lookbackYears) || lookbackYears < 1 || lookbackYears > 10) throw new Error('Lookback must be 1..10 years');
   const result: Array<{ year: number; month: number }> = [];
   const now = new Date();
-  let currentYear = now.getUTCFullYear();
-  let currentMonth = now.getUTCMonth() + 1; // 1-12
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1; // 1-12
 
   // Binance monthly archives are complete up to previous month
   let y = currentYear;
@@ -372,6 +375,8 @@ export class BinanceHistorySyncManager {
     tdb?: TenantDb,
     lookbackYears = 4,
   ): Promise<{ enqueued: string[]; totalQueue: number }> {
+    if (!Array.isArray(symbols) || symbols.length > 100 || !Number.isInteger(lookbackYears) || lookbackYears < 1 || lookbackYears > 10) throw new Error('Invalid history sync request');
+    symbols.forEach(normalizeSymbol); // Validate the whole batch before writing or queueing anything.
     const enqueued: string[] = [];
 
     for (const raw of symbols) {
@@ -544,7 +549,10 @@ export async function loadHistoricalCandles(
     dataSource?: 'binance' | 'coindcx' | 'auto' | undefined;
   } = {},
 ): Promise<CandleData[]> {
-  const { symbol, binancePair } = normalizeSymbol(pair);
+  const { binancePair } = normalizeSymbol(pair);
+  if (!SUPPORTED_CANDLE_TIMEFRAMES.includes(timeframe as SupportedTimeframe)) throw new Error('Unsupported candle timeframe');
+  if (!Number.isInteger(options.limit ?? 500) || (options.limit ?? 500) < 1 || (options.limit ?? 500) > 100_000) throw new Error('Candle limit must be 1..100000');
+  if (!Number.isInteger(options.lookbackMonths ?? 12) || (options.lookbackMonths ?? 12) < 1 || (options.lookbackMonths ?? 12) > 48) throw new Error('Lookback must be 1..48 months');
   const limit = options.limit ?? 500;
   const dataSource = options.dataSource ?? 'auto';
 
@@ -568,7 +576,7 @@ export async function loadHistoricalCandles(
         // Fast on-demand fetch for small lookbacks if not yet synced
         try {
           chunk = await downloadMonthlyChunk(binancePair, timeframe, year, month);
-        } catch {}
+        } catch { /* Try another cached month when a download is unavailable. */ }
       }
       if (chunk && chunk.length > 0) {
         diskCandles.push(...chunk);

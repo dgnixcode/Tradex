@@ -35,7 +35,7 @@ export async function run(assert) {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, e.name);
       if (e.isDirectory()) {
-        if (['node_modules', 'dist', '.git', 'plan', 'research', '.tmpwork'].includes(e.name)) continue;
+        if (['node_modules', 'dist', '.git', 'plan', 'research', '.tmpwork', '.kilo'].includes(e.name)) continue;
         walk(full, out);
       } else if (/(\.ts|\.mjs|\.tsx|\.sql)$/.test(e.name)) out.push(full);
     }

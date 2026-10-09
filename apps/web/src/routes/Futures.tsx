@@ -9,6 +9,9 @@ import {
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
 import { parseCoinFromPair } from './TradeTicket.tsx';
+import { useSafeDialog } from '../hooks/useSafeDialog.ts';
+import { planPositionAddition, planPositionReduction } from '../position-addition.ts';
+import { PositionCurrencyBadge } from '../components/PositionCurrencyBadge.tsx';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -103,14 +106,17 @@ export function calcProportionalMinor(minor: string | null, pct: number): string
   }
 }
 
-export function calcRoePct(p: { avgEntryPrice: string | null; markPrice: string | null; leverage: string | null; side: 'long' | 'short' | 'flat' }): number | null {
+export function calcRoePct(p: Pick<FuturesPositionRow, 'avgEntryPrice' | 'markPrice' | 'side' | 'quantity' | 'lockedMarginMinor' | 'marginCurrency' | 'pair' | 'settlementCurrencyAvgPrice'>): number | null {
   if (p.avgEntryPrice === null || p.markPrice === null || p.side === 'flat') return null;
   const entry = Number(p.avgEntryPrice);
   const mark = Number(p.markPrice);
   if (!Number.isFinite(entry) || !Number.isFinite(mark) || entry <= 0) return null;
-  const lev = p.leverage !== null && Number(p.leverage) > 0 ? Number(p.leverage) : 1;
+  const margin = Number(p.lockedMarginMinor) / (p.marginCurrency === 'INR' ? 100 : 1e8);
+  const quantity = Number(p.quantity);
+  const fx = p.marginCurrency === 'INR' && p.pair.endsWith('_USDT') ? Number(p.settlementCurrencyAvgPrice) : 1;
+  if (!Number.isFinite(margin) || margin <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(fx) || fx <= 0) return null;
   const dir = p.side === 'short' ? -1 : 1;
-  const pct = ((mark - entry) / entry) * 100 * lev * dir;
+  const pct = (mark - entry) * quantity * fx / margin * 100 * dir;
   return Number.isFinite(pct) ? pct : null;
 }
 
@@ -349,15 +355,17 @@ export function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[
         : addMinors(g.totalPnlMinor, p.unrealisedPnlMinor);
     }
   }
-  return Array.from(map.values());
+  // Stable within each currency; market updates must not reorder groups by P&L.
+  return Array.from(map.values()).sort((a, b) => Number(a.marginCurrency === 'USDT') - Number(b.marginCurrency === 'USDT'));
 }
 
-export function calcGroupRoePct(group: PositionGroup): number | null {
-  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
+export function calcGroupRoePct(group: Pick<PositionGroup, 'positions'>): number | null {
+  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.lockedMarginMinor), 0);
   if (totalWeight <= 0) return null;
+  if (group.positions.some((pos) => calcRoePct(pos) === null || Number(pos.lockedMarginMinor) <= 0)) return null;
   const weightedRoeSum = group.positions.reduce((acc, pos) => {
     const r = calcRoePct(pos);
-    return r !== null ? acc + r * Number(pos.quantity) : acc;
+    return r !== null ? acc + r * Number(pos.lockedMarginMinor) : acc;
   }, 0);
   return weightedRoeSum / totalWeight;
 }
@@ -773,12 +781,7 @@ export function GroupCard({
   const [accountSearch, setAccountSearch] = useState('');
 
   const sideColor = group.side === 'long' ? 'var(--ok)' : group.side === 'short' ? 'var(--danger)' : 'var(--text-dim)';
-  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
-  const weightedRoeSum = group.positions.reduce((acc, pos) => {
-    const r = calcRoePct(pos);
-    return r !== null ? acc + r * Number(pos.quantity) : acc;
-  }, 0);
-  const groupRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
+  const groupRoe = calcGroupRoePct(group);
 
   // Filter accounts within this group if search term provided
   const filteredPositions = useMemo(() => {
@@ -815,7 +818,7 @@ export function GroupCard({
   const statusClass = pnlNum > 0 ? 'profit-group' : pnlNum < 0 ? 'loss-group' : 'flat-group';
 
   return (
-    <div className={`position-card ${statusClass}`}>
+    <div className={`position-card ${statusClass} currency-${group.marginCurrency.toLowerCase()}`}>
       <div className="position-card-header" onClick={onToggle}>
         {/* Asset + Side */}
         <Link
@@ -837,7 +840,7 @@ export function GroupCard({
         >
           {group.side}
         </span>
-        <span className="card-meta" style={{ fontWeight: 600 }}>{group.marginCurrency}</span>
+        <PositionCurrencyBadge currency={group.marginCurrency} />
 
         {/* Group Name badge */}
         <span className="group-badge" title={group.groupNames.join(', ')}>
@@ -954,7 +957,11 @@ export function GroupCard({
             Quick Exit
           </button>
 
-          <span className={`expand-icon ${!collapsed ? 'open' : ''}`}>▼</span>
+          <button type="button" className="desk-expand-button" aria-expanded={!collapsed}
+            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.asset} ${group.marginCurrency} accounts`}
+            onClick={(event) => { event.stopPropagation(); onToggle(); }}>
+            <span className={`expand-icon ${!collapsed ? 'open' : ''}`} aria-hidden="true">▼</span>
+          </button>
         </div>
       </div>
 
@@ -1065,6 +1072,22 @@ const REDUCE_PCT_CHIPS = [10, 25, 50, 75] as const;
 const INCREASE_PCT_CHIPS = [25, 50, 100] as const;
 const LEVERAGE_PRESET_CHIPS = [2, 3, 4, 5, 10, 20, 25, 50] as const;
 
+function ReductionModeControls({ mode, onMode, quantity, onQuantity, group = false }: {
+  mode: 'quantity' | 'percent'; onMode: (mode: 'quantity' | 'percent') => void;
+  quantity: string; onQuantity: (quantity: string) => void; group?: boolean;
+}) {
+  return <div className="position-reduction-mode">
+    <div role="group" aria-label="Partial exit sizing">
+      <button type="button" className="btn btn-sm secondary" aria-pressed={mode === 'quantity'} onClick={() => onMode('quantity')}>Qty</button>
+      <button type="button" className="btn btn-sm secondary" aria-pressed={mode === 'percent'} onClick={() => onMode('percent')}>%</button>
+    </div>
+    {mode === 'quantity' && <label>{group ? 'Quantity to close per account' : 'Quantity to close'}
+      <input type="text" inputMode="decimal" value={quantity} onChange={(event) => onQuantity(event.target.value)} placeholder="Enter quantity" />
+      <small>{group ? 'The same quantity from each account; must be less than every selected position.' : 'Must be less than the current position. Use Exit for a full close.'}</small>
+    </label>}
+  </div>;
+}
+
 export interface PositionManageModalProps {
   readonly position: FuturesPositionRow;
   readonly onClose: () => void;
@@ -1145,12 +1168,14 @@ export function PositionManageModal({
   const isRefreshing = isSyncingBalance || accountsQuery.isFetching;
 
   // Partial close / reduce state
+  const [reduceSizingMode, setReduceSizingMode] = useState<'percent' | 'quantity'>('quantity');
+  const [reduceQtyInput, setReduceQtyInput] = useState('');
   const [reducePct, setReducePct] = useState<number>(25);
   const [customReduceInput, setCustomReduceInput] = useState<string>('');
   const isCustomReduce = customReduceInput !== '' && Number(customReduceInput) === reducePct;
 
   // Increase / add state
-  const [increaseSizingMode, setIncreaseSizingMode] = useState<'percent' | 'quantity'>('percent');
+  const [increaseSizingMode, setIncreaseSizingMode] = useState<'percent' | 'quantity'>('quantity');
   const [increasePct, setIncreasePct] = useState<number>(25);
   const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
   const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
@@ -1165,7 +1190,7 @@ export function PositionManageModal({
   const [enableTp, setEnableTp] = useState<boolean>(() => hasExistingTp);
   const [sl, setSl] = useState(initSl);
   const [tp, setTp] = useState(initTp);
-  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
+  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('price');
   const [slPct, setSlPct] = useState('');
   const [tpPct, setTpPct] = useState('');
   const [trailing, setTrailing] = useState(false);
@@ -1287,9 +1312,10 @@ export function PositionManageModal({
 
   const sideBadgeColor = position.side === 'long' ? 'var(--ok)' : 'var(--danger)';
   const totalQty = Number(position.quantity);
-  const reduceQty = (totalQty * reducePct / 100).toFixed(4);
-  const remainQty = Math.max(0, totalQty - Number(reduceQty)).toFixed(4);
-  const reduceMarginMinor = calcProportionalMinor(position.lockedMarginMinor, reducePct);
+  const reduction = planPositionReduction({ mode: reduceSizingMode, quantityInput: reduceQtyInput, percent: reducePct, position });
+  const reduceQty = reduction.quantity;
+  const remainQty = reduction.remainingQuantity;
+  const reduceMarginMinor = reduction.marginMinor;
 
   // Sizing math for Increase based on Available Free Balance or explicit Quantity
   const quoteScale = quoteScaleOf(position.marginCurrency);
@@ -1313,56 +1339,32 @@ export function PositionManageModal({
     return 0;
   }, [totalQty, lockedMarginMajor, position.markPrice, position.avgEntryPrice, position.leverage, position.marginCurrency, position.pair, position.settlementCurrencyAvgPrice]);
 
-  const { calculatedAddQty, calculatedAddMarginMajor, calculatedAddMarginMinor, effectiveSliderPct, isOverBudget } = useMemo(() => {
-    if (increaseSizingMode === 'percent') {
-      const targetMarginMajor = freeBalanceMajor * (increasePct / 100);
-      const qty = marginPerUnit > 0 ? targetMarginMajor / marginPerUnit : 0;
-      const qtyStr = qty > 0 ? (qty >= 1 ? qty.toFixed(2) : qty.toFixed(4)).replace(/\.?0+$/, '') : '0';
-      const marginMinor = BigInt(Math.max(0, Math.round(targetMarginMajor * (10 ** quoteScale)))).toString();
-      const overBudget = targetMarginMajor > freeBalanceMajor + 0.0001;
-      return {
-        calculatedAddQty: qtyStr,
-        calculatedAddMarginMajor: targetMarginMajor,
-        calculatedAddMarginMinor: marginMinor,
-        effectiveSliderPct: increasePct,
-        isOverBudget: overBudget,
-      };
-    } else {
-      const parsedQty = parseFloat(increaseQtyInput);
-      const qtyNum = (!isNaN(parsedQty) && parsedQty > 0) ? parsedQty : 0;
-      const targetMarginMajor = qtyNum * marginPerUnit;
-      const marginMinor = BigInt(Math.max(0, Math.round(targetMarginMajor * (10 ** quoteScale)))).toString();
-      const pctOfBalance = freeBalanceMajor > 0 ? (targetMarginMajor / freeBalanceMajor) * 100 : 0;
-      const overBudget = freeBalanceMajor > 0 ? targetMarginMajor > freeBalanceMajor + 0.0001 : qtyNum > 0;
-      return {
-        calculatedAddQty: qtyNum > 0 ? (qtyNum >= 1 ? qtyNum.toFixed(2) : qtyNum.toFixed(4)).replace(/\.?0+$/, '') : '0',
-        calculatedAddMarginMajor: targetMarginMajor,
-        calculatedAddMarginMinor: marginMinor,
-        effectiveSliderPct: Math.min(100, Math.max(0, Math.round(pctOfBalance))),
-        isOverBudget: overBudget,
-      };
-    }
-  }, [increaseSizingMode, increasePct, increaseQtyInput, freeBalanceMajor, marginPerUnit, quoteScale]);
+  const { calculatedAddQty, calculatedAddMarginMajor, calculatedAddMarginMinor, effectiveSliderPct, isOverBudget, canCalculateAddition } = useMemo(() => {
+    const plan = planPositionAddition({ mode: increaseSizingMode, quantityInput: increaseQtyInput, percent: increasePct, freeMinor: accountFreeCashMinor, position });
+    const targetMarginMajor = Number(plan.marginMinor) / (10 ** quoteScale);
+    const pctOfBalance = freeBalanceMajor > 0 ? targetMarginMajor / freeBalanceMajor * 100 : 0;
+    return {
+      calculatedAddQty: plan.quantity, calculatedAddMarginMinor: plan.marginMinor,
+      calculatedAddMarginMajor: targetMarginMajor, isOverBudget: plan.valid && plan.overBudget, canCalculateAddition: plan.valid,
+      effectiveSliderPct: increaseSizingMode === 'percent' ? increasePct : Math.min(100, Math.max(0, Math.round(pctOfBalance))),
+    };
+  }, [increaseSizingMode, increasePct, increaseQtyInput, accountFreeCashMinor, position, freeBalanceMajor, quoteScale]);
 
   const newTotalQty = useMemo(() => {
-    const addNum = parseFloat(calculatedAddQty) || 0;
-    return (totalQty + addNum).toFixed(4).replace(/\.?0+$/, '');
-  }, [totalQty, calculatedAddQty]);
+    return planPositionAddition({ mode: increaseSizingMode, quantityInput: increaseQtyInput, percent: increasePct, freeMinor: accountFreeCashMinor, position }).totalQuantity;
+  }, [increaseSizingMode, increaseQtyInput, increasePct, accountFreeCashMinor, position]);
 
   const handleSliderChange = (newPct: number) => {
     setIncreasePct(newPct);
     if (increaseSizingMode === 'quantity') {
-      const targetMarginMajor = freeBalanceMajor * (newPct / 100);
-      const qty = marginPerUnit > 0 ? targetMarginMajor / marginPerUnit : 0;
-      const qtyStr = qty > 0 ? (qty >= 1 ? qty.toFixed(2) : qty.toFixed(4)).replace(/\.?0+$/, '') : '';
-      setIncreaseQtyInput(qtyStr);
+      const plan = planPositionAddition({ mode: 'percent', quantityInput: '', percent: newPct, freeMinor: accountFreeCashMinor, position });
+      setIncreaseQtyInput(plan.valid ? plan.quantity : '');
     }
   };
 
   const handleQuantityInputChange = (val: string) => {
-    const sanitized = val.replace(/[^\d.]/g, '');
-    setIncreaseQtyInput(sanitized);
-    const num = parseFloat(sanitized);
+    setIncreaseQtyInput(val);
+    const num = Number(val);
     if (!isNaN(num) && num > 0 && freeBalanceMajor > 0 && marginPerUnit > 0) {
       const reqMargin = num * marginPerUnit;
       const pct = Math.min(100, Math.max(0, Math.round((reqMargin / freeBalanceMajor) * 100)));
@@ -1388,6 +1390,7 @@ export function PositionManageModal({
   const currentLev = position.leverage !== null && Number(position.leverage) > 0 ? Number(position.leverage) : 1;
   const [targetLeverage, setTargetLeverage] = useState<string>(() => String(currentLev));
   const [isUpdatingLeverage, setIsUpdatingLeverage] = useState(false);
+  const dialogRef = useSafeDialog(onClose, isExiting || isAdjusting || isProtecting || isUpdatingLeverage);
   const [leverageMsg, setLeverageMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const targetLevNum = Number(targetLeverage);
@@ -1459,8 +1462,8 @@ export function PositionManageModal({
   };
 
   return (
-    <div className="position-modal-overlay" onClick={onClose}>
-      <div className="position-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="position-modal-overlay" onClick={() => { if (!isExiting && !isAdjusting && !isProtecting && !isUpdatingLeverage) onClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Manage ${position.pair} for ${position.accountName}`} tabIndex={-1} className="position-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="position-modal-header">
           <div>
@@ -1498,7 +1501,7 @@ export function PositionManageModal({
               </span>
             </div>
           </div>
-          <button type="button" className="position-modal-close" onClick={onClose} title="Close (Esc)">
+          <button type="button" className="position-modal-close" disabled={isExiting || isAdjusting || isProtecting || isUpdatingLeverage} onClick={onClose} title="Close (Esc)" aria-label="Close position management">
             ✕
           </button>
         </div>
@@ -1911,7 +1914,7 @@ export function PositionManageModal({
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
                       <label htmlFor="modal-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
-                        Auto-Trailing SL (1% step)
+                        Auto-Trailing SL (1% ROE step)
                       </label>
                     </div>
                   )}
@@ -2202,6 +2205,8 @@ export function PositionManageModal({
               </p>
 
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+                <ReductionModeControls mode={reduceSizingMode} onMode={setReduceSizingMode} quantity={reduceQtyInput} onQuantity={setReduceQtyInput} />
+                {reduceSizingMode === 'percent' && <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to close:</span>
                   <strong style={{ fontSize: 14, color: '#f59e0b' }}>−{reducePct}%</strong>
@@ -2263,6 +2268,7 @@ export function PositionManageModal({
                   </div>
                 </div>
 
+                </>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <div>
                     <span style={{ color: 'var(--muted)' }}>Selling Size: </span>
@@ -2302,10 +2308,10 @@ export function PositionManageModal({
                     fontWeight: 700,
                     border: 'none',
                   }}
-                  disabled={isAdjusting || isHalted || reducePct <= 0 || reducePct >= 100}
-                  onClick={() => onAdjust(position.venuePositionId, 'reduce', Math.round(reducePct * 100))}
+                  disabled={isAdjusting || isHalted || !reduction.valid}
+                  onClick={() => { if (reduction.valid) onAdjust(position.venuePositionId, 'reduce', reduceSizingMode === 'percent' ? Math.round(reducePct * 100) : undefined, reduceSizingMode === 'quantity' ? reduction.quantity : undefined); }}
                 >
-                  {isAdjusting ? 'Executing Partial Exit…' : `Close ${reducePct}% (${reduceQty} ${position.pair.split('_')[0].replace(/^[A-Z]-/, '')})`}
+                  {isAdjusting ? 'Executing Partial Exit…' : `Close ${reduceSizingMode === 'percent' ? `${reducePct}% · ` : ''}${reduceQty} ${position.pair.split('_')[0].replace(/^[A-Z]-/, '')}`}
                 </button>
               </div>
             </div>
@@ -2612,6 +2618,7 @@ export function PositionManageModal({
                 </div>
 
                 {/* Warning if requested funds exceed available free cash */}
+                {!canCalculateAddition && <p className="muted">Enter a valid size. Account balance and pricing data must be available to calculate margin.</p>}
                 {isOverBudget && (
                   <div
                     style={{
@@ -2643,10 +2650,10 @@ export function PositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: 'var(--ok)', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isAdjusting || isHalted || Number(calculatedAddQty) <= 0 || isOverBudget}
+                  disabled={isAdjusting || isHalted || !canCalculateAddition || Number(calculatedAddQty) <= 0 || isOverBudget}
                   onClick={() => onAdjust(position.venuePositionId, 'increase', undefined, calculatedAddQty)}
                 >
-                  {isAdjusting ? 'Increasing Position…' : `Add +${calculatedAddQty} Qty • Est. Margin ${fmtMinor(calculatedAddMarginMinor, position.marginCurrency)}`}
+                  {isAdjusting ? 'Increasing Position…' : !canCalculateAddition ? 'Enter a valid size to add' : `Add +${calculatedAddQty} Qty • Est. Margin ${fmtMinor(calculatedAddMarginMinor, position.marginCurrency)}`}
                 </button>
               </div>
             </div>
@@ -3017,11 +3024,14 @@ export function GroupPositionManageModal({
   const isRefreshing = isSyncingAllBalances || accountsQuery.isFetching;
 
   // Sizing mode & states
-  const [groupIncreaseSizingMode, setGroupIncreaseSizingMode] = useState<'percent' | 'quantity'>('percent');
+  const [groupIncreaseSizingMode, setGroupIncreaseSizingMode] = useState<'percent' | 'quantity'>('quantity');
   const [increasePct, setIncreasePct] = useState<number>(25);
   const [customIncreaseInput, setCustomIncreaseInput] = useState<string>('');
   const isCustomIncrease = customIncreaseInput !== '' && Number(customIncreaseInput) === increasePct;
-  const [groupIncreaseQtyInput, setGroupIncreaseQtyInput] = useState<string>('0.01');
+  const [groupIncreaseQtyInput, setGroupIncreaseQtyInput] = useState<string>('');
+
+  const [reduceSizingMode, setReduceSizingMode] = useState<'percent' | 'quantity'>('quantity');
+  const [reduceQtyInput, setReduceQtyInput] = useState('');
 
   const [reducePct, setReducePct] = useState<number>(25);
   const [customReduceInput, setCustomReduceInput] = useState<string>('');
@@ -3073,7 +3083,7 @@ export function GroupPositionManageModal({
   const [enableSl, setEnableSl] = useState<boolean>(() => hasExistingSl);
   const [enableTp, setEnableTp] = useState<boolean>(() => hasExistingTp);
 
-  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('percent');
+  const [slTpMode, setSlTpMode] = useState<'percent' | 'price'>('price');
   const [sl, setSl] = useState<string>(initSl);
   const [tp, setTp] = useState<string>(initTp);
   const [slPct, setSlPct] = useState<string>(initSlPct);
@@ -3244,7 +3254,15 @@ export function GroupPositionManageModal({
   const [modalSearch, setModalSearch] = useState('');
 
   // Bulk execution states
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [isExecutingAction, setIsExecuting] = useState(false);
+  const isExecuting = isExecutingAction || isExecutingLeverage;
+  const actionLock = useRef(false);
+  const withAction = async (action: () => Promise<void>) => {
+    if (actionLock.current || isHalted) return;
+    actionLock.current = true;
+    try { await action(); }
+    finally { actionLock.current = false; setIsExecuting(false); setIsExecutingLeverage(false); }
+  };
   const [progress, setProgress] = useState<{ current: number; total: number; accountName: string } | null>(null);
   const [execResult, setExecResult] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
 
@@ -3260,6 +3278,7 @@ export function GroupPositionManageModal({
   }, [onClose, isExecuting]);
 
   // Account map for quick lookup
+  const dialogRef = useSafeDialog(onClose, isExecuting);
   const accountsMap = useMemo(() => {
     const map = new Map<string, AccountListItem>();
     if (accountsQuery.data) {
@@ -3281,36 +3300,17 @@ export function GroupPositionManageModal({
         : null;
       const freeBalanceMajor = freeCashMinor ? Number(freeCashMinor) / (10 ** quoteScale) : 0;
 
-      const posQty = Number(p.quantity);
-      const lockedMarginMajor = p.lockedMarginMinor ? Number(p.lockedMarginMinor) / (10 ** quoteScale) : 0;
-      const posPeg = (p.marginCurrency === 'INR' && (p.pair.endsWith('_USDT') || p.pair.includes('USDT')))
-        ? (p.settlementCurrencyAvgPrice && Number(p.settlementCurrencyAvgPrice) > 0 ? Number(p.settlementCurrencyAvgPrice) : 100)
-        : 1;
-      const marginPerUnit = (posQty > 0 && lockedMarginMajor > 0)
-        ? (lockedMarginMajor / posQty)
-        : (p.markPrice && p.leverage ? (Number(p.markPrice) * posPeg) / Number(p.leverage) : 0);
-
-      let addQtyNum = 0;
-      let targetAddMarginMajor = 0;
-
-      if (groupIncreaseSizingMode === 'percent') {
-        targetAddMarginMajor = freeBalanceMajor * (increasePct / 100);
-        addQtyNum = marginPerUnit > 0 ? targetAddMarginMajor / marginPerUnit : 0;
-      } else {
-        const parsed = parseFloat(groupIncreaseQtyInput);
-        addQtyNum = (!isNaN(parsed) && parsed > 0) ? parsed : 0;
-        targetAddMarginMajor = addQtyNum * marginPerUnit;
-      }
-
-      const addQty = addQtyNum > 0 ? (addQtyNum >= 1 ? addQtyNum.toFixed(2) : addQtyNum.toFixed(4)).replace(/\.?0+$/, '') : '0.0000';
-      const newTotalQty = (posQty + (parseFloat(addQty) || 0)).toFixed(4).replace(/\.?0+$/, '');
-      const reqAddMarginMinor = BigInt(Math.max(0, Math.round(targetAddMarginMajor * (10 ** quoteScale)))).toString();
-      const isFunded = freeCashMinor !== null && BigInt(freeCashMinor) >= BigInt(reqAddMarginMinor) && parseFloat(addQty) > 0;
+      const addition = planPositionAddition({ mode: groupIncreaseSizingMode, quantityInput: groupIncreaseQtyInput, percent: increasePct, freeMinor: freeCashMinor, position: p });
+      const addQty = addition.quantity;
+      const newTotalQty = addition.totalQuantity;
+      const reqAddMarginMinor = addition.marginMinor;
+      const isFunded = addition.valid && !addition.overBudget;
 
       // Reduce calculations
-      const reduceQty = (posQty * reducePct / 100).toFixed(4);
-      const remainQty = Math.max(0, posQty - Number(reduceQty)).toFixed(4);
-      const reqReduceMarginMinor = calcProportionalMinor(p.lockedMarginMinor, reducePct);
+      const reduction = planPositionReduction({ mode: reduceSizingMode, quantityInput: reduceQtyInput, percent: reducePct, position: p });
+      const reduceQty = reduction.quantity;
+      const remainQty = reduction.remainingQuantity;
+      const reqReduceMarginMinor = reduction.marginMinor;
 
       return {
         position: p,
@@ -3324,9 +3324,10 @@ export function GroupPositionManageModal({
         reduceQty,
         remainQty,
         reqReduceMarginMinor,
+        canReduce: reduction.valid,
       };
     });
-  }, [group.positions, accountsMap, groupIncreaseSizingMode, increasePct, groupIncreaseQtyInput, reducePct]);
+  }, [group.positions, accountsMap, groupIncreaseSizingMode, increasePct, groupIncreaseQtyInput, reducePct, reduceSizingMode, reduceQtyInput]);
 
   const fundedAccounts = useMemo(() => evaluatedAccounts.filter((e) => e.isFunded), [evaluatedAccounts]);
   const skippedAccounts = useMemo(() => evaluatedAccounts.filter((e) => !e.isFunded), [evaluatedAccounts]);
@@ -3458,15 +3459,10 @@ export function GroupPositionManageModal({
       ? `${group.groupNames.slice(0, 2).join(', ')}${group.groupNames.length > 2 ? ` (+${group.groupNames.length - 2})` : ''}`
       : 'Ungrouped';
 
-  const totalWeight = group.positions.reduce((acc, pos) => acc + Number(pos.quantity), 0);
-  const weightedRoeSum = group.positions.reduce((acc, pos) => {
-    const r = calcRoePct(pos);
-    return r !== null ? acc + r * Number(pos.quantity) : acc;
-  }, 0);
-  const groupRoe = totalWeight > 0 ? weightedRoeSum / totalWeight : null;
+  const groupRoe = calcGroupRoePct(group);
 
   // 1. Group Increase Action (Only on Funded Accounts)
-  const handleExecuteIncrease = async () => {
+  const handleExecuteIncrease = () => withAction(async () => {
     if (fundedAccounts.length === 0 || isExecuting) return;
     setIsExecuting(true);
     setExecResult(null);
@@ -3476,7 +3472,7 @@ export function GroupPositionManageModal({
 
     let completed = 0;
     const batchGroupTradeId = crypto.randomUUID();
-    await mapConcurrent(fundedAccounts, 12, async (item) => {
+    await mapConcurrent(fundedAccounts, 100, async (item) => {
       try {
         await adjustFuturesPosition(item.position.venuePositionId, 'increase', undefined, batchGroupTradeId, item.addQty);
         succeeded++;
@@ -3505,11 +3501,11 @@ export function GroupPositionManageModal({
         message: `Completed: ${succeeded} succeeded, ${failed} failed (${errors.slice(0, 2).join('; ')}). ${skippedAccounts.length} skipped.`,
       });
     }
-  };
+  });
 
   // 2. Group Partial Exit Action
-  const handleExecuteReduce = async () => {
-    if (group.positions.length === 0 || isExecuting) return;
+  const handleExecuteReduce = () => withAction(async () => {
+    if (group.positions.length === 0 || isExecuting || evaluatedAccounts.some((item) => !item.canReduce)) return;
     setIsExecuting(true);
     setExecResult(null);
     let succeeded = 0;
@@ -3519,9 +3515,9 @@ export function GroupPositionManageModal({
     const bp = Math.round(reducePct * 100);
     let completed = 0;
     const batchGroupTradeId = crypto.randomUUID();
-    await mapConcurrent(group.positions, 12, async (pos) => {
+    await mapConcurrent(group.positions, 100, async (pos) => {
       try {
-        await adjustFuturesPosition(pos.venuePositionId, 'reduce', bp, batchGroupTradeId);
+        await adjustFuturesPosition(pos.venuePositionId, 'reduce', reduceSizingMode === 'percent' ? bp : undefined, batchGroupTradeId, reduceSizingMode === 'quantity' ? reduceQtyInput : undefined);
         succeeded++;
       } catch (err) {
         failed++;
@@ -3540,7 +3536,7 @@ export function GroupPositionManageModal({
     if (failed === 0) {
       setExecResult({
         kind: 'ok',
-        message: `Successfully reduced ${reducePct}% across ${succeeded} account${succeeded === 1 ? '' : 's'}.`,
+        message: `Successfully reduced ${reduceSizingMode === 'quantity' ? `${reduceQtyInput} qty per account` : `${reducePct}%`} across ${succeeded} account${succeeded === 1 ? '' : 's'}.`,
       });
     } else {
       setExecResult({
@@ -3548,10 +3544,10 @@ export function GroupPositionManageModal({
         message: `Reduced ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
       });
     }
-  };
+  });
 
   // 3. Group Close Position Action
-  const handleExecuteExit = async () => {
+  const handleExecuteExit = () => withAction(async () => {
     if (group.positions.length === 0 || isExecuting) return;
     setIsExecuting(true);
     setExecResult(null);
@@ -3561,7 +3557,7 @@ export function GroupPositionManageModal({
 
     let completed = 0;
     const batchGroupTradeId = crypto.randomUUID();
-    await mapConcurrent(group.positions, 12, async (pos) => {
+    await mapConcurrent(group.positions, 100, async (pos) => {
       try {
         await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency, batchGroupTradeId);
         succeeded++;
@@ -3596,10 +3592,10 @@ export function GroupPositionManageModal({
         message: `Closed ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
       });
     }
-  };
+  });
 
   // 4. Group Protection Action
-  const handleExecuteProtection = async () => {
+  const handleExecuteProtection = () => withAction(async () => {
     if (group.positions.length === 0 || isExecuting) return;
     setIsExecuting(true);
     setExecResult(null);
@@ -3607,7 +3603,7 @@ export function GroupPositionManageModal({
     let failed = 0;
 
     let completed = 0;
-    await mapConcurrent(group.positions, 12, async (pos) => {
+    await mapConcurrent(group.positions, 100, async (pos) => {
       try {
         const refPrice = pos.avgEntryPrice !== null ? Number(pos.avgEntryPrice) : NaN;
         const posSideOk = pos.side === 'long' || pos.side === 'short';
@@ -3652,13 +3648,15 @@ export function GroupPositionManageModal({
         if (isRemovingSl) body.removeStopLoss = true;
         if (isRemovingTp) body.removeTakeProfit = true;
 
-        await setFuturesProtection(pos.venuePositionId, body);
+        const protection = await setFuturesProtection(pos.venuePositionId, body);
+        if (effectiveSl && !isRemovingSl && protection.stopLoss?.ok !== true) throw new Error(protection.stopLoss?.reason ?? 'Stop loss was not confirmed');
+        if (effectiveTp && !isRemovingTp && protection.takeProfit?.ok !== true) throw new Error(protection.takeProfit?.reason ?? 'Take profit was not confirmed');
         if (trailing && effectiveSl && !isRemovingSl) {
           await setTrailingProtection(pos.venuePositionId, {
             enable: true,
             currentSlPrice: effectiveSl,
             stepBp: '100',
-            distanceBp: '100',
+            stepBasis: 'roe',
           });
         } else if (!trailing || isRemovingSl) {
           await setTrailingProtection(pos.venuePositionId, { enable: false });
@@ -3680,10 +3678,10 @@ export function GroupPositionManageModal({
       kind: failed === 0 ? 'ok' : 'err',
       message: `Protection updated across ${succeeded} account${succeeded === 1 ? '' : 's'}${failed > 0 ? ` (${failed} failed)` : ''}.`,
     });
-  };
+  });
 
   // 5. Group Leverage Action
-  const handleExecuteGroupLeverage = async () => {
+  const handleExecuteGroupLeverage = () => withAction(async () => {
     if (selectedLeverageAccounts.length === 0 || !isTargetLevValid || isExecutingLeverage || isHalted) return;
     setIsExecutingLeverage(true);
     setGroupLeverageMsg(null);
@@ -3692,7 +3690,7 @@ export function GroupPositionManageModal({
     const errors: string[] = [];
 
     let completed = 0;
-    await mapConcurrent(selectedLeverageAccounts, 12, async (item) => {
+    await mapConcurrent(selectedLeverageAccounts, 100, async (item) => {
       try {
         await updateFuturesPositionLeverage(item.position.venuePositionId, targetLevNum);
         succeeded++;
@@ -3721,11 +3719,11 @@ export function GroupPositionManageModal({
         text: `Adjusted ${succeeded} accounts; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
       });
     }
-  };
+  });
 
   return (
-    <div className="position-modal-overlay" onClick={onClose}>
-      <div className="position-modal group-manage-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="position-modal-overlay" onClick={() => { if (!isExecuting) onClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Manage ${group.asset} across ${group.positions.length} accounts`} tabIndex={-1} className="position-modal group-manage-modal" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="position-modal-header">
           <div>
@@ -3766,7 +3764,7 @@ export function GroupPositionManageModal({
               </span>
             </div>
           </div>
-          <button type="button" className="position-modal-close" onClick={onClose} title="Close (Esc)">
+          <button type="button" className="position-modal-close" disabled={isExecuting} onClick={onClose} title="Close (Esc)" aria-label="Close group management">
             &times;
           </button>
         </div>
@@ -4113,7 +4111,7 @@ export function GroupPositionManageModal({
                         inputMode="decimal"
                         placeholder="e.g. 0.01"
                         value={groupIncreaseQtyInput}
-                        onChange={(e) => setGroupIncreaseQtyInput(e.target.value.replace(/[^\d.]/g, ''))}
+                        onChange={(e) => setGroupIncreaseQtyInput(e.target.value)}
                         style={{
                           width: '100%',
                           padding: '8px 12px',
@@ -4133,6 +4131,7 @@ export function GroupPositionManageModal({
                 )}
 
                 {/* Eligibility Summary Banner */}
+                {groupIncreaseSizingMode === 'quantity' && groupIncreaseQtyInput.trim() === '' ? <p className="muted">Enter quantity to calculate account sizing.</p> :
                 <div
                   style={{
                     padding: '8px 12px',
@@ -4160,7 +4159,7 @@ export function GroupPositionManageModal({
                       {skippedAccounts.length} underfunded account(s) will be skipped
                     </span>
                   )}
-                </div>
+                </div>}
               </div>
 
               {/* Account Eligibility Breakdown Table (Bounded scrollable container for 100+ accounts) */}
@@ -4243,7 +4242,7 @@ export function GroupPositionManageModal({
                     ? 'Processing Fan-out…'
                     : groupIncreaseSizingMode === 'percent'
                       ? `Add +${increasePct}% to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`
-                      : `Add +${groupIncreaseQtyInput} Qty to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`}
+                      : groupIncreaseQtyInput.trim() === '' ? 'Enter quantity to add' : `Add +${groupIncreaseQtyInput} Qty to ${fundedAccounts.length} Funded Account${fundedAccounts.length === 1 ? '' : 's'} (${totalFundedMarginMinor ? fmtMinor(totalFundedMarginMinor, group.marginCurrency) : ''})`}
                 </button>
               </div>
             </div>
@@ -4253,10 +4252,12 @@ export function GroupPositionManageModal({
           {activeTab === 'partial' && (
             <div>
               <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                Safely reduce position size by {reducePct}% across all {group.positions.length} accounts holding this trade.
+                Close {reduceSizingMode === 'percent' ? `${reducePct}%` : `${reduceQtyInput || '—'} qty per account`} across all {group.positions.length} accounts holding this trade.
               </p>
 
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 14 }}>
+                <ReductionModeControls mode={reduceSizingMode} onMode={setReduceSizingMode} quantity={reduceQtyInput} onQuantity={setReduceQtyInput} group />
+                {reduceSizingMode === 'percent' && <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>Select percentage to close:</span>
                   <strong style={{ fontSize: 14, color: '#f59e0b' }}>−{reducePct}%</strong>
@@ -4315,6 +4316,7 @@ export function GroupPositionManageModal({
                   </div>
                 </div>
 
+                </>}
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <div>
                     <span style={{ color: 'var(--muted)' }}>Est. Margin Released Across Group: </span>
@@ -4350,7 +4352,7 @@ export function GroupPositionManageModal({
                       <tr>
                         <th>Account</th>
                         <th style={{ textAlign: 'right' }}>Current Qty</th>
-                        <th style={{ textAlign: 'right' }}>Selling (−{reducePct}%)</th>
+                        <th style={{ textAlign: 'right' }}>Selling {reduceSizingMode === 'percent' ? `(−${reducePct}%)` : '(Qty)'}</th>
                         <th style={{ textAlign: 'right' }}>Remaining</th>
                         <th style={{ textAlign: 'right' }}>Margin Released</th>
                       </tr>
@@ -4380,10 +4382,10 @@ export function GroupPositionManageModal({
                   type="button"
                   className="btn btn-sm"
                   style={{ background: '#f59e0b', color: '#000000', fontWeight: 700, border: 'none' }}
-                  disabled={isExecuting || isHalted || group.positions.length === 0 || reducePct <= 0 || reducePct >= 100}
+                  disabled={isExecuting || isHalted || group.positions.length === 0 || evaluatedAccounts.some((item) => !item.canReduce)}
                   onClick={handleExecuteReduce}
                 >
-                  {isExecuting ? 'Executing Group Exit…' : `Close ${reducePct}% Across All ${group.positions.length} Accounts`}
+                  {isExecuting ? 'Executing Group Exit…' : `Close ${reduceSizingMode === 'percent' ? `${reducePct}%` : `${reduceQtyInput || '—'} Qty per account`} Across All ${group.positions.length} Accounts`}
                 </button>
               </div>
             </div>
@@ -4697,7 +4699,7 @@ export function GroupPositionManageModal({
                         style={{ width: 14, height: 14, cursor: 'pointer' }}
                       />
                       <label htmlFor="grp-trailing" style={{ fontSize: 12, cursor: 'pointer', color: 'var(--text)' }}>
-                        Auto-Trailing SL (1% step)
+                        Auto-Trailing SL (1% ROE step)
                       </label>
                     </div>
                   )}
@@ -5425,6 +5427,8 @@ export function QuickExitModal({
   readonly isHalted?: boolean | undefined;
 }) {
   const [isExecuting, setIsExecuting] = useState(false);
+  const dialogRef = useSafeDialog(onClose, isExecuting);
+  const exitLock = useRef(false);
   const [progress, setProgress] = useState<{ current: number; total: number; accountName: string } | null>(null);
   const [execResult, setExecResult] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
 
@@ -5441,13 +5445,25 @@ export function QuickExitModal({
   });
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Re-sync selected IDs when target changes
+  const selectionScope = isGroup ? group!.key : position!.venuePositionId;
+  const previousScope = useRef(selectionScope);
+  // Live quotes must never re-select accounts the operator deliberately excluded.
+  // New accounts also remain excluded until the operator explicitly selects them.
   useEffect(() => {
     if (isGroup && group) {
-      setSelectedIds(new Set(group.positions.map((p) => p.venuePositionId)));
-      setSearchQuery('');
+      const available = new Set(group.positions.map((p) => p.venuePositionId));
+      if (previousScope.current !== selectionScope) {
+        setSelectedIds(available);
+        setSearchQuery('');
+      } else {
+        setSelectedIds((current) => {
+          const next = new Set([...current].filter((id) => available.has(id)));
+          return next.size === current.size ? current : next;
+        });
+      }
     }
-  }, [target]);
+    previousScope.current = selectionScope;
+  }, [selectionScope, isGroup, group]);
 
   const allGroupPositions = useMemo(() => group?.positions ?? [], [group]);
 
@@ -5519,9 +5535,10 @@ export function QuickExitModal({
   };
 
   const handleConfirmExit = async () => {
-    if (isExecuting || isHalted) return;
+    if (isExecuting || isHalted || exitLock.current) return;
     if (isGroup && selectedGroupPositions.length === 0) return;
 
+    exitLock.current = true;
     setIsExecuting(true);
     setExecResult(null);
 
@@ -5532,7 +5549,7 @@ export function QuickExitModal({
 
       let completed = 0;
       const batchGroupTradeId = crypto.randomUUID();
-      await mapConcurrent(selectedGroupPositions, 12, async (pos) => {
+      await mapConcurrent(selectedGroupPositions, 100, async (pos) => {
         try {
           await exitFuturesPosition(pos.venuePositionId, pos.marginCurrency, batchGroupTradeId);
           succeeded++;
@@ -5557,14 +5574,15 @@ export function QuickExitModal({
       if (failed === 0) {
         setExecResult({
           kind: 'ok',
-          message: `Successfully closed positions at market across ${succeeded} selected account${succeeded === 1 ? '' : 's'}.`,
+          message: `Market exits submitted for ${succeeded} selected account${succeeded === 1 ? '' : 's'}. Check Orders for execution results.`,
         });
         setTimeout(() => onClose(), 1500);
       } else {
         setExecResult({
           kind: 'err',
-          message: `Closed ${succeeded} account${succeeded === 1 ? '' : 's'}; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
+          message: `Exit submitted for ${succeeded} account${succeeded === 1 ? '' : 's'}; ${failed} failed: ${errors.slice(0, 2).join('; ')}`,
         });
+        exitLock.current = false;
       }
     } else if (position) {
       setProgress({ current: 1, total: 1, accountName: position.accountName });
@@ -5581,6 +5599,7 @@ export function QuickExitModal({
       } catch (err) {
         const msg = (err as Error).message || '';
         setIsExecuting(false);
+        exitLock.current = false;
         setProgress(null);
         if (/no\s+active\s+position/i.test(msg) || /already\s+(closed|flat|exited)/i.test(msg)) {
           onRefreshPositions();
@@ -5627,13 +5646,7 @@ export function QuickExitModal({
   const effectiveRoe = useMemo(() => {
     if (!isGroup && position) return calcRoePct(position);
     if (!isGroup) return null;
-    const totalWeight = selectedGroupPositions.reduce((acc, p) => acc + Number(p.quantity || 0), 0);
-    if (totalWeight <= 0) return null;
-    const weightedSum = selectedGroupPositions.reduce((acc, p) => {
-      const r = calcRoePct(p);
-      return r !== null ? acc + r * Number(p.quantity || 0) : acc;
-    }, 0);
-    return weightedSum / totalWeight;
+    return calcGroupRoePct({ positions: selectedGroupPositions });
   }, [isGroup, position, selectedGroupPositions]);
 
   const side = isGroup ? group!.side : position!.side;
@@ -5641,7 +5654,7 @@ export function QuickExitModal({
 
   return (
     <div className="position-modal-overlay" onClick={() => { if (!isExecuting) onClose(); }}>
-      <div className="position-modal quick-exit-modal-box" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Review market exit" tabIndex={-1} className="position-modal quick-exit-modal-box" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="position-modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.25)', background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, transparent 100%)' }}>
           <div>
@@ -5663,7 +5676,7 @@ export function QuickExitModal({
                 </svg>
               </div>
               <h3 className="position-modal-title" style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
-                {isGroup ? `Quick Exit Group: ${group!.asset}` : `Quick Exit: ${position!.accountName}`}
+                {isGroup ? `Review market exit · ${group!.asset}` : `Review market exit · ${position!.accountName}`}
               </h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginLeft: 36 }}>
@@ -5683,12 +5696,13 @@ export function QuickExitModal({
             onClick={onClose}
             disabled={isExecuting}
             title="Cancel and close"
+            aria-label="Cancel market exit"
           >
             &times;
           </button>
         </div>
 
-        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="position-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {isHalted && (
             <div
               style={{
@@ -6075,6 +6089,7 @@ export function Futures() {
   // Keyboard shortcut: Press '/' or 'Ctrl/Cmd+K' to focus search, 'Esc' to clear and blur
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector('[aria-modal="true"]')) return;
       const activeEl = document.activeElement;
       const isInputActive =
         activeEl instanceof HTMLInputElement ||
@@ -6202,13 +6217,15 @@ export function Futures() {
       if (args.removeTp) body.removeTakeProfit = true;
 
       const out = await setFuturesProtection(args.id, body);
+      if (args.slp && !args.removeSl && out.stopLoss?.ok !== true) throw new Error(out.stopLoss?.reason ?? 'Stop loss was not confirmed');
+      if (args.tpp && !args.removeTp && out.takeProfit?.ok !== true) throw new Error(out.takeProfit?.reason ?? 'Take profit was not confirmed');
 
       if (args.trailing && args.slp && !args.removeSl) {
         await setTrailingProtection(args.id, {
           enable: true,
           currentSlPrice: args.slp,
           stepBp: '100',
-          distanceBp: '100',
+          stepBasis: 'roe',
         });
       } else if (!args.trailing || args.removeSl) {
         await setTrailingProtection(args.id, { enable: false });
@@ -6351,7 +6368,7 @@ export function Futures() {
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsedGroups.has(g.key));
 
   return (
-    <div className="panel full-width-page">
+    <div className="panel full-width-page desk-positions-page">
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -6509,7 +6526,7 @@ export function Futures() {
           <div className="summary-stat-block summary-pnl-block">
             <div className="stat-label">Unrealised PnL</div>
             <div className="pnl-entries-row">
-              {Object.entries(totalPnl).map(([cur, minor]) => {
+              {Object.entries(totalPnl).sort(([a], [b]) => a.localeCompare(b)).map(([cur, minor]) => {
                 const pnlVal = Number(minor);
                 const marginMinor = totalMargin[cur];
                 const marginVal = marginMinor ? Number(marginMinor) : 0;
@@ -6523,6 +6540,7 @@ export function Futures() {
 
                 return (
                   <div key={cur} className="pnl-entry-item">
+                    <PositionCurrencyBadge currency={cur as 'INR' | 'USDT'} />
                     <span className={`pnl-big ${pnlClass(minor)}`}>
                       {pnlText(minor, cur as 'INR' | 'USDT')}
                     </span>
@@ -6550,8 +6568,9 @@ export function Futures() {
           <div className="summary-stat-block summary-margin-block">
             <div className="stat-label">Margin Invested</div>
             <div className="margin-entries-row">
-              {Object.entries(totalMargin).map(([cur, minor]) => (
+              {Object.entries(totalMargin).sort(([a], [b]) => a.localeCompare(b)).map(([cur, minor]) => (
                 <span key={cur} className="stat-value" style={{ fontWeight: 600 }}>
+                  <PositionCurrencyBadge currency={cur as 'INR' | 'USDT'} />{' '}
                   {fmtMinor(minor, cur as 'INR' | 'USDT')}
                 </span>
               ))}
@@ -6574,6 +6593,12 @@ export function Futures() {
       )}
 
       {/* ── Messages ── */}
+      {hasAny && <div className="desk-risk-strip" aria-label="Visible position risk overview">
+        <span className="desk-eyebrow">VISIBLE POSITION RISK</span>
+        <span className={rows.some((p) => !p.stopLossTrigger || Number(p.stopLossTrigger) <= 0) ? 'warning' : ''}><i aria-hidden="true">◇</i> {rows.filter((p) => !p.stopLossTrigger || Number(p.stopLossTrigger) <= 0).length} without stop loss</span>
+        <span className={rows.some((p) => p.liqBufferBp !== null && p.liqBufferBp < 1000) ? 'danger' : ''}><i aria-hidden="true">△</i> {rows.filter((p) => p.liqBufferBp !== null && p.liqBufferBp < 1000).length} within 10% of liquidation</span>
+        <span className="desk-risk-strip-note">Hidden accounts excluded unless shown</span>
+      </div>}
       {message !== null && (
         <div style={{ marginBottom: 12, fontSize: 13, color: message.kind === 'ok' ? 'var(--ok)' : 'var(--danger)' }}>
           {message.text}

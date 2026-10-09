@@ -13,7 +13,7 @@
 
 import { getChildOrders } from '@tradex/db';
 import type { ChildOrderRow } from '@tradex/db';
-import { forTenant, addExecutionJob, addExecutionJobs } from '@tradex/db';
+import { forTenant } from '@tradex/db';
 import type { DB, TenantDb } from '@tradex/db';
 import type { Kysely } from 'kysely';
 import type { ExecutionWorker, WorkerRunSummary } from './execution-worker.js';
@@ -47,6 +47,16 @@ export class GroupExecutor {
    * group trade has none) are counted separately.
    */
   async enqueue(tdb: TenantDb, groupTradeId: string): Promise<EnqueueResult> {
+    return tdb.transaction((tx) => this.enqueueWithinTransaction(tx, groupTradeId));
+  }
+
+  /** Caller must hold a transaction; confirmation and all jobs commit together. */
+  async enqueueWithinTransaction(tdb: TenantDb, groupTradeId: string): Promise<EnqueueResult> {
+    const trade = await tdb.byId('group_trade', groupTradeId).select('status').forUpdate().executeTakeFirst();
+    if (trade === undefined) throw new Error('group trade not found');
+    if (!['executing', 'previewed', 'draft'].includes((trade as { status: string }).status)) {
+      return { enqueued: 0, alreadyTerminal: 0, conditionals: 0 };
+    }
     await tdb.updateTable('group_trade')
       .set({ status: 'executing', submitted_at: new Date() } as never)
       .where('id' as never, '=', groupTradeId as never)
@@ -54,22 +64,20 @@ export class GroupExecutor {
       .execute();
 
     const children = await getChildOrders(tdb, groupTradeId);
-    let enqueued = 0;
     let alreadyTerminal = 0;
     const planned: ChildOrderRow[] = [];
-    const jobsToEnqueue: Array<{ childOrderId: string; tenantId: string; kind: 'place' }> = [];
     for (const child of children) {
-      if (child.state === 'planned') {
-        jobsToEnqueue.push({ childOrderId: child.id, tenantId: tdb.tenantId, kind: 'place' });
-        enqueued += 1;
+      if (child.state === 'planned' && child.legKind === 'entry') {
         planned.push(child);
       } else {
         alreadyTerminal += 1;
       }
     }
-    if (jobsToEnqueue.length > 0) {
-      await addExecutionJobs(this.deps.db, jobsToEnqueue);
-    }
+    const existing = planned.length === 0 ? [] : await tdb.selectFrom('execution_job').select('child_order_id')
+      .where('child_order_id' as never, 'in', planned.map((c) => c.id) as never)
+      .where('kind' as never, '=', 'place' as never).execute();
+    const queued = new Set(existing.map((r) => (r as { child_order_id: string }).child_order_id));
+    const fresh = planned.filter((c) => !queued.has(c.id));
 
     // T15.5 — futures SL/TP fan-out. Each planned entry gets its conditional
     // legs MATERIALISED here, so they are part of the trade (visible in
@@ -77,8 +85,11 @@ export class GroupExecutor {
     // job is enqueued for them. The venue attaches protection to a POSITION,
     // not to an order, so the only correct trigger is the entry SETTLING to
     // `filled`; the worker does that from `attachProtection`.
-    const conditionals = await this.materialiseConditionals(tdb, groupTradeId, planned);
-    return { enqueued, alreadyTerminal, conditionals };
+    const conditionals = await this.materialiseConditionals(tdb, groupTradeId, fresh);
+    if (fresh.length > 0) {
+      await tdb.insertInto('execution_job', fresh.map((c) => ({ child_order_id: c.id, kind: 'place', run_after: new Date() }))).execute();
+    }
+    return { enqueued: fresh.length, alreadyTerminal, conditionals };
   }
 
   /**

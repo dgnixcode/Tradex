@@ -261,11 +261,11 @@ export async function run(assert) {
     const ownerBody = await ownerSession.json();
     assert(ownerBody.role === 'owner', 'the new session should carry the owner role');
     assert(ownerBody.tenantId !== TENANT, 'signup must create its OWN tenant, not reuse the seeded one');
-    // The new owner can immediately read their (empty) groups — a working session.
+    // The new owner can immediately read their own permanent default group.
     const ownerGroups = await fetch(`${base}/api/groups`, { headers: auth(ownerCookie) });
     assert(ownerGroups.status === 200, 'a fresh owner should be able to read groups');
     const ownerGroupList = await ownerGroups.json();
-    assert(Array.isArray(ownerGroupList) && ownerGroupList.length === 0, 'a brand-new workspace has no groups yet');
+    assert(Array.isArray(ownerGroupList) && ownerGroupList.length === 1 && ownerGroupList[0].name === 'Default (All Accounts)', 'a brand-new workspace has its own Default group');
 
     // A duplicate email is a clean 409, not a crash or a leak.
     const dupe = await fetch(`${base}/api/signup`, {
@@ -310,9 +310,14 @@ export async function run(assert) {
     const acctBody = await acctList.json();
     assert(acctBody.some((a) => a.id === accountId), 'the seeded account must appear in the accounts list');
 
-    const addRes = await fetch(`${base}/api/groups/${gid}/members`, {
+    const conflictRes = await fetch(`${base}/api/groups/${gid}/members`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
       body: JSON.stringify({ accountId }),
+    });
+    assert(conflictRes.status === 409, 'membership in another strategy group must require explicit reassignment');
+    const addRes = await fetch(`${base}/api/groups/${gid}/members`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...auth(traderCookie) },
+      body: JSON.stringify({ accountId, reassign: true }),
     });
     assert(addRes.status === 201, `adding a member should be 201, got ${addRes.status}`);
 

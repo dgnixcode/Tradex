@@ -27,8 +27,8 @@
 //    touch (best ask for a buy, best bid for a sell); a limit order at the
 //    customer's price. Nothing here reads a ticker.
 //
-//  - Nothing sends (the whole phase). The adapter's getOrderBook is the only
-//    venue call; there is no placeOrder path from here.
+//  - Nothing sends (the whole phase). Venue reads refresh balances and books;
+//    there is no placeOrder path from here.
 
 import { randomBytes } from 'node:crypto';
 import { add, cmp, div, mul, scaledFromString } from '@tradex/money';
@@ -48,6 +48,8 @@ import {
   GATE_CODES, GUARD_SCALE, effectiveMinQty, nat, planAccount, resolveMarket, toStr, touchPrice,
 } from '@tradex/sizing';
 import type { GateState, Intent, PlanAccountInput } from '@tradex/sizing';
+import { floorQuantityToStep } from './futures/adjust-service.js';
+import { decimalEqual } from './futures/place-protocol.js';
 
 /** How long a preview is valid. Short, because the book it was priced against ages. */
 export const PREVIEW_TTL_MS = 60_000;
@@ -61,7 +63,7 @@ const QUOTE_PREFERENCE: readonly SupportedQuote[] = ['INR', 'USDT'];
 const GATE_CODE_SET: ReadonlySet<string> = new Set(GATE_CODES as readonly string[]);
 
 /** Child states that count as "failed" for a retry — terminal and never placed. */
-const RETRYABLE_FAILED: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed', 'needs_human', 'unknown']);
+const RETRYABLE_FAILED: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed']);
 
 /** What the customer asked for at the group level, before it meets any market. */
 /** The currency this trade will spend. See `quoteFor`. */
@@ -102,10 +104,53 @@ export interface PlanRequest {
   readonly trailingStopLoss?: boolean | undefined;
   readonly trailingDistanceBp?: number | undefined;
   readonly trailingStepBp?: number | undefined;
+  readonly trailingStepBasis?: 'price' | 'roe' | undefined;
   readonly reduceOnly?: boolean | undefined;
   /** Retry-failed or single-account scoping (T08.7): when present, plan ONLY these still-enabled
    *  members of the group. */
   readonly accountIds?: readonly string[] | undefined;
+}
+
+/** Validate before any database write or exchange read, including algorithm calls. */
+export function validatePlanRequest(req: PlanRequest): void {
+  const fail = (message: string): never => { throw new PlanningError(message, 'bad_mode'); };
+  const positive = (v: unknown): v is string => typeof v === 'string' && v.length <= 80
+    && /^\d+(\.\d{1,18})?$/.test(v) && /[1-9]/.test(v);
+  if (typeof req.asset !== 'string' || !/^[A-Z0-9]{1,30}$/.test(req.asset)) fail('Invalid asset');
+  if (req.side !== 'buy' && req.side !== 'sell') fail('Invalid order side');
+  if (req.orderType !== 'market' && req.orderType !== 'limit') fail('Order type must be market or limit');
+  if (req.orderType === 'limit' && !positive(req.limitPrice)) fail('A positive plain decimal limit price is required');
+  if (!['quote_amount', 'base_quantity', 'pct_allocated', 'pct_equity', 'pct_free', 'pct_position', 'sell_all'].includes(req.sizingMode)) fail('Invalid sizing mode');
+  if (req.sizingMode.startsWith('pct_') && (!Number.isInteger(req.percentBp) || req.percentBp! < 1 || req.percentBp! > 10_000)) fail('Percent must be 1..10000 basis points');
+  if (req.sizingMode === 'base_quantity' && !positive(req.sizingValue)) fail('A positive plain decimal quantity is required');
+  if (req.sizingMode === 'quote_amount' && (!positive(req.sizingValue) || !/^\d+$/.test(req.sizingValue!))) fail('Quote amount must be positive integer minor units');
+  if (req.side === 'buy' && ['sell_all', 'pct_position'].includes(req.sizingMode)) fail('Position sizing requires a sell');
+  for (const key of ['isFutures', 'trailingStopLoss', 'reduceOnly'] as const) {
+    if (req[key] !== undefined && typeof req[key] !== 'boolean') fail(`Invalid ${key}`);
+  }
+  for (const key of ['quoteCurrency', 'marginCurrency'] as const) {
+    if (req[key] !== undefined && !['INR', 'USDT'].includes(req[key]!)) fail(`Invalid ${key}`);
+  }
+  if (req.isFutures) {
+    if (typeof req.leverage !== 'string' || !/^\d{1,3}$/.test(req.leverage) || Number(req.leverage) < 1 || Number(req.leverage) > 200) fail('Leverage must be a whole number from 1 to 200');
+    if (!req.marginCurrency || !['isolated', 'crossed'].includes(req.positionMarginType ?? '')) fail('Futures margin currency and margin type are required');
+    if (req.reduceOnly) fail('This venue cannot guarantee reduce-only entry orders; use the position reduction action');
+  }
+  for (const key of ['stopLossPrice', 'takeProfitPrice'] as const) {
+    if (req[key] !== undefined && !positive(req[key])) fail(`Invalid ${key}`);
+  }
+  for (const key of ['slippageToleranceBp', 'trailingDistanceBp', 'trailingStepBp'] as const) {
+    if (req[key] !== undefined && (!Number.isInteger(req[key]) || req[key]! < 1 || req[key]! > 10_000)) fail(`Invalid ${key}`);
+  }
+  if (req.trailingStepBasis !== undefined && !['price', 'roe'].includes(req.trailingStepBasis)) fail('Invalid trailing step basis');
+  if (req.trailingStopLoss && req.trailingStepBasis === 'roe' && (!req.isFutures || !req.stopLossPrice || !req.trailingStepBp)) fail('ROE trailing requires a futures stop price and step');
+  if (req.accountIds !== undefined && (!Array.isArray(req.accountIds) || req.accountIds.length < 1 || req.accountIds.length > 100
+    || req.accountIds.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id))
+    || new Set(req.accountIds).size !== req.accountIds.length)) fail('Select 1..100 distinct account ids');
+  for (const key of ['groupId', 'accountId'] as const) {
+    if (req[key] !== undefined && req[key] !== '' && (typeof req[key] !== 'string' || !/^[0-9a-f-]{36}$/i.test(req[key]!))) fail(`Invalid ${key}`);
+  }
+  if (req.accountId && req.accountIds && (req.accountIds.length !== 1 || req.accountIds[0] !== req.accountId)) fail('Conflicting account scope');
 }
 
 export interface PreviewRow {
@@ -142,6 +187,9 @@ export interface PreviewResult {
   readonly positionMarginType?: string | null | undefined;
   readonly stopLossPrice?: string | null | undefined;
   readonly takeProfitPrice?: string | null | undefined;
+  readonly trailingStopLoss?: boolean | undefined;
+  readonly trailingStepBasis?: 'price' | 'roe' | undefined;
+  readonly trailingStepBp?: string | null | undefined;
 }
 
 export interface PlanningDeps {
@@ -149,8 +197,10 @@ export interface PlanningDeps {
   readonly tdb: TenantDb;
   /** Unscoped db for GLOBAL data: market metadata and platform_state. */
   readonly db: Kysely<DB>;
-  /** The only venue call. Injected so a fake book stands in for the check. */
+  /** Order-book read. Injected so a fake book stands in for the check. */
   readonly getOrderBook: (market: MarketRef, depth: number) => Promise<OrderBook>;
+  /** Refresh the resolved accounts before sizing, including default/retry scopes. */
+  readonly refreshBalances?: ((accountIds: readonly string[]) => Promise<void>) | undefined;
   /** Phase-09 sell-position sizing: a FRESH free/locked holdings read used at
    *  preview for sell_all / pct_position (T09.2). When absent, preview sizes from
    *  the projected account_balance rows only (the send still re-reads). */
@@ -193,6 +243,14 @@ export class PlanningService {
    * `previewed` with a token and a hard expiry; confirmation is a separate call.
    */
   async preview(req: PlanRequest): Promise<PreviewResult> {
+    validatePlanRequest(req);
+    return this.deps.tdb.transaction(async (tdb) => {
+      await tdb.lockPlanning();
+      return new PlanningService({ ...this.deps, tdb }).previewWithinTransaction(req);
+    });
+  }
+
+  private async previewWithinTransaction(req: PlanRequest): Promise<PreviewResult> {
     const nowMs = (this.deps.now ?? (() => Date.now()))();
     const dayStartMs = (this.deps.dayStartMs ?? (() => istDayStart(nowMs)))();
     const newToken = this.deps.newToken ?? (() => randomBytes(24).toString('base64url'));
@@ -247,6 +305,23 @@ export class PlanningService {
       }
     }
 
+    if (this.deps.refreshBalances !== undefined) {
+      const resolvedIds = new Set(members.map((member) => member.accountId));
+      const refreshedIds = new Set(members.filter((member) => member.status === 'active').map((member) => member.accountId));
+      try {
+        await this.deps.refreshBalances([...refreshedIds]);
+      } catch {
+        throw new PlanningError('Fresh balances could not be read for every selected account; try preview again.', 'stale_balances');
+      }
+      // Refresh also updates allocation/funding. Never size from pre-sync member
+      // data or include a newly added member whose balance was not refreshed.
+      members = (await getEnabledMembers(this.deps.tdb, targetGroupId)).filter((member) => resolvedIds.has(member.accountId));
+      if (members.length === 0) throw new PlanningError('this group has no enabled accounts to trade', 'empty_group');
+      if (members.some((member) => member.status === 'active' && !refreshedIds.has(member.accountId))) {
+        throw new PlanningError('Selected accounts changed during balance refresh; try preview again.', 'stale_balances');
+      }
+    }
+
     // --- gather the shared, trade-wide state once -----------------------------
     const version = await latestMarketMetadataVersion(this.deps.db);
     if (version === null) throw new PlanningError('no market metadata has been ingested yet', 'no_market_data');
@@ -261,11 +336,17 @@ export class PlanningService {
       const futuresPair = futuresPairOf({ asset: req.asset, quote }, marginCurrency);
       try {
         const instRes = await this.deps.getFuturesInstrument(futuresPair, marginCurrency);
+        if (!instRes?.ok || !instRes.instrument?.quantityIncrement || instRes.instrument.quantityIncrement === '0') {
+          throw new PlanningError('Current futures instrument rules are unavailable; try a fresh preview.', 'no_market_data');
+        }
         if (instRes?.ok && instRes.instrument && instRes.instrument.quantityIncrement && instRes.instrument.quantityIncrement !== '0') {
           const step = instRes.instrument.quantityIncrement;
           const dot = step.indexOf('.');
           const qPrecision = dot >= 0 ? step.length - dot - 1 : 0;
           const pStep = instRes.instrument.priceIncrement;
+          if (req.orderType === 'limit' && (!pStep || !decimalEqual(floorQuantityToStep(req.limitPrice!, pStep), req.limitPrice!))) {
+            throw new PlanningError('Limit price must match the current instrument price increment.', 'bad_mode');
+          }
           const pDot = pStep ? pStep.indexOf('.') : -1;
           const pPrecision = pDot >= 0 ? pStep.length - pDot - 1 : 0;
           const minNotionalVal = instRes.instrument.minNotional || '0';
@@ -287,6 +368,8 @@ export class PlanningService {
                 maxQuantity: instRes.instrument?.maxQuantity && instRes.instrument.maxQuantity !== '0'
                   ? instRes.instrument.maxQuantity
                   : r.maxQuantity,
+                maxMarketQuantity: instRes.instrument?.maxMarketOrderQuantity && instRes.instrument.maxMarketOrderQuantity !== '0'
+                  ? instRes.instrument.maxMarketOrderQuantity : r.maxMarketQuantity,
                 minNotionalMinor: minNotionalMinor !== '0' ? minNotionalMinor : r.minNotionalMinor,
               };
             }
@@ -294,8 +377,11 @@ export class PlanningService {
           });
         }
       } catch (err) {
-        console.warn(`[planning] could not fetch futures instrument rules for ${futuresPair}:`, err);
+        if (err instanceof PlanningError) throw err;
+        throw new PlanningError(`Current futures rules for ${futuresPair} could not be read.`, 'no_market_data');
       }
+    } else if (req.isFutures && this.deps.dryRun === false) {
+      throw new PlanningError('Futures instrument reads are required for live trading.', 'no_market_data');
     }
 
     const platform = await readPlatformFlags(this.deps.db);
@@ -349,13 +435,14 @@ export class PlanningService {
       books.set(symbol, await this.deps.getOrderBook(ref, BOOK_DEPTH));
     }
     let usdtInrMid: string | null = null;
-    if (req.isFutures) {
+    if (req.isFutures || [...marketsToRead.values()].some((market) => market.quote === 'USDT')) {
       try {
         const usdtInrBook = await this.deps.getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
         usdtInrMid = bookMid(usdtInrBook);
       } catch {
-        // Fallback: USDT/INR book unavailable, sizing will proceed with unit rate
+        throw new PlanningError('The INR/USDT rate could not be read; cannot apply margin limits safely.', 'no_market_data');
       }
+      if (usdtInrMid === null || !/[1-9]/.test(usdtInrMid)) throw new PlanningError('The INR/USDT rate is unavailable.', 'no_market_data');
     }
 
     // Market-scope switches (phase 05): the operator-set mode for each market the
@@ -366,13 +453,6 @@ export class PlanningService {
     // ABOVE — before the sizing loop below. Prefer INR, then USDT.
     const referenceBook = this.pickReferenceBook(books, candidates);
     const decisionMid = referenceBook === null ? null : bookMid(referenceBook);
-
-    // Supercede any previous unconfirmed previews for this group
-    await this.deps.tdb.updateTable('group_trade')
-      .set({ status: 'abandoned' as never })
-      .where('group_id' as never, '=', targetGroupId as never)
-      .where('status' as never, '=', 'previewed' as never)
-      .execute();
 
     // --- per-account planning -------------------------------------------------
     const children: NewChildOrder[] = [];
@@ -410,6 +490,7 @@ export class PlanningService {
       trailing_stop_loss: req.trailingStopLoss ?? false,
       trailing_distance_bp: req.trailingDistanceBp !== undefined ? String(req.trailingDistanceBp) : null,
       trailing_step_bp: req.trailingStepBp !== undefined ? String(req.trailingStepBp) : null,
+      trailing_step_basis: req.trailingStepBasis ?? 'price',
       reduceOnly: req.reduceOnly ?? false,
     };
     const { groupTradeId } = await persistPlan(this.deps.tdb, trade, children, nowMs);
@@ -435,6 +516,9 @@ export class PlanningService {
       positionMarginType: req.positionMarginType ?? null,
       stopLossPrice: req.stopLossPrice ?? null,
       takeProfitPrice: req.takeProfitPrice ?? null,
+      trailingStopLoss: req.trailingStopLoss ?? false,
+      trailingStepBasis: req.trailingStepBasis ?? 'price',
+      trailingStepBp: req.trailingStepBp === undefined ? null : String(req.trailingStepBp),
     };
   }
 
@@ -498,8 +582,8 @@ export class PlanningService {
     // The daily-spend basis (gate 11), in the market's quote currency.
     const quote: SupportedQuote = resolvedSymbol !== null && !('code' in resolved)
       ? resolved.rules.market.quote : 'INR';
-    const dailySpent = resolvedSymbol !== null
-      ? await dailySpentMinor(this.deps.tdb, member.accountId, quote, ctx.dayStartMs)
+    let dailySpent = resolvedSymbol !== null
+      ? await dailySpentMinor(this.deps.tdb, member.accountId, quote, ctx.dayStartMs, req.isFutures === true, ctx.usdtInrMid ?? undefined)
       : '0';
     const inFlight = resolvedSymbol !== null
       ? await hasInFlightOrder(this.deps.tdb, member.accountId, resolvedSymbol)
@@ -567,6 +651,7 @@ export class PlanningService {
       // In futures, caps limit the margin committed, so notional caps scale with leverage
       effectiveOrderCap = toStr(mul(nat(effectiveOrderCap), lev, 0));
       effectiveDailyCap = toStr(mul(nat(effectiveDailyCap), lev, 0));
+      dailySpent = toStr(mul(nat(dailySpent), lev, 0));
     }
 
     const gateState: GateState = {
@@ -705,6 +790,9 @@ export class PlanningService {
       positionMarginType: trade.positionMarginType ?? null,
       stopLossPrice: trade.stopLossPrice ?? null,
       takeProfitPrice: trade.takeProfitPrice ?? null,
+      trailingStopLoss: trade.trailingStopLoss ?? false,
+      trailingStepBasis: trade.trailingStepBasis ?? 'price',
+      trailingStepBp: trade.trailingStepBp ?? null,
     };
   }
 
@@ -718,7 +806,7 @@ export class PlanningService {
     const prev = await getGroupTrade(this.deps.tdb, previousTradeId);
     if (prev === null) throw new PlanningError('no such group trade', 'trade_not_found');
     const children = await getChildOrders(this.deps.tdb, previousTradeId);
-    const failedIds = children.filter((c) => RETRYABLE_FAILED.has(c.state)).map((c) => c.accountId);
+    const failedIds = children.filter((c) => c.legKind === 'entry' && RETRYABLE_FAILED.has(c.state)).map((c) => c.accountId);
     if (failedIds.length === 0) {
       throw new PlanningError('nothing failed — every leg of this trade was placed or is still working', 'nothing_to_retry');
     }
@@ -738,10 +826,22 @@ export class PlanningService {
       createdBy,
       asset: trade.asset,
       side: trade.side,
-      // Retry preserves the original order type; futures/conditional retry is Phase 15 T15.5+, not yet wired.
+      // Preserve the venue, margin, sizing and protection intent on a fresh retry.
       orderType: trade.orderType === 'market' || trade.orderType === 'limit' ? trade.orderType : 'market',
       sizingMode: trade.sizingMode,
       accountIds,
+      isFutures: trade.isFutures,
+      leverage: trade.leverage ?? undefined,
+      quoteCurrency: (trade.quoteCurrency ?? undefined) as PlanRequest['quoteCurrency'],
+      marginCurrency: (trade.marginCurrency ?? undefined) as PlanRequest['marginCurrency'],
+      positionMarginType: (trade.positionMarginType ?? undefined) as PlanRequest['positionMarginType'],
+      stopLossPrice: trade.stopLossPrice ?? undefined,
+      takeProfitPrice: trade.takeProfitPrice ?? undefined,
+      trailingStopLoss: trade.trailingStopLoss,
+      trailingDistanceBp: trade.trailingDistanceBp === null || trade.trailingDistanceBp === undefined ? undefined : Number(trade.trailingDistanceBp),
+      trailingStepBp: trade.trailingStepBp === null || trade.trailingStepBp === undefined ? undefined : Number(trade.trailingStepBp),
+      trailingStepBasis: trade.trailingStepBasis,
+      reduceOnly: trade.reduceOnly,
       ...(trade.orderType === 'limit' ? { limitPrice: trade.limitPrice ?? undefined } : {}),
     };
     if (trade.sizingMode.startsWith('pct_')) {
@@ -887,7 +987,7 @@ export class PlanningError extends Error {
   override readonly name = 'PlanningError';
   constructor(
     message: string,
-    readonly reason: 'empty_group' | 'no_market_data' | 'bad_mode' | 'trade_not_found' | 'nothing_to_retry',
+    readonly reason: 'empty_group' | 'no_market_data' | 'stale_balances' | 'bad_mode' | 'trade_not_found' | 'nothing_to_retry',
   ) {
     super(message);
   }

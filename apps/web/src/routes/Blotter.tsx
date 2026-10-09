@@ -27,10 +27,11 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 const badgeFor = (state: string): string => {
-  if (state === 'filled') return 'planned';
-  if (state === 'open' || state === 'acked' || state === 'partially_filled') return 'planned';
-  if (state === 'rejected' || state === 'skipped' || state === 'not_placed' || state === 'needs_human' || state === 'cancelled') return 'skipped';
-  return 'skipped';
+  if (state === 'filled') return 'state-filled';
+  if (['planned', 'sending', 'open', 'acked', 'partially_filled'].includes(state)) return 'state-working';
+  if (['needs_human', 'unknown', 'ambiguous'].includes(state)) return 'state-review';
+  if (state === 'rejected') return 'state-rejected';
+  return 'state-neutral';
 };
 
 function fmtQty(q: string): string {
@@ -153,7 +154,7 @@ export function GroupOrderItem({
 }) {
   const isExit = g.isFutures && g.sizingMode === 'sell_all';
   const isReduce = g.isFutures && g.sizingMode === 'pct_position';
-  const isAllFilled = g.failedCount === 0 && g.skippedCount === 0;
+  const isAllFilled = g.totalAccounts > 0 && g.filledCount === g.totalAccounts && g.failedCount === 0 && g.skippedCount === 0;
 
   const sideLabel = isExit
     ? `${g.side} (Exit)`
@@ -194,7 +195,9 @@ export function GroupOrderItem({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {/* Expand/Collapse Chevron */}
-          <div
+          <button type="button" className="desk-expand-button" aria-expanded={isExpanded}
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${g.groupName} order`}
+            onClick={(event) => { event.stopPropagation(); onToggle(); }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -210,7 +213,7 @@ export function GroupOrderItem({
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 18 15 12 9 6" />
             </svg>
-          </div>
+          </button>
 
           {/* Group Name & Badge */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -277,8 +280,8 @@ export function GroupOrderItem({
               {g.filledCount}/{g.totalAccounts} Filled
             </span>
           ) : (
-            <span className="badge skipped" style={{ fontSize: 11.5, fontWeight: 700 }}>
-              {g.filledCount} Filled{g.skippedCount > 0 ? `, ${g.skippedCount} Skipped` : ''}{g.failedCount > 0 ? `, ${g.failedCount} Failed` : ''}
+            <span className={`badge ${g.failedCount > 0 ? 'state-review' : 'state-working'}`} style={{ fontSize: 11.5, fontWeight: 700 }}>
+              {g.filledCount}/{g.totalAccounts} Filled{g.skippedCount > 0 ? ` · ${g.skippedCount} Skipped` : ''}{g.failedCount > 0 ? ` · ${g.failedCount} Failed` : ''}{g.totalAccounts > g.filledCount + g.skippedCount + g.failedCount ? ` · ${g.totalAccounts - g.filledCount - g.skippedCount - g.failedCount} Other` : ''}
             </span>
           )}
 
@@ -521,7 +524,7 @@ export function Blotter() {
   const isSuccess = viewMode === 'group' ? groupQuery.isSuccess : flatQuery.isSuccess;
 
   return (
-    <div className="panel full-width-page">
+    <div className="panel full-width-page desk-orders-page">
       {/* Top Header & View Mode Switcher */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -582,7 +585,7 @@ export function Blotter() {
             {OUTCOMES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input
-            className="btn btn-sm" placeholder="Market (e.g. BTCINR)" value={market}
+            className="btn btn-sm" aria-label="Filter by market" placeholder="Market (e.g. BTCINR)" value={market}
             onChange={(e) => setMarket(e.target.value)}
             style={{ width: 140 }}
           />

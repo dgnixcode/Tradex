@@ -6,6 +6,10 @@ export default tseslint.config(
     ignores: [
       '**/dist/**',
       '**/node_modules/**',
+      '**/.venv/**',
+      '**/.research-venv/**',
+      '.kilo/**',
+      '.tmpwork/**',
       'scripts/__fixtures__/**',
       'research/**',
       'plan/**',
@@ -21,6 +25,7 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  { languageOptions: { parserOptions: { tsconfigRootDir: import.meta.dirname } } },
   {
     rules: {
       // Money paths must never coerce. The CI rules script enforces the rest.
@@ -56,6 +61,7 @@ export default tseslint.config(
         performance: 'readonly',
         // fetch is a Node global since v18; the HTTP checks drive the server with it.
         fetch: 'readonly',
+        AbortController: 'readonly',
       },
     },
   },

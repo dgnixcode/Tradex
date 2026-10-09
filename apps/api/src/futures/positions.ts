@@ -37,14 +37,14 @@ export interface FuturesPositionsResponse {
 export async function venuePositionOwner(
   tdb: TenantDb,
   venuePositionId: string,
-): Promise<{ readonly accountId: string; readonly marginCurrency: string } | null> {
+): Promise<{ readonly accountId: string; readonly marginCurrency: string; readonly pair: string } | null> {
   const row = await tdb.selectFrom('futures_position')
-    .select(['account_id as accountId', 'margin_currency as marginCurrency'] as unknown as never)
+    .select(['account_id as accountId', 'margin_currency as marginCurrency', 'pair'] as unknown as never)
     .where('venue_position_id' as never, '=', venuePositionId as never)
     .executeTakeFirst();
   if (row === undefined) return null;
-  const r = row as unknown as { accountId: string; marginCurrency: string };
-  return { accountId: r.accountId, marginCurrency: r.marginCurrency };
+  const r = row as unknown as { accountId: string; marginCurrency: string; pair: string };
+  return { accountId: r.accountId, marginCurrency: r.marginCurrency, pair: r.pair };
 }
 
 interface RawFuturesPositionRow {

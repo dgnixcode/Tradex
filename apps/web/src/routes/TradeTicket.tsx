@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade, syncAccount } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
+import { useTradeBalances } from '../hooks/useTradeBalances.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
+import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 
 export function parseCoinFromPair(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -16,6 +18,7 @@ export function parseCoinFromPair(raw: string | null | undefined): string | null
 import { TradingViewChart } from '../components/TradingViewChart.tsx';
 import { WatchlistPanel } from '../components/WatchlistPanel.tsx';
 import { CoinPositionsDrawer } from '../components/CoinPositionsDrawer.tsx';
+import { TerminalControls } from '../components/TerminalControls.tsx';
 
 // The futures trade ticket — plan/phase-15 T15.10.
 //
@@ -221,7 +224,6 @@ function Choice<T extends string>({ label, value, options, onChange, hint }: {
 }
 
 interface TradeProtectionModalProps {
-  readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly asset: string;
   readonly quoteCurrency: string;
@@ -258,7 +260,6 @@ interface TradeProtectionModalProps {
 }
 
 function TradeProtectionModal({
-  isOpen,
   onClose,
   asset,
   quoteCurrency,
@@ -293,7 +294,7 @@ function TradeProtectionModal({
   marginCurrency,
   usdtInrRate,
 }: TradeProtectionModalProps) {
-  if (!isOpen) return null;
+  const dialogRef = useSafeDialog(onClose);
 
   // Compute estimated profit for Take Profit
   const tpTriggerPrice = useMemo(() => {
@@ -393,6 +394,7 @@ function TradeProtectionModal({
   return (
     <div className="position-modal-overlay" onClick={onClose}>
       <div
+        ref={dialogRef} role="dialog" aria-modal="true" aria-label="Take profit and stop loss" tabIndex={-1}
         className="position-modal"
         style={{ maxWidth: 470, width: '100%', background: '#0e1015' }}
         onClick={(e) => e.stopPropagation()}
@@ -597,12 +599,13 @@ function TradeProtectionModal({
                 Stop Loss is disabled. No stop-loss order will be placed. Check the box above to enable.
               </div>
             ) : trailingStopLoss ? (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
+              <div title="Each step follows unrealised P&L as a percentage of current position margin. The chosen initial stop gap is preserved; each account trails independently." style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Distance (%)</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Initial SL gap (price %)</div>
                   <input
                     type="text"
                     inputMode="decimal"
+                    aria-label="Initial stop-loss price gap (%)"
                     value={trailingDistancePercent}
                     onChange={(e) => setTrailingDistancePercent(e.target.value)}
                     placeholder="5"
@@ -610,10 +613,11 @@ function TradeProtectionModal({
                   />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Step (%)</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Step (ROE %)</div>
                   <input
                     type="text"
                     inputMode="decimal"
+                    aria-label="Trailing step (ROE %)"
                     value={trailingStepPercent}
                     onChange={(e) => setTrailingStepPercent(e.target.value)}
                     placeholder="1"
@@ -966,7 +970,6 @@ export function TradeTicket() {
   const [highlightedAccountIndex, setHighlightedAccountIndex] = useState<number>(0);
   const accountPickerRef = useRef<HTMLDivElement>(null);
   const accountSearchInputRef = useRef<HTMLInputElement>(null);
-  const [isSyncingAccount, setIsSyncingAccount] = useState<boolean>(false);
   const [searchParams] = useSearchParams();
   const urlCoin = useMemo(() => {
     const raw = searchParams.get('coin') || searchParams.get('pair') || searchParams.get('asset') || searchParams.get('symbol');
@@ -993,6 +996,11 @@ export function TradeTicket() {
       return 'trade';
     }
   });
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Ticket and positions share a scroll surface; never open a tab halfway down.
+    if (rightPanelRef.current) rightPanelRef.current.scrollTop = 0;
+  }, [rightPanelTab]);
 
   // Query live positions to show position count badge on rail & drawer
   const positionsQuery = useQuery({
@@ -1021,7 +1029,7 @@ export function TradeTicket() {
   const [positionMarginType, setPositionMarginType] = useState<PositionMarginType>(() => draft.positionMarginType || 'isolated');
   const [percent, setPercent] = useState<string>(() => draft.percent || '');
   const [quantity, setQuantity] = useState<string>(() => draft.quantity || '');
-  const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>(() => draft.sizingMode || 'percent');
+  const [sizingMode, setSizingMode] = useState<'percent' | 'quantity'>(() => draft.sizingMode || 'quantity');
   const [enableSl, setEnableSl] = useState<boolean>(() => {
     if (typeof draft.enableSl === 'boolean') return draft.enableSl;
     return Boolean(draft.stopLossPrice || draft.slPercent || draft.trailingStopLoss);
@@ -1045,7 +1053,7 @@ export function TradeTicket() {
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   // SL/TP percentage mode state — one toggle controls both fields.
-  const [slTpMode, setSlTpMode] = useState<SlTpMode>(() => draft.slTpMode || 'percent');
+  const [slTpMode, setSlTpMode] = useState<SlTpMode>(() => draft.slTpMode || 'price');
   const [slPercent, setSlPercent] = useState<string>(() => draft.slPercent || '');
   const [tpPercent, setTpPercent] = useState<string>(() => draft.tpPercent || '');
   // Stores the latest market price for use as SL/TP reference on market orders.
@@ -1189,19 +1197,6 @@ export function TradeTicket() {
     setAccountId(id);
     setIsAccountPickerOpen(false);
     setAccountSearch('');
-    // Immediately sync the selected account's fresh balance from CoinDCX
-    setIsSyncingAccount(true);
-    syncAccount(id)
-      .then(() => {
-        void accounts.refetch();
-        void groups.refetch();
-      })
-      .catch((err) => {
-        console.warn('account balance sync on selection encountered error:', err);
-      })
-      .finally(() => {
-        setIsSyncingAccount(false);
-      });
   };
 
   // Auto-select first active account if in account mode and no account selected
@@ -1245,8 +1240,17 @@ export function TradeTicket() {
     [groups.data, groupId],
   );
 
-  // Auto-align margin currency to available balance if current currency is completely unfunded
+  const balanceRefresh = useTradeBalances(targetType,
+    (targetType === 'account' ? selectedAccount?.id : selectedGroup?.id) ?? '',
+    () => Promise.all([accounts.refetch({ throwOnError: true }), groups.refetch({ throwOnError: true })]));
+
+  const alignedFundingScope = useRef('');
+  // Suggest funding once when selecting a scope. Live balance refreshes must
+  // never silently change the margin currency of a trade being composed.
   useEffect(() => {
+    const scope = targetType === 'account' ? `account:${selectedAccount?.id ?? ''}` : `group:${selectedGroup?.id ?? ''}`;
+    if ((targetType === 'account' ? !selectedAccount : !selectedGroup) || alignedFundingScope.current === scope) return;
+    alignedFundingScope.current = scope;
     if (targetType === 'account' && selectedAccount) {
       const inrBal = Number(selectedAccount.balancesByCurrency?.['INR'] || (selectedAccount.allocatedCurrency === 'INR' ? selectedAccount.allocatedCapitalMinor : '0'));
       const usdtBal = Number(selectedAccount.balancesByCurrency?.['USDT'] || (selectedAccount.allocatedCurrency === 'USDT' ? selectedAccount.allocatedCapitalMinor : '0'));
@@ -1418,7 +1422,7 @@ export function TradeTicket() {
   };
 
   const handleQuantityChange = (value: string): void => {
-    setQuantity(filterNumeric(value));
+    setQuantity(value);
   };
 
   const accountCount = targetType === 'account'
@@ -1445,7 +1449,9 @@ export function TradeTicket() {
 
   // Compute the effective absolute SL/TP prices (for validation + submission).
   const effectiveSlPrice: string = enableSl
-    ? (slTpMode === 'percent' && slPercent !== '' && Number(slPercent) > 0 && hasRef
+    ? (trailingStopLoss && Number(trailingDistancePercent) > 0 && hasRef
+        ? percentToPrice(slTpRefNum, Number(trailingDistancePercent), side, 'sl').toFixed(8).replace(/\.?0+$/, '')
+        : slTpMode === 'percent' && slPercent !== '' && Number(slPercent) > 0 && hasRef
         ? percentToPrice(slTpRefNum, Number(slPercent), side, 'sl').toFixed(8).replace(/\.?0+$/, '')
         : (stopLossPrice !== '' && Number(stopLossPrice) > 0 ? stopLossPrice : ''))
     : '';
@@ -1523,7 +1529,9 @@ export function TradeTicket() {
 
   const slValid = !enableSl || (
     trailingStopLoss
-      ? (/^\d+(\.\d+)?$/.test(trailingDistancePercent) && Number(trailingDistancePercent) > 0)
+      ? (/^\d+(\.\d{1,2})?$/.test(trailingDistancePercent) && Number(trailingDistancePercent) > 0 && Number(trailingDistancePercent) < 100
+        && /^\d+(\.\d{1,2})?$/.test(trailingStepPercent) && Number(trailingStepPercent) >= 0.01 && Number(trailingStepPercent) <= 100
+        && Number(effectiveSlPrice) > 0)
       : (slTpMode === 'price' ? (stopLossPrice !== '' && priceOk(stopLossPrice)) : (slPercent !== '' && pctOk(slPercent)))
   );
   const tpValid = !enableTp || (
@@ -1532,6 +1540,7 @@ export function TradeTicket() {
 
   const canPreview =
     !isHalted
+    && !balanceRefresh.pending
     && targetValid && asset !== ''
     && leverageValid && sizeValid
     && (orderType !== 'limit' || (limitPrice !== '' && priceOk(limitPrice)))
@@ -1542,6 +1551,7 @@ export function TradeTicket() {
   }, [groups.data]);
 
   const submitPreview = (): void => {
+    if (!canPreview || preview.isPending) return;
     let sizingModeOut: string;
     let percentBpOut: number | undefined;
     let sizingValueOut: string | undefined;
@@ -1582,6 +1592,7 @@ export function TradeTicket() {
       ...(enableTp && effectiveTpPrice !== '' ? { takeProfitPrice: effectiveTpPrice } : {}),
       ...(enableSl && trailingStopLoss ? { 
         trailingStopLoss: true,
+        trailingStepBasis: 'roe',
         trailingDistanceBp: Math.round(Number(trailingDistancePercent) * 100),
         trailingStepBp: Math.round(Number(trailingStepPercent) * 100),
       } : {}),
@@ -1616,6 +1627,7 @@ export function TradeTicket() {
 
       {/* Right Column: Collapsible Drawer Panel (Trade Order vs Watchlist vs Positions) */}
       <div
+        ref={rightPanelRef}
         className={`trading-right-panel ${rightPanelTab === 'position' ? 'positions-active' : ''} ${rightPanelTab === 'chart' ? 'mobile-panel-compact' : ''}`}
         style={{ display: isPanelOpen ? 'flex' : 'none' }}
       >
@@ -1793,18 +1805,16 @@ export function TradeTicket() {
                   minHeight: 'unset',
                   fontSize: 11,
                   cursor: 'pointer',
-                  opacity: groups.isFetching || accounts.isFetching ? 0.5 : 0.8,
+                  opacity: balanceRefresh.pending ? 0.5 : 0.8,
                   display: 'inline-flex',
                   alignItems: 'center',
                 }}
-                onClick={() => {
-                  void groups.refetch();
-                  void accounts.refetch();
-                }}
-                disabled={groups.isFetching || accounts.isFetching}
-                title="Refresh balances from database"
+                onClick={() => { void balanceRefresh.refresh(); }}
+                disabled={!selectedGroup || balanceRefresh.pending || preview.isPending}
+                title="Refresh selected group balances from exchange"
+                aria-label="Refresh group balances"
               >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching || accounts.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: balanceRefresh.pending ? 'spin 1s linear infinite' : 'none' }}>
                   <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                 </svg>
               </button>
@@ -1883,18 +1893,16 @@ export function TradeTicket() {
                   minHeight: 'unset',
                   fontSize: 11,
                   cursor: 'pointer',
-                  opacity: groups.isFetching || accounts.isFetching ? 0.5 : 0.8,
+                  opacity: balanceRefresh.pending ? 0.5 : 0.8,
                   display: 'inline-flex',
                   alignItems: 'center',
                 }}
-                onClick={() => {
-                  void groups.refetch();
-                  void accounts.refetch();
-                }}
-                disabled={groups.isFetching || accounts.isFetching}
-                title="Refresh balances from database"
+                onClick={() => { void balanceRefresh.refresh(); }}
+                disabled={!selectedAccount || balanceRefresh.pending || preview.isPending}
+                title="Refresh selected account balance from exchange"
+                aria-label="Refresh account balance"
               >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: groups.isFetching || accounts.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: balanceRefresh.pending ? 'spin 1s linear infinite' : 'none' }}>
                   <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                 </svg>
               </button>
@@ -2282,7 +2290,7 @@ export function TradeTicket() {
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {isSyncingAccount && (
+                {balanceRefresh.pending && (
                   <span style={{ fontSize: 10, color: '#38bdf8', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                     <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
                       <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
@@ -2302,6 +2310,8 @@ export function TradeTicket() {
         </div>
       )}
 
+      {balanceRefresh.pending && <div className="trade-balance-status" role="status">Refreshing exchange balances…</div>}
+      {balanceRefresh.error && <div className="trade-balance-status warning" role="alert">{balanceRefresh.error}</div>}
       <div className="field">
         <label htmlFor="asset">Asset</label>
         <input
@@ -2774,7 +2784,7 @@ export function TradeTicket() {
                 </span>
                 {trailingStopLoss ? (
                   <span style={{ color: '#f87171', fontWeight: 600 }}>
-                    TSL: {trailingDistancePercent}%
+                    TSL: {trailingStepPercent}% ROE step · {trailingDistancePercent}% initial gap
                     {ticketSlEstimate && ` (${ticketSlEstimate.pnlText ? `${ticketSlEstimate.pnlText} • ` : ''}${ticketSlEstimate.roeText})`}
                   </span>
                 ) : (
@@ -2840,8 +2850,14 @@ export function TradeTicket() {
         <div className="error" style={{ marginBottom: 6 }}>{(preview.error as Error).message}</div>
       )}
 
+      <div className="desk-ticket-review" data-side={side}>
+        <div className="desk-ticket-review-heading"><strong>{side === 'buy' ? 'LONG' : 'SHORT'} {asset || '—'}</strong><span>{orderType.toUpperCase()} · {leverage}× · {marginCurrency}</span></div>
+        <div className="desk-ticket-review-scope"><strong>{targetType === 'account' ? selectedAccount?.name || 'Select an account' : selectedGroup?.name || 'Select a group'}</strong></div>
+        <div className="desk-ticket-review-detail"><span>{accountCount} account{accountCount === 1 ? '' : 's'}</span><span>{sizingMode === 'quantity' ? `${quantity || '—'} ${asset} per account` : `${percent || '—'}% per account`}</span></div>
+        {!enableSl && <p className="desk-risk-note">No stop loss</p>}
       <button
-        className="btn"
+        type="button"
+        className="btn desk-preview-button"
         disabled={!canPreview || preview.isPending}
         onClick={submitPreview}
         style={{
@@ -2864,9 +2880,10 @@ export function TradeTicket() {
           : preview.isPending
             ? 'Syncing balances & planning…'
             : targetType === 'account'
-              ? `Preview Trade · #${selectedAccount?.serialNo ?? ''} ${selectedAccount?.name ?? 'Account'}`
-              : `Preview ${accountCount} account${accountCount === 1 ? '' : 's'}`}
+              ? 'Review single-account order →'
+              : `Review order · ${accountCount} accounts →`}
       </button>
+      </div>
           </div>
         </div>
 
@@ -2896,100 +2913,9 @@ export function TradeTicket() {
         </div>
       </div>
 
-      {/* Far Right Column: 1-Side Vertical Panel Rail */}
-      <aside className="trading-vertical-rail" aria-label="Terminal side controls">
-        <button
-          type="button"
-          className={`rail-tab-btn ${rightPanelTab === 'trade' ? 'active' : ''}`}
-          onClick={() => setRightPanelTab((prev) => (prev === 'trade' ? null : 'trade'))}
-          title={rightPanelTab === 'trade' ? 'Close Order Ticket (Full width chart)' : 'Open Order Ticket'}
-          aria-label="Order Ticket"
-        >
-          <span className="rail-tab-icon">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-          </span>
-          <span className="rail-tab-label">Order</span>
-        </button>
+      <TerminalControls active={rightPanelTab} onSelect={setRightPanelTab} asset={asset} positionCount={coinPositionsCount} />
 
-        <button
-          type="button"
-          className={`rail-tab-btn ${rightPanelTab === 'watchlist' ? 'active' : ''}`}
-          onClick={() => setRightPanelTab((prev) => (prev === 'watchlist' ? null : 'watchlist'))}
-          title={rightPanelTab === 'watchlist' ? 'Close Watchlist (Full width chart)' : 'Open Watchlist'}
-          aria-label="Watchlist"
-        >
-          <span className="rail-tab-icon">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6" />
-              <line x1="8" y1="12" x2="21" y2="12" />
-              <line x1="8" y1="18" x2="21" y2="18" />
-              <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
-              <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
-              <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
-            </svg>
-          </span>
-          <span className="rail-tab-label">Watch</span>
-        </button>
-
-        <button
-          type="button"
-          className={`rail-tab-btn ${rightPanelTab === 'position' ? 'active' : ''}`}
-          onClick={() => setRightPanelTab((prev) => (prev === 'position' ? null : 'position'))}
-          title={rightPanelTab === 'position' ? `Close ${asset} Positions (Full width chart)` : `Open ${asset} Positions (${coinPositionsCount} open)`}
-          aria-label="Positions"
-        >
-          <span className="rail-tab-icon" style={{ position: 'relative' }}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-            </svg>
-            {coinPositionsCount > 0 && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: -5,
-                  right: -7,
-                  background: '#10b981',
-                  color: '#ffffff',
-                  fontSize: 9,
-                  fontWeight: 800,
-                  borderRadius: 10,
-                  padding: '1px 4px',
-                  minWidth: 14,
-                  textAlign: 'center',
-                  boxShadow: '0 0 5px rgba(16, 185, 129, 0.7)',
-                }}
-              >
-                {coinPositionsCount}
-              </span>
-            )}
-          </span>
-          <span className="rail-tab-label">Position</span>
-        </button>
-
-        {isPanelOpen && (
-          <button
-            type="button"
-            className="rail-collapse-btn"
-            onClick={() => setRightPanelTab(null)}
-            title="Collapse side panel (Full width chart)"
-            aria-label="Collapse panel"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-          </button>
-        )}
-      </aside>
-
-      <TradeProtectionModal
-        isOpen={showProtectionModal}
+      {showProtectionModal && <TradeProtectionModal
         onClose={() => setShowProtectionModal(false)}
         asset={asset}
         quoteCurrency={quoteCurrency}
@@ -3023,7 +2949,7 @@ export function TradeTicket() {
         effectiveQty={effectiveBaseQty}
         marginCurrency={marginCurrency}
         usdtInrRate={usdtInrRate}
-      />
+      />}
     </div>
   );
 }

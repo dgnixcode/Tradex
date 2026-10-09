@@ -48,6 +48,13 @@ export async function releaseFuturesLock(
   `.execute(db);
 }
 
+export async function ownsFuturesLock(db: Kysely<DB>, args: { accountId: string; pair: string; childOrderId: string }): Promise<boolean> {
+  const row = await db.selectFrom('futures_execution_lock').select('child_order_id')
+    .where('account_id', '=', args.accountId).where('pair', '=', args.pair)
+    .where('child_order_id', '=', args.childOrderId).executeTakeFirst();
+  return row !== undefined;
+}
+
 /**
  * The reaper: release any (account, pair) lock older than `staleMs`, in the
  * same shape as `requeueStale` for execution_job. Default 30 s is well outside
@@ -66,6 +73,17 @@ export async function reapStaleFuturesLocks(
   }>`
     DELETE FROM futures_execution_lock
     WHERE acquired_at < ${cutoff}
+      AND NOT EXISTS (
+        SELECT 1 FROM position_mutation m
+        WHERE m.tenant_id = futures_execution_lock.tenant_id
+          AND m.request_id = futures_execution_lock.child_order_id
+          AND m.status <> 'completed'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM child_order c
+        WHERE c.id = futures_execution_lock.child_order_id
+          AND c.state IN ('sending', 'ambiguous', 'needs_human')
+      )
     RETURNING account_id, pair, child_order_id, acquired_at
   `.execute(db);
   return res.rows.map((r) => ({

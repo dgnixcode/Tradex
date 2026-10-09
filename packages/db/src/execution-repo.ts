@@ -59,7 +59,7 @@ const rowToJob = (r: Record<string, unknown>): ClaimedJob => ({
 export async function claimJobs(
   db: Kysely<DB>,
   workerId: string,
-  opts: { limit?: number; now?: Date } = {},
+  opts: { limit?: number; now?: Date; kind?: ExecutionJobKind } = {},
 ): Promise<readonly ClaimedJob[]> {
   const limit = opts.limit ?? 10;
   const now = opts.now ?? new Date();
@@ -73,6 +73,7 @@ export async function claimJobs(
     WHERE j.id IN (
       SELECT id FROM execution_job
       WHERE locked_by IS NULL AND run_after <= ${now}
+      ${opts.kind === undefined ? sql`` : sql`AND kind = ${opts.kind}`}
       ORDER BY run_after, id
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
@@ -154,6 +155,7 @@ async function claimFromTenant(
   tenantId: string,
   limit: number,
   now: Date,
+  kind?: ExecutionJobKind,
 ): Promise<readonly ClaimedJob[]> {
   const result = await sql<Record<string, unknown>>`
     UPDATE execution_job j
@@ -161,6 +163,7 @@ async function claimFromTenant(
     WHERE j.tenant_id = ${tenantId} AND j.id IN (
       SELECT id FROM execution_job
       WHERE locked_by IS NULL AND run_after <= ${now} AND tenant_id = ${tenantId}
+      ${kind === undefined ? sql`` : sql`AND kind = ${kind}`}
       ORDER BY run_after, id
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
@@ -179,7 +182,7 @@ async function claimFromTenant(
 export async function claimJobsFair(
   db: Kysely<DB>,
   workerId: string,
-  opts: { limit?: number; now?: Date } = {},
+  opts: { limit?: number; now?: Date; kind?: ExecutionJobKind } = {},
 ): Promise<readonly ClaimedJob[]> {
   const limit = opts.limit ?? 10;
   const now = opts.now ?? new Date();
@@ -191,6 +194,7 @@ export async function claimJobsFair(
   const tenantsResult = await sql<Record<string, unknown>>`
     SELECT tenant_id FROM execution_job
     WHERE locked_by IS NULL AND run_after <= ${now}
+    ${opts.kind === undefined ? sql`` : sql`AND kind = ${opts.kind}`}
     GROUP BY tenant_id
     ORDER BY min(run_after), tenant_id
   `.execute(db);
@@ -208,7 +212,7 @@ export async function claimJobsFair(
     foundInCycle = false;
     for (const tenantId of tenants) {
       if (claimed.length >= limit) break;
-      const batch = await claimFromTenant(db, workerId, tenantId, Math.min(share, limit - claimed.length), now);
+      const batch = await claimFromTenant(db, workerId, tenantId, Math.min(share, limit - claimed.length), now, opts.kind);
       for (const job of batch) {
         if (!byId.has(job.id)) { byId.add(job.id); claimed.push(job); }
       }

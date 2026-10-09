@@ -275,6 +275,9 @@ export class FakeVenue {
     readonly stopLossTrigger?: string | null | undefined;
     readonly takeProfitTrigger?: string | null | undefined;
     readonly marginType?: 'isolated' | 'crossed' | undefined;
+    /** Explicit collateral/FX for margin-return checks; default stays unchanged. */
+    readonly lockedMargin?: string | undefined;
+    readonly settlementCurrencyAvgPrice?: string | undefined;
   }): string {
     const key = `${opts.pair}|${opts.marginCurrency}`;
     let existing: Record<string, unknown> | undefined;
@@ -292,7 +295,8 @@ export class FakeVenue {
         mark_price: opts.markPrice ?? null,
         liquidation_price: opts.liquidationPrice ?? null,
         leverage: opts.leverage ?? this.futuresLeverage.get(key) ?? null,
-        locked_margin: '0', locked_user_margin: '0', locked_order_margin: '0',
+        locked_margin: opts.lockedMargin ?? '0', locked_user_margin: '0', locked_order_margin: '0',
+        settlement_currency_avg_price: opts.settlementCurrencyAvgPrice ?? null,
         maintenance_margin: '0',
         take_profit_trigger: opts.takeProfitTrigger ?? null,
         stop_loss_trigger: opts.stopLossTrigger ?? null,
@@ -309,6 +313,8 @@ export class FakeVenue {
       if (opts.stopLossTrigger !== undefined) existing['stop_loss_trigger'] = opts.stopLossTrigger;
       if (opts.takeProfitTrigger !== undefined) existing['take_profit_trigger'] = opts.takeProfitTrigger;
       if (opts.marginType !== undefined) existing['margin_type'] = opts.marginType;
+      if (opts.lockedMargin !== undefined) existing['locked_margin'] = opts.lockedMargin;
+      if (opts.settlementCurrencyAvgPrice !== undefined) existing['settlement_currency_avg_price'] = opts.settlementCurrencyAvgPrice;
       existing['updated_at'] = new Date().toISOString();
     }
     return String(existing['id']);
@@ -879,6 +885,9 @@ export class FakeVenue {
           const orderId = `ford-tpsl-${this.futuresOrderSeq}`;
           const order = {
             id: orderId, pair: position['pair'], order_type: orderType,
+            side: Number(position['active_pos']) >= 0 ? 'sell' : 'buy',
+            margin_currency_short_name: position['margin_currency_short_name'],
+            total_quantity: String(Math.abs(Number(position['active_pos']))),
             stop_price: triggerPrice, status: 'untriggered',
             stage: 'tpsl_exit', position_id: positionId,
             created_at: new Date().toISOString(),

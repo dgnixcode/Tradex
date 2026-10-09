@@ -3,7 +3,6 @@ import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-d
 import { useAuth } from './auth.tsx';
 import { revertMasterSession } from './api.ts';
 import { AppSidebar } from './components/AppSidebar.tsx';
-import { Brand } from './components/Brand.tsx';
 import { GlobalPositionAlerts } from './components/GlobalPositionAlerts.tsx';
 
 // The authenticated panel shell with thin sidebar and responsive mobile layout.
@@ -114,47 +113,7 @@ export function App() {
   ];
 
   return (
-    <div className="panel-dark">
-      {/* Mobile Top Header (<= 860px) */}
-      <header className="panel-mobile-header">
-        <button
-          type="button"
-          className="mobile-header-btn"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-          aria-expanded={menuOpen}
-        >
-          <span style={{ fontSize: 20, lineHeight: 1 }}>{menuOpen ? '✕' : '☰'}</span>
-        </button>
-
-        <div className="mobile-header-brand">
-          <Brand to="/app" size="sm" />
-        </div>
-
-        <div className="mobile-header-actions">
-          <span
-            className="mobile-status-pill"
-            title="Desk status: Active"
-          >
-            <span className="mobile-status-dot" />
-            <span className="mobile-status-text">Live</span>
-          </span>
-          <button
-            type="button"
-            className="mobile-header-exit"
-            onClick={onLogout}
-            title={`Signed in as ${role} · Exit`}
-            aria-label="Log out"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
-        </div>
-      </header>
-
+    <div className="panel-dark desk-workspace">
       <div className="app-layout">
         <AppSidebar
           role={role}

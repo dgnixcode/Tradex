@@ -73,6 +73,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     match: (p) => p.startsWith('/app/analytics'),
   },
   {
+    label: 'Research',
+    icon: <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="7.5" /><path d="m16 16 5 5M7 12V9m3 3V7m3 5V8" /></svg>,
+    to: '/app/research',
+    match: (p) => p.startsWith('/app/research'),
+  },
+  {
     label: 'Accounts',
     icon: (
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -171,7 +177,7 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
   return (
     <>
       {open && <div className="app-sidebar-scrim" onClick={onClose} />}
-      <aside className={`app-sidebar thin-sidebar${open ? ' open' : ''}`}>
+      <aside className={`app-sidebar thin-sidebar${open ? ' open' : ''}`} aria-label="Workspace menu">
         {/* Mobile Drawer Header (<= 860px) */}
         <div className="sidebar-drawer-header">
           <Brand to="/app" onClick={onClose} size="sm" />
@@ -191,7 +197,7 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
         </div>
 
         {/* Navigation Items */}
-        <nav className="thin-nav">
+        <nav className="thin-nav" aria-label="Workspace navigation">
           {NAV_ITEMS.map((item) => {
             if (item.to !== undefined) {
               const active = item.match?.(pathname) ?? pathname === item.to;
@@ -200,6 +206,7 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
                   key={item.label}
                   to={item.to}
                   title={item.label}
+                  aria-current={active ? 'page' : undefined}
                   className={`thin-sb-link${active ? ' active' : ''}`}
                   onClick={onClose}
                 >
@@ -229,7 +236,6 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
               type="button"
               className="thin-logout-btn"
               style={{
-                marginBottom: '8px',
                 color: '#8fb6ff',
                 borderColor: 'rgba(143, 182, 255, 0.3)',
                 background: 'rgba(76, 141, 255, 0.08)',
@@ -270,7 +276,7 @@ export function AppSidebar({ role, open, onClose, onLogout, impersonating, onRev
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
             </span>
-            <span className="logout-text">Exit</span>
+            <span className="logout-text">Sign out</span>
           </button>
         </div>
       </aside>

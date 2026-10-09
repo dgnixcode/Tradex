@@ -30,6 +30,14 @@ import { LocalKms } from '../../packages/crypto/dist/index.js';
 import { Signer } from './dist/index.js';
 
 function isMutation(reason, payloadStr) {
+  // Payload fields take priority over caller-supplied descriptive text.
+  try {
+    const p = JSON.parse(payloadStr);
+    if (p.order !== undefined || p.orders !== undefined || p.market_order !== undefined
+      || p.id !== undefined || p.order_id !== undefined || p.position_id !== undefined
+      || p.total_quantity !== undefined || p.order_type !== undefined || p.leverage !== undefined
+      || p.stop_loss !== undefined || p.take_profit !== undefined) return true;
+  } catch { return true; }
   if (typeof reason === 'string' && /(order|trade|exit|cancel|protection|leverage|adjust|tpsl|mutation)/i.test(reason)) {
     if (/(list\s+orders|read\s+orders|order\s+history|test\s+order\s+history)/i.test(reason)) {
       return false;
@@ -67,6 +75,10 @@ if (url === undefined || url === '') {
  * process split is defending against.
  */
 const TOKEN = process.env['TRADEX_SIGNER_TOKEN'];
+if (process.env['NODE_ENV'] === 'production' && (!TOKEN || TOKEN.length < 32)) {
+  console.error('Production requires TRADEX_SIGNER_TOKEN with at least 32 characters, shared with the API.');
+  process.exit(1);
+}
 
 const pool = new pg.Pool({ connectionString: url, max: 15 });
 const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
@@ -102,7 +114,12 @@ const tokenOk = (req) => {
 
 const readBody = async (req) => {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > 65_536) throw new Error('Signer request exceeds 64 KB');
+    chunks.push(c);
+  }
   return Buffer.concat(chunks).toString('utf8');
 };
 

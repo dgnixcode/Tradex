@@ -16,7 +16,7 @@
 //   L4  on ambiguity, resolve by READING BACK:
 //        a. list orders, BOTH sides, every status
 //        b. match on (pair, side, order_type, total_quantity, price)
-//        c. one match -> adopt; none -> position delta; two+ -> NEEDS_HUMAN
+//        c. one timed exact match -> adopt; none/two+ -> NEEDS_HUMAN
 //
 // Port-driven on purpose: a `.ts` outside the adapter may not import CoinDCX
 // (ADAPTER-BOUNDARY), so the composition root supplies the venue calls and this
@@ -28,7 +28,7 @@
 // orders impossible *from our side*, leaving only the customer's own.
 
 import type { Kysely } from 'kysely';
-import { acquireFuturesLock, releaseFuturesLock } from '@tradex/db';
+import { acquireFuturesLock, ownsFuturesLock, releaseFuturesLock } from '@tradex/db';
 import type { DB } from '@tradex/db';
 import type { SubmitPortOutcome } from '../execution-worker.js';
 
@@ -91,6 +91,8 @@ export interface PlaceProtocolPorts {
   /** Injected so a check can run the protocol without waiting. Defaults to LOCK_WAIT_MS. */
   readonly waitMs?: number | undefined;
   readonly searchWindowMs?: number | undefined;
+  /** An outer position mutation holds this exact durable lock across read/size/send. */
+  readonly lockAlreadyHeld?: boolean | undefined;
 }
 
 /** How the send ended, for logs and alerts. Not a decision the caller re-makes. */
@@ -106,25 +108,42 @@ export interface PlaceProtocolOutcome {
 const delay = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 /**
- * Does this listed order match what we tried to send?
- *
- * The four fields are the whole identity of an intent. `price` is compared as a
- * string: both sides come from the same decimal-safe path, and a market order is
- * null on both, so normalising numbers here would only invent a difference.
+ * Compare decimal strings exactly after removing insignificant zeroes.
+ * No conversion to a floating-point number is permitted in intent matching.
  */
-function matchesIntent(order: ListedOrder, intent: FuturesIntent): boolean {
+export function decimalEqual(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  const canonical = (v: string): string | null => {
+    if (!/^\d+(\.\d+)?$/.test(v)) return null;
+    const [w = '0', f = ''] = v.split('.');
+    return `${w.replace(/^0+(?=\d)/, '')}.${f.replace(/0+$/, '')}`;
+  };
+  const ca = canonical(a), cb = canonical(b);
+  return ca !== null && cb !== null && ca === cb;
+}
+
+export function matchesIntent(order: ListedOrder, intent: FuturesIntent): boolean {
   if (order.pair !== intent.pair) return false;
   if (order.side !== intent.side) return false;
   if (order.orderType !== intent.orderType) return false;
-  if (order.totalQuantity !== intent.quantity) return false;
-  return (order.price ?? null) === (intent.price ?? null);
+  if (!decimalEqual(order.totalQuantity, intent.quantity)) return false;
+  return intent.orderType === 'market' || decimalEqual(order.price, intent.price);
+}
+
+/** A known venue id is authoritative. Unknown ids require one timed exact match. */
+export function findIntentOrder(orders: readonly ListedOrder[], intent: FuturesIntent, venueId: string | null): ListedOrder | undefined {
+  if (venueId !== null) return orders.find((o) => o.venueOrderId === venueId && o.pair === intent.pair);
+  const matches = orders.filter((o) => matchesIntent(o, intent) && o.createdAtMs !== null
+    && Math.abs(o.createdAtMs - intent.sentAtMs) <= SEARCH_WINDOW_MS);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /**
  * Place one futures order with the full L1-L4 protocol.
  *
- * Always releases the lock, including on a throw: a lock leaked on an exception
- * would freeze this (account, pair) until the stale reaper ran.
+ * Worker calls release their short-lived send lock; their durable child state
+ * continues to exclude conflicting sends. An outer position mutation retains
+ * ownership across read, sizing, send, and verification, including uncertainty.
  */
 export async function placeFuturesOrder(
   db: Kysely<DB>,
@@ -139,14 +158,16 @@ export async function placeFuturesOrder(
   // L1. Without a client_order_id this lock is the ONLY thing standing between us
   // and two identical orders the matcher could never tell apart.
   const deadline = now() + waitMs;
-  let acquired = await acquireFuturesLock(db, {
+  let acquired = ports.lockAlreadyHeld === true
+    ? await ownsFuturesLock(db, { accountId: intent.accountId, pair: intent.pair, childOrderId: intent.childOrderId })
+    : await acquireFuturesLock(db, {
     tenantId,
     accountId: intent.accountId,
     pair: intent.pair,
     childOrderId: intent.childOrderId,
     workerId: ports.workerId,
   });
-  while (!acquired && now() < deadline) {
+  while (!acquired && ports.lockAlreadyHeld !== true && now() < deadline) {
     await sleep(50);
     acquired = await acquireFuturesLock(db, {
       tenantId,
@@ -189,9 +210,9 @@ export async function placeFuturesOrder(
         },
       };
     }
-    return await resolveAmbiguity(ports, intent, now);
+    return await resolveAmbiguity(ports, intent);
   } finally {
-    await releaseFuturesLock(db, {
+    if (ports.lockAlreadyHeld !== true) await releaseFuturesLock(db, {
       accountId: intent.accountId, pair: intent.pair, childOrderId: intent.childOrderId,
     });
   }
@@ -203,18 +224,17 @@ export async function placeFuturesOrder(
 async function resolveAmbiguity(
   ports: PlaceProtocolPorts,
   intent: FuturesIntent,
-  now: () => number,
 ): Promise<PlaceProtocolOutcome> {
   const window = ports.searchWindowMs ?? SEARCH_WINDOW_MS;
   const from = intent.sentAtMs - window;
-  const to = now() + window;
+  const to = intent.sentAtMs + window;
 
   // L4a. BOTH sides, because we cannot ask "which side was my order" — and the
   // side we think we sent is exactly the thing a bug could have got wrong.
   const seen = new Map<string, ListedOrder>();
   let unreadable = 0;
-  for (const side of ['buy', 'sell'] as const) {
-    const res = await ports.listOrders({ pair: intent.pair, side });
+  const reads = await Promise.all((['buy', 'sell'] as const).map((side) => ports.listOrders({ pair: intent.pair, side })));
+  for (const res of reads) {
     if (!res.ok) { unreadable += 1; continue; }
     for (const order of res.orders) {
       // An order with no usable timestamp cannot be placed inside the window, and
@@ -302,15 +322,15 @@ async function resolveAmbiguity(
     };
   }
 
-  // No order and no position: it did not land. Safe to conclude, and safe because
-  // a market order that reached the venue leaves a position behind.
+  // Absence from an eventually consistent read is not proof of non-placement.
+  // A reducing market order can also fill and leave NO position behind.
   return {
-    resolution: 'not_placed',
+    resolution: 'undecidable',
     submit: {
       kind: 'rejected',
-      orderMayExist: false,
-      code: 'not_placed',
-      detail: `no order matched on ${intent.pair} and no position opened`,
+      orderMayExist: true,
+      code: 'placement_unconfirmed',
+      detail: `no order is visible yet on ${intent.pair}; reconcile before placing another order`,
     },
   };
 }

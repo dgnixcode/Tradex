@@ -1,0 +1,3 @@
+# Isolate these dependencies in a dedicated Python environment. The snapshot
+# engine needs none of them. Review upstream updates before changing this pin.
+tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@1394a3f72aa4393e1a98f51b382434c4b4c2d972

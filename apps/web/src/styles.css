@@ -2835,22 +2835,21 @@ body:has(.panel-dark)::before {
   }
 
   .trading-vertical-rail {
-    position: fixed;
-    right: 12px;
-    bottom: 74px;
-    width: auto;
+    position: static;
+    order: -1;
+    width: 100%;
     min-width: 0;
     max-width: none;
     height: auto;
     flex-direction: row;
-    background: rgba(14, 16, 20, 0.92);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--line);
-    border-radius: 12px;
+    background: #0b1420;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
     padding: 4px;
     gap: 4px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
-    z-index: 100;
+    box-shadow: none;
+    z-index: 10;
   }
 
   .rail-tab-btn {

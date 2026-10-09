@@ -26,6 +26,7 @@
     "@tradex/money": "*",
     "@tradex/secret": "*",
     "@tradex/sizing": "*",
+    "quickjs-emscripten": "0.31.0",
     "socket.io-client": "^4.8.3"
   }
 }

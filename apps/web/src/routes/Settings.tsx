@@ -36,10 +36,11 @@ import {
 } from '../branding.tsx';
 import { Brand } from '../components/Brand.tsx';
 import { KillSwitchModal } from '../components/KillSwitchModal.tsx';
+import { AiResearchSettings } from '../components/AiResearchSettings.tsx';
 import { buildGroups, calcGroupRoePct } from './Futures.tsx';
 
 // Category tabs for organized settings management
-type SettingsCategory = 'controls' | 'alerts' | 'branding' | 'contact' | 'security';
+type SettingsCategory = 'controls' | 'alerts' | 'branding' | 'contact' | 'security' | 'ai';
 
 const minorLabel = (minor: string, currency: 'INR' | 'USDT'): string => {
   const scale = currency === 'INR' ? 2 : 8;
@@ -68,7 +69,7 @@ export function Settings() {
   // Active Category Tab with URL query param sync (?tab=controls)
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const validTabs: SettingsCategory[] = ['controls', 'alerts', 'branding', 'contact', 'security'];
+  const validTabs: SettingsCategory[] = ['controls', 'alerts', 'branding', 'contact', 'security', 'ai'];
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(() => {
     if (tabParam && (validTabs as string[]).includes(tabParam)) {
       return tabParam as SettingsCategory;
@@ -542,6 +543,10 @@ export function Settings() {
 
       {/* Category Navigation Bar */}
       <nav className="settings-categories-nav" aria-label="Settings Categories">
+        <button type="button" className={`settings-category-btn ${activeCategory === 'ai' ? 'active' : ''}`} onClick={() => {
+          if (isTestingSound) alertSound.stopAlertLoop(); setIsTestingSound(false);
+          setActiveCategory('ai'); setSearchParams({ tab: 'ai' }, { replace: true });
+        }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 3h12l4 4v14H4zM8 11h8M8 15h5" /></svg><span>AI Research</span></button>
         <button
           type="button"
           className={`settings-category-btn ${activeCategory === 'controls' ? 'active' : ''}`}
@@ -646,6 +651,8 @@ export function Settings() {
           <span>Security &amp; 2FA</span>
         </button>
       </nav>
+
+      {activeCategory === 'ai' && <AiResearchSettings key={state.status === 'authenticated' ? state.session.tenantId : 'anonymous'} />}
 
       {/* =========================================================================
           TAB 0: DESK CONTROLS & EMERGENCY KILL SWITCH

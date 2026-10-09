@@ -24,7 +24,6 @@ import type {
   AlgoStrategyInput,
   UpdateAlgoStrategyInput,
   WatchlistCoinRecord,
-  CandleDatasetRecord,
 } from '@tradex/db';
 import {
   BinanceHistorySyncManager,
@@ -54,6 +53,7 @@ import { executeStrategyScript } from './algo-runner.js';
 import { runBacktest } from './algo-backtest.js';
 import type { BacktestResult, RunBacktestOptions } from './algo-backtest.js';
 import { randomUUID } from 'node:crypto';
+import { executePositionMutation } from '../futures/mutation.js';
 
 export interface AlgoServiceDeps {
   readonly db: Kysely<DB>;
@@ -75,11 +75,12 @@ export function minorToMajor(minor: unknown, scale: number): number {
   const padded = rawDigits.padStart(scale + 1, '0');
   const cut = padded.length - scale;
   const majorStr = `${padded.slice(0, cut)}.${padded.slice(cut)}`;
-  const val = parseFloat(majorStr);
+  const val = Number(majorStr);
   return (isNeg ? -1 : 1) * (isNaN(val) ? 0 : val);
 }
 
 export class AlgoService {
+  private activeBacktests = 0;
   private schedulerTimer: NodeJS.Timeout | null = null;
   private readonly runningStrategyIds = new Set<string>();
   private readonly historyManager: BinanceHistorySyncManager;
@@ -163,7 +164,7 @@ export class AlgoService {
 
       const lastRunMs = raw.last_run_at ? new Date(raw.last_run_at as unknown as string).getTime() : 0;
       if (nowMs - lastRunMs >= intervalMs) {
-        this.runStrategy(tenantId, strategyId, raw.is_dry_run ? 'dry_run' : 'live').catch((err) => {
+        this.runStrategy(tenantId, strategyId, raw.is_dry_run ? 'dry_run' : 'live', intervalMs).catch((err) => {
           console.error(`[algo-service] automated run failed for strategy ${strategyId}:`, err instanceof Error ? err.message : String(err));
         });
       }
@@ -179,7 +180,6 @@ export class AlgoService {
     logSink: (msg: string, data?: unknown) => void,
   ): Promise<AlgoContext> {
     const tdb = forTenant(this.deps.db, tenantId);
-    const planning = this.deps.planningFor(tenantId);
 
     // Helper: determine target account IDs
     const getTargetAccountIds = async (): Promise<string[]> => {
@@ -218,6 +218,8 @@ export class AlgoService {
             .execute();
 
           if (rows.length === 0) return null;
+          const signs = new Set(rows.map((r) => String(r.active_pos)).filter((v) => !/^-?0+(\.0+)?$/.test(v)).map((v) => v.startsWith('-') ? 'short' : 'long'));
+          if (signs.size > 1) throw new Error('This group holds opposing positions; use positions.list() to inspect each account');
 
           let totalPos = 0;
           let totalNotional = 0;
@@ -229,13 +231,13 @@ export class AlgoService {
 
           for (const r of rows) {
             const raw = r as unknown as Record<string, unknown>;
-            const numPos = parseFloat(String(raw['active_pos'] ?? '0'));
+            const numPos = Number(String(raw['active_pos'] ?? '0'));
             if (!isNaN(numPos) && numPos !== 0) {
               totalPos += numPos;
-              const entry = parseFloat(String(raw['avg_entry_price'] ?? '0'));
+              const entry = Number(String(raw['avg_entry_price'] ?? '0'));
               totalNotional += Math.abs(numPos) * (entry > 0 ? entry : 0);
-              latestMark = parseFloat(String(raw['mark_price'] ?? '0')) || latestMark;
-              lev = parseFloat(String(raw['leverage'] ?? '1')) || lev;
+              latestMark = Number(String(raw['mark_price'] ?? '0')) || latestMark;
+              lev = Number(String(raw['leverage'] ?? '1')) || lev;
               marginCur = (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT';
               if (!firstId) {
                 firstId = String(raw['venue_position_id'] ?? raw['id']);
@@ -276,10 +278,10 @@ export class AlgoService {
             .map((r) => {
               const raw = r as unknown as Record<string, unknown>;
               const activePos = String(raw['active_pos'] ?? '0');
-              const numPos = parseFloat(activePos);
+              const numPos = Number(activePos);
               if (isNaN(numPos) || numPos === 0) return null;
-              const entryPrice = parseFloat(String(raw['avg_entry_price'] ?? '0'));
-              const markPrice = parseFloat(String(raw['mark_price'] ?? '0'));
+              const entryPrice = Number(String(raw['avg_entry_price'] ?? '0'));
+              const markPrice = Number(String(raw['mark_price'] ?? '0'));
               const dir = numPos > 0 ? 1 : -1;
               const unrealizedPnl = (entryPrice > 0 && markPrice > 0) ? (markPrice - entryPrice) * Math.abs(numPos) * dir : 0;
               return {
@@ -290,7 +292,7 @@ export class AlgoService {
                 size: Math.abs(numPos),
                 entryPrice,
                 markPrice,
-                leverage: parseFloat(String(raw['leverage'] ?? '1')),
+                leverage: Number(String(raw['leverage'] ?? '1')),
                 unrealizedPnl,
                 marginCurrency: (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT',
               };
@@ -311,10 +313,17 @@ export class AlgoService {
 
           let totalFree = 0;
           let totalEquity = 0;
+          const currencies = new Set(balances.filter((b) => BigInt(String(b.free_minor)) !== 0n || BigInt(String(b.locked_minor)) !== 0n)
+            .map((b) => b.currency).filter((c) => c === 'INR' || c === 'USDT'));
+          const requested = strategy.params['marginCurrency'];
+          if (currencies.size > 1 && requested !== 'INR' && requested !== 'USDT') {
+            throw new Error('Mixed margin wallets require params.marginCurrency to select INR or USDT');
+          }
+          const currency = requested === 'INR' || requested === 'USDT' ? requested : [...currencies][0] ?? 'USDT';
           for (const b of balances) {
             const raw = b as unknown as Record<string, unknown>;
             const curr = String(raw['currency'] ?? '');
-            if (curr === 'USDT' || curr === 'INR') {
+            if (curr === currency) {
               const scale = Number(raw['scale'] ?? (curr === 'INR' ? 2 : 18));
               const free = minorToMajor(raw['free_minor'], scale);
               const locked = minorToMajor(raw['locked_minor'], scale);
@@ -322,7 +331,7 @@ export class AlgoService {
               totalEquity += free + locked;
             }
           }
-          return { freeMargin: totalFree, totalEquity, currency: 'USDT' };
+          return { freeMargin: totalFree, totalEquity, currency };
         },
       },
       indicators,
@@ -344,12 +353,7 @@ export class AlgoService {
             .distinct()
             .execute() as Array<{ pair: string }>;
 
-          const results: AlgoCloseResult[] = [];
-          for (const pos of positions) {
-            const res = await this.executeCloseAction(tenantId, strategy, pos.pair, logSink);
-            results.push(res);
-          }
-          return results;
+          return Promise.all(positions.map((pos) => this.executeCloseAction(tenantId, strategy, pos.pair, logSink)));
         },
       },
       log: logSink,
@@ -377,7 +381,7 @@ export class AlgoService {
 
     const optsRecord = opts as unknown as Record<string, unknown>;
     const rawSize = opts.size ?? optsRecord['quantity'] ?? optsRecord['qty'];
-    let planSizingMode: PlanRequest['sizingMode'] = 'pct_allocated';
+    let planSizingMode: PlanRequest['sizingMode'];
     if (opts.sizingMode === 'exact_qty') {
       planSizingMode = 'base_quantity';
     } else if (opts.sizingMode === 'exact_quote') {
@@ -386,18 +390,6 @@ export class AlgoService {
       planSizingMode = 'base_quantity';
     } else {
       planSizingMode = 'pct_allocated';
-    }
-
-    // Auto-reconcile stale child orders older than 2 minutes for target account so Gate 12 is never blocked
-    if (strategy.targetType === 'account') {
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-      await tdb.updateTable('child_order')
-        .set({ state: 'filled', terminal_at: new Date() } as never)
-        .where('account_id' as never, '=', strategy.targetId as never)
-        .where('state' as never, 'in', ['open', 'sending', 'acked', 'partially_filled'] as never)
-        .where('created_at' as never, '<', twoMinutesAgo as never)
-        .execute()
-        .catch(() => {});
     }
 
     const planReq: PlanRequest = {
@@ -454,8 +446,11 @@ export class AlgoService {
     }
 
     logSink(`[LIVE] Confirming and sending real orders for trade ${preview.groupTradeId}...`);
-    await beginExecution(tdb, preview.groupTradeId, preview.previewToken, this.deps.now?.());
-    const enqueued = await this.deps.engine.executor.enqueue(tdb, preview.groupTradeId);
+    const executor = this.deps.engine.executor;
+    let enqueued = { enqueued: 0, alreadyTerminal: 0, conditionals: 0 };
+    await beginExecution(tdb, preview.groupTradeId, preview.previewToken, this.deps.now?.(), async (tx) => {
+      enqueued = await executor.enqueueWithinTransaction(tx, preview.groupTradeId);
+    });
     await this.deps.engine.executor.drain(100);
 
     try {
@@ -494,7 +489,7 @@ export class AlgoService {
     const tdb = forTenant(this.deps.db, tenantId);
 
     // Find target accounts
-    let targetAccountIds: string[] = [];
+    let targetAccountIds: string[];
     if (strategy.targetType === 'account') {
       targetAccountIds = [strategy.targetId];
     } else {
@@ -525,10 +520,10 @@ export class AlgoService {
 
     let exitedCount = 0;
 
-    for (const pos of openPositions) {
+    await Promise.all(openPositions.map(async (pos) => {
       const raw = pos as unknown as Record<string, unknown>;
       const activePos = String(raw['active_pos'] ?? '0');
-      if (parseFloat(activePos) === 0) continue;
+      if (Number(activePos) === 0) return;
 
       const venuePositionId = String(raw['venue_position_id'] ?? '');
       const marginCurrency = (raw['margin_currency'] ?? 'USDT') as 'INR' | 'USDT';
@@ -543,17 +538,19 @@ export class AlgoService {
         }
         logSink(`[LIVE] Exiting position ${venuePositionId} on ${pair} for account ${accountId}...`);
         try {
-          const res = await hardExit(this.deps.futuresExit, {
+          const res = await executePositionMutation({ db: this.deps.db, tenantId, accountId, pair,
+            positionId: venuePositionId, operation: 'exit', body: { marginCurrency },
+            execute: () => hardExit(this.deps.futuresExit!, {
             actor: { tenantId, accountId },
             venuePositionId,
             marginCurrency,
-          });
+          }) });
           if (res.exited) exitedCount++;
         } catch (exitErr) {
           logSink(`Failed to exit position ${venuePositionId}: ${exitErr instanceof Error ? exitErr.message : String(exitErr)}`);
         }
       }
-    }
+    }));
 
     return { success: true, pair, exitedCount };
   }
@@ -565,6 +562,7 @@ export class AlgoService {
     tenantId: string,
     strategyId: string,
     mode: 'dry_run' | 'live' = 'dry_run',
+    minimumIntervalMs?: number,
   ): Promise<AlgoRunRecord> {
     const tdb = forTenant(this.deps.db, tenantId);
     const strategy = await getAlgoStrategy(tdb, strategyId);
@@ -576,17 +574,29 @@ export class AlgoService {
 
     this.runningStrategyIds.add(strategyId);
 
-    // Create algo_run record
-    const run = await createAlgoRun(tdb, {
-      strategyId,
-      mode,
-      status: 'running',
-    });
-
-    // Mark last run at
-    await updateAlgoStrategy(tdb, strategyId, {
-      lastRunAt: new Date(),
-    });
+    const executionToken = randomUUID();
+    let run: AlgoRunRecord;
+    try {
+      run = await this.deps.db.transaction().execute(async (tx) => {
+        const scoped = forTenant(tx, tenantId);
+        const at = new Date(this.deps.now?.() ?? Date.now());
+        let claim = scoped.updateTable('algo_strategy').set({
+          execution_token: executionToken, execution_started_at: at, last_run_at: at,
+        }).where('id', '=', strategyId).where('execution_token', 'is', null);
+        if (minimumIntervalMs !== undefined) {
+          claim = claim.where('status', '=', 'active').where((eb) => eb.or([
+            eb('last_run_at', 'is', null), eb('last_run_at', '<=', new Date(at.getTime() - minimumIntervalMs)),
+          ]));
+        }
+        if (await claim.returning('id').executeTakeFirst() === undefined) {
+          throw new Error('Strategy is already executing or its scheduled cycle has been claimed');
+        }
+        return createAlgoRun(scoped, { strategyId, mode, status: 'running' });
+      });
+    } catch (error) {
+      this.runningStrategyIds.delete(strategyId);
+      throw error;
+    }
 
     const runtimeLogs: string[] = [];
     const logSink = (msg: string, data?: unknown) => {
@@ -594,7 +604,7 @@ export class AlgoService {
     };
 
     try {
-      const context = await this.buildContext(tenantId, strategy, logSink);
+      const context = await this.buildContext(tenantId, { ...strategy, isDryRun: mode !== 'live' || strategy.isDryRun }, logSink);
       const result = await executeStrategyScript(strategy.script, context, 15_000);
 
       const finalStatus = result.success ? 'completed' : 'failed';
@@ -631,6 +641,8 @@ export class AlgoService {
       return updated ?? run;
     } finally {
       this.runningStrategyIds.delete(strategyId);
+      await tdb.updateTable('algo_strategy').set({ execution_token: null, execution_started_at: null })
+        .where('id', '=', strategyId).where('execution_token', '=', executionToken).execute();
     }
   }
 
@@ -638,7 +650,10 @@ export class AlgoService {
    * Run backtest for a strategy or custom script.
    */
   async runBacktest(options: RunBacktestOptions): Promise<BacktestResult> {
-    return await runBacktest({ ...options, db: this.deps.db });
+    if (this.activeBacktests >= 2) throw new Error('Backtest capacity reached; try again after a running backtest completes');
+    this.activeBacktests++;
+    try { return await runBacktest({ ...options, db: this.deps.db }); }
+    finally { this.activeBacktests--; }
   }
 
   /**

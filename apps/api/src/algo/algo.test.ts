@@ -364,8 +364,9 @@ describe('Binance Historical Candle Engine', () => {
     const elapsed = Date.now() - start;
 
     expect(result.candleCount).toBe(5000);
-    // 5000 candles should complete well under 2 seconds
-    expect(elapsed).toBeLessThan(2000);
+    // The WASM isolation copies SDK data instead of exposing host objects.
+    // Keep a meaningful throughput bound while allowing its security overhead.
+    expect(elapsed).toBeLessThan(5000);
     // Downsampled equity curve should have fewer than 1000 points
     expect(result.equityCurve.length).toBeLessThan(1000);
   });

@@ -472,6 +472,7 @@ export interface GroupTradeTable {
   trailing_stop_loss: Generated<boolean>;
   trailing_distance_bp: string | null;
   trailing_step_bp: string | null;
+  trailing_step_basis: Generated<'price' | 'roe'>;
   reduce_only: Generated<boolean>;
 }
 
@@ -482,6 +483,8 @@ export interface GroupTradeTable {
  * domain (text), not numeric — same reasoning as market_metadata.
  */
 export interface ChildOrderTable {
+  send_started_at: Timestamp | null;
+  position_mutation_request_id: string | null;
   id: Generated<string>;
   tenant_id: string;
   group_trade_id: string;
@@ -598,6 +601,20 @@ export interface FuturesExecutionLockTable {
   locked_by: string;
 }
 
+export interface PositionMutationTable {
+  tenant_id: string;
+  request_id: string;
+  account_id: string;
+  pair: string;
+  operation: string;
+  request_hash: string;
+  status: 'sending' | 'completed' | 'needs_review';
+  result_json: string | null;
+  risk_margin_inr_minor: string | null;
+  created_at: Generated<Timestamp>;
+  completed_at: Timestamp | null;
+}
+
 /**
  * Backend-driven stepped trailing stop loss (phase-15 additions).
  */
@@ -611,6 +628,9 @@ export interface FuturesTrailingSlTable {
   step_bp: Numeric;
   high_water_mark: Numeric;
   current_sl_price: Numeric;
+  step_basis: Generated<'price' | 'roe'>;
+  step_anchor_price: string | null;
+  position_basis_key: string | null;
   status: 'active' | 'updating' | 'failed' | 'closed';
   last_evaluated_at: Timestamp;
 }
@@ -629,7 +649,7 @@ export interface FuturesClosedTradeTable {
   realized_pnl_minor: Numeric;
   margin_currency: 'INR' | 'USDT';
   fee_minor: Numeric | null;
-  roe_pct: number | null;
+  roe_pct: string | null;
   duration_ms: number | null;
   opened_at: Timestamp | null;
   closed_at: Timestamp;
@@ -642,6 +662,8 @@ export interface FuturesClosedTradeTable {
 }
 
 export interface AlgoStrategyTable {
+  execution_token: Generated<string | null>;
+  execution_started_at: Timestamp | null;
   id: Generated<string>;
   tenant_id: string;
   name: string;
@@ -710,7 +732,47 @@ export interface MarketCandleDatasetTable {
   created_at: Generated<Timestamp>;
 }
 
+export interface ResearchJobTable {
+  id: Generated<string>;
+  tenant_id: string;
+  created_by: string;
+  idempotency_key: string;
+  request_hash: string;
+  ai_config_id: string | null;
+  request: unknown;
+  engine: 'snapshot' | 'tradingagents';
+  status: Generated<'queued' | 'running' | 'completed' | 'failed' | 'cancelled'>;
+  stage: Generated<string>;
+  lease_token: string | null;
+  lease_expires_at: Timestamp | null;
+  deadline_at: Timestamp | null;
+  report: unknown | null;
+  error_code: string | null;
+  created_at: ColumnType<Date, Date | string | undefined, Date | string>;
+  started_at: Timestamp | null;
+  finished_at: Timestamp | null;
+}
+export interface ResearchWorkerTable {
+  id: string;
+  engine: 'snapshot' | 'tradingagents';
+  heartbeat_at: Timestamp;
+}
+
+export interface ResearchAiSettingsTable {
+  tenant_id: string;
+  id: string;
+  provider: 'openai' | 'anthropic' | 'google';
+  deep_model: string;
+  quick_model: string;
+  key_ct: Buffer;
+  updated_by: string;
+  updated_at: Timestamp;
+}
+
 export interface DB {
+  research_ai_settings: ResearchAiSettingsTable;
+  research_job: ResearchJobTable;
+  research_worker: ResearchWorkerTable;
   session: SessionTable;
   tenant: TenantTable;
   app_user: AppUserTable;
@@ -734,6 +796,7 @@ export interface DB {
   execution_job: ExecutionJobTable;
   futures_position: FuturesPositionTable;
   futures_execution_lock: FuturesExecutionLockTable;
+  position_mutation: PositionMutationTable;
   futures_trailing_sl: FuturesTrailingSlTable;
   futures_closed_trade: FuturesClosedTradeTable;
   password_reset_token: PasswordResetTokenTable;
@@ -756,6 +819,8 @@ export interface DB {
  * migration SQL.
  */
 export const TENANT_SCOPED_TABLES = [
+  'research_ai_settings',
+  'research_job',
   'app_user',
   'tenant_limit',
   'audit_event',
@@ -772,6 +837,7 @@ export const TENANT_SCOPED_TABLES = [
   'execution_job',
   'futures_position',
   'futures_execution_lock',
+  'position_mutation',
   'futures_trailing_sl',
   'futures_closed_trade',
   'algo_strategy',
@@ -794,6 +860,7 @@ export const isTenantScoped = (table: string): table is TenantScopedTable => sco
  * `tenant_id`, which `checks/00-tenant-isolation.check.mjs` cross-references.
  */
 export const GLOBAL_TABLES = [
+  'research_worker',
   'tenant', 'platform_state', 'schema_migration', 'market_metadata', 'fx_snapshot', 'session', 'market_state', 'password_reset_token', 'consultation_inquiry', 'platform_branding', 'login_ip_attempt', 'market_candle_dataset',
 ] as const;
 

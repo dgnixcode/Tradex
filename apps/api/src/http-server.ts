@@ -24,7 +24,6 @@
 // dry run that the operator mistakes for a send.
 
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,9 +39,9 @@ import {
   updateGroup, archiveGroup, addMember, removeMember, setMemberEnabled,
   getGroupMembers, getEnabledMembers, getGroupTrade, getGroupHeader, GroupRepoError, listAuditEvents,
   beginExecution, getExecutionSnapshot, getWorkspace, listCancellableChildren, AccountRepoError,
-  deleteAccount, renameAccount, updateAccount, setAccountStatus, requeueStale,
+  deleteAccount, updateAccount, setAccountStatus, requeueStale,
   createInquiry, listInquiries, updateInquiryStatus,
-  getPlatformBranding, updatePlatformBranding, createSession,
+  getPlatformBranding, updatePlatformBranding, createSession, revokeSession,
   readPlatformFlags, readPlatformKillSwitchDetails, setPlatformKillSwitch,
   recordDirectOrder,
   getUserAlertConfig, setUserAlertConfig,
@@ -50,6 +49,7 @@ import {
 import type { DB, InquiryStatus } from '@tradex/db';
 import { sql } from 'kysely';
 import { LoginSecurityService } from './login-security.js';
+import { confinedStaticPath, unsafeRequestReason } from './request-security.js';
 import { SESSION_TTL_MS } from './login-service.js';
 import { listAccounts, getAccountDetail } from './accounts-query.js';
 import { buildPositions } from './positions.js';
@@ -61,10 +61,16 @@ import { getFuturesRtPrices } from './futures/rt-prices.js';
 import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { startWsPriceFeed, priceEmitter, isWsFeedConnected } from './futures/ws-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
+import { executePositionMutation, PositionMutationError } from './futures/mutation.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import { buildTradingAnalytics } from './futures/trading-analytics.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
 import { AlgoService } from './algo/algo-service.js';
+import { ResearchService } from './research/service.js';
+import { ResearchError } from './research/contracts.js';
+import { ResearchAiSettingsService } from './research/ai-settings.js';
+import type { ResearchKeyVault } from './research/ai-settings.js';
+import type { ResearchModelProbe } from './research/ai-model-test.js';
 import { fetchHistoricalCandles } from './algo/algo-sdk.js';
 
 /**
@@ -84,6 +90,7 @@ export interface FuturesAdjustPort {
     readonly percentBp?: number | undefined;
     /** Optional explicit quantity to adjust. */
     readonly quantity?: string | undefined;
+    readonly executionLockId?: string | undefined;
   }) => Promise<
     | {
         readonly ok: true;
@@ -93,7 +100,7 @@ export interface FuturesAdjustPort {
         readonly venueOrderId: string | null;
         readonly full: boolean;
       }
-    | { readonly ok: false; readonly code: string; readonly detail: string }
+    | { readonly ok: false; readonly code: string; readonly detail: string; readonly outcomeUnknown?: boolean }
   >;
 }
 
@@ -139,7 +146,8 @@ import { TradingStateError } from './trading-state-service.js';
 import { TotpService } from './totp-service.js';
 import { TotpServiceError } from './totp-service.js';
 import { OnboardingService } from './onboarding-service.js';
-import { PlanningService } from './planning-service.js';
+import { PlanningService, PlanningError, validatePlanRequest } from './planning-service.js';
+import { roePositionBasis } from './futures/roe-trailing.js';
 import type { PlanRequest } from './planning-service.js';
 import type { KmsPort } from '@tradex/crypto';
 import type { ProbeFn } from '@tradex/exchange';
@@ -153,6 +161,10 @@ import { createExecutionEventBus } from './execution-events.js';
 import type { ExecutionEventBus } from './execution-events.js';
 
 export interface HttpDeps {
+  readonly researchEnabled?: boolean;
+  readonly researchVault?: ResearchKeyVault;
+  readonly researchModelProbe?: ResearchModelProbe;
+  readonly researchPolicy?: { dailyLimit?: number; pendingLimit?: number };
   readonly db: Kysely<DB>;
   /** The only venue call, injected so this .ts file never imports the adapter. */
   readonly getOrderBook: (market: MarketRef, depth: number) => Promise<OrderBook>;
@@ -269,6 +281,8 @@ interface Ctx {
   readonly cookies: Map<string, string>;
   body: unknown;
   principal: (Principal & { sessionId: string }) | null;
+  readonly actionRequestId?: string;
+  readonly reply?: (status: number, payload: unknown) => void;
 }
 
 class HttpError extends Error {
@@ -286,6 +300,9 @@ const readBody = async (req: IncomingMessage): Promise<unknown> => {
     chunks.push(chunk as Buffer);
   }
   if (chunks.length === 0) return undefined;
+  if (req.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+    throw new HttpError(415, 'Content-Type must be application/json');
+  }
   const text = Buffer.concat(chunks).toString('utf8');
   try {
     return JSON.parse(text);
@@ -300,6 +317,11 @@ const sendJson = (res: ServerResponse, status: number, payload: unknown, headers
   res.end(text);
 };
 
+const positionReply = (ctx: Ctx, payload: unknown): void => {
+  if (ctx.reply !== undefined) ctx.reply(200, payload);
+  else sendJson(ctx.res, 200, payload);
+};
+
 /** Child states a live-progress view should keep waiting on — an order that may
  *  still be live, or a leg not yet started. Everything else has settled. */
 const PENDING_CHILD_STATES: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous']);
@@ -307,6 +329,8 @@ const childHasSettled = (state: string): boolean => !PENDING_CHILD_STATES.has(st
 
 /** Build (but do not start) the server. Returns a node http.Server. */
 export function createHttpServer(deps: HttpDeps): Server {
+  const research = new ResearchService(deps.db, deps.researchEnabled ?? false, deps.researchPolicy);
+  const researchAiSettings = new ResearchAiSettingsService(deps.db, deps.researchVault, deps.researchModelProbe);
   const login = new LoginService({
     db: deps.db,
     cookieSecret: deps.cookieSecret,
@@ -339,6 +363,14 @@ export function createHttpServer(deps: HttpDeps): Server {
       tdb: forTenant(deps.db, tenantId),
       db: deps.db,
       getOrderBook: deps.getOrderBook,
+      ...(deps.accountSync !== undefined ? { refreshBalances: async (accountIds: readonly string[]) => {
+        // Bound read concurrency to the venue budget; do not size a partial read.
+        for (let i = 0; i < accountIds.length; i += 8) {
+          const results = await Promise.allSettled(accountIds.slice(i, i + 8).map((accountId) =>
+            deps.accountSync!({ tenantId, accountId })));
+          if (results.some((result) => result.status === 'rejected')) throw new Error('balance refresh failed');
+        }
+      } } : {}),
       codeVersion: deps.codeVersion,
       ...(deps.holdings !== undefined ? { holdings: deps.holdings } : {}),
       ...(deps.getFuturesInstrument !== undefined ? { getFuturesInstrument: deps.getFuturesInstrument } : {}),
@@ -408,6 +440,14 @@ export function createHttpServer(deps: HttpDeps): Server {
       throw e;
     }
   };
+
+  const mutatePosition = <T>(ctx: Ctx, p: Principal, id: string,
+    owner: { accountId: string; pair: string }, operation: string,
+    execute: (lockId: string) => Promise<T>): Promise<T> =>
+    executePositionMutation({ db: deps.db, tenantId: p.tenantId, accountId: owner.accountId,
+      pair: owner.pair, positionId: id, operation, body: ctx.body,
+      requestId: ctx.actionRequestId ?? (typeof ctx.req.headers['idempotency-key'] === 'string' ? ctx.req.headers['idempotency-key'] : undefined),
+      execute });
 
   /** Emergency Kill Switch check — rejects mutations when trading is halted. */
   const assertTradingNotHalted = async (): Promise<void> => {
@@ -794,6 +834,9 @@ export function createHttpServer(deps: HttpDeps): Server {
 
     // ---- POST /api/logout ----
     if (method === 'POST' && path === '/api/logout') {
+      const backup = await login.principalFrom(ctx.cookies.get(MASTER_BACKUP_COOKIE), deps.now?.());
+      await Promise.all([ctx.principal, backup].filter((p) => p !== null)
+        .map((p) => revokeSession(deps.db, p.sessionId)));
       sendJson(ctx.res, 200, { ok: true }, {
         'set-cookie': [
           buildClearCookie({ secure }),
@@ -947,6 +990,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (masterPrincipal === null || !masterPrincipal.isMaster || masterPrincipal.email !== 'dgnix.com@gmail.com') {
         throw new HttpError(403, 'invalid master credentials in backup session');
       }
+      if (principal.sessionId !== masterPrincipal.sessionId) await revokeSession(deps.db, principal.sessionId);
 
       sendJson(ctx.res, 200, { ok: true, dest: '/app/master' }, {
         'set-cookie': [
@@ -1060,6 +1104,28 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (!ok) throw new HttpError(404, 'inquiry not found');
       sendJson(ctx.res, 200, { ok: true });
       return;
+    }
+
+    if (path === '/api/settings/research-ai/test' && method === 'POST') {
+      ctx.res.setHeader('Cache-Control', 'no-store');
+      requireAction(principal, 'settings.write');
+      const input = ctx.body; ctx.body = undefined;
+      sendJson(ctx.res, 200, await researchAiSettings.test(principal.tenantId, principal.userId, input)); return;
+    }
+
+    if (path === '/api/settings/research-ai') {
+      ctx.res.setHeader('Cache-Control', 'no-store');
+      if (method === 'GET') {
+        requireAction(principal, 'view.dashboards');
+        sendJson(ctx.res, 200, await researchAiSettings.get(principal.tenantId)); return;
+      }
+      if (method === 'PUT' || method === 'DELETE') {
+        requireAction(principal, 'settings.write');
+        const result = method === 'PUT' ? await researchAiSettings.save(principal.tenantId, principal.userId, ctx.body)
+          : await researchAiSettings.remove(principal.tenantId, principal.userId);
+        ctx.body = undefined;
+        sendJson(ctx.res, 200, result); return;
+      }
     }
 
     // ---- GET /api/settings/workspace — workspace name shown in Settings ----
@@ -1325,6 +1391,43 @@ export function createHttpServer(deps: HttpDeps): Server {
     }
 
     // ---- POST /api/futures/positions/:id/adjust — partial close / add ----
+    if (method === 'POST' && path === '/api/futures/positions/batch') {
+      const body = ctx.body as { actions?: unknown } | null;
+      if (!Array.isArray(body?.actions) || body.actions.length < 1 || body.actions.length > 100) {
+        throw new HttpError(400, 'actions must contain 1..100 position actions');
+      }
+      const actions = body.actions as Array<{ id?: unknown; action?: unknown; body?: unknown; requestId?: unknown }>;
+      const ids = new Set<string>();
+      for (const item of actions) {
+        if (!item || typeof item.id !== 'string' || !/^[0-9a-z_-]{1,100}$/i.test(item.id)
+          || typeof item.action !== 'string' || !['adjust', 'exit', 'leverage', 'tpsl'].includes(item.action)
+          || typeof item.body !== 'object' || item.body === null || Array.isArray(item.body)
+          || typeof item.requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.requestId)) {
+          throw new HttpError(400, 'invalid position action');
+        }
+        if (ids.has(item.id)) throw new HttpError(400, 'a position may appear only once per batch');
+        ids.add(item.id);
+        requireAction(principal, item.action === 'exit' || item.action === 'tpsl' ? 'trade.cancel' : 'trade.place');
+      }
+      const owners = await Promise.all(actions.map((item) => venuePositionOwner(forTenant(deps.db, principal.tenantId), item.id as string)));
+      if (owners.some((owner) => owner === null)) throw new HttpError(404, 'one or more positions do not belong to this workspace');
+      const results = await Promise.all(actions.map(async (item) => {
+        let result: { status: number; body: unknown } | undefined;
+        try {
+          await handle({ ...ctx, url: new URL(`/api/futures/positions/${item.id as string}/${item.action as string}`, ctx.url),
+            body: item.body, actionRequestId: item.requestId as string,
+            reply: (status, payload) => { result = { status, body: payload }; } });
+          return { id: item.id, requestId: item.requestId, ...(result ?? { status: 500, body: { message: 'action produced no result' } }) };
+        } catch (error) {
+          const known = error instanceof HttpError || error instanceof PositionMutationError;
+          return { id: item.id, requestId: item.requestId, status: known ? error.status : 500,
+            body: { message: known ? error.message : 'Position action failed; verify the exchange outcome before retrying.' } };
+        }
+      }));
+      sendJson(ctx.res, 200, { results });
+      return;
+    }
+
     const futAdjustMatch = /^\/api\/futures\/positions\/([^/]+)\/adjust$/.exec(path);
     if (method === 'POST' && futAdjustMatch !== null) {
       requireAction(principal, 'trade.place');
@@ -1337,7 +1440,10 @@ export function createHttpServer(deps: HttpDeps): Server {
         throw new HttpError(400, 'direction must be "reduce" or "increase"');
       }
       const hasPct = typeof body.percentBp === 'number';
-      const hasQty = typeof body.quantity === 'string' && /^\d+(\.\d+)?$/.test(body.quantity.trim()) && Number(body.quantity.trim()) > 0;
+      const hasQty = typeof body.quantity === 'string' && body.quantity.length <= 80 && /^\d+(\.\d{1,18})?$/.test(body.quantity.trim()) && /[1-9]/.test(body.quantity);
+      if (hasPct && (!Number.isInteger(body.percentBp) || (body.percentBp as number) < 1 || (body.percentBp as number) > 10_000)) {
+        throw new HttpError(400, 'percentBp must be a whole number from 1 to 10000');
+      }
       if (!hasPct && !hasQty) {
         throw new HttpError(400, 'either percentBp (number) or quantity (positive decimal string) must be provided');
       }
@@ -1357,19 +1463,22 @@ export function createHttpServer(deps: HttpDeps): Server {
           leverage: string | null; venuePositionId: string;
         } | undefined;
 
-      const adjusted = await deps.futuresAdjust.adjustPosition({
+      let mutationId: string | undefined;
+      const adjusted = await mutatePosition(ctx, principal, futAdjustMatch[1] as string, adjustOwner, 'adjust',
+        (lockId) => { mutationId = lockId; return deps.futuresAdjust!.adjustPosition({
         actor: { tenantId: principal.tenantId, accountId: adjustOwner.accountId },
         venuePositionId: futAdjustMatch[1] as string,
-        direction: body.direction,
+        direction: body.direction as 'reduce' | 'increase',
         ...(hasPct ? { percentBp: body.percentBp as number } : {}),
         ...(hasQty ? { quantity: (body.quantity as string).trim() } : {}),
-      });
+        executionLockId: lockId,
+      }); });
       // A refusal here is a SIZING decision the customer can act on (below the
       // minimum notional, smaller than one step), not a server fault — so it is a
       // 400 carrying the reason, never a silent success.
       if (!adjusted.ok) throw new HttpError(400, adjusted.detail);
 
-      if (posSnapshot !== undefined && adjusted.ok && adjusted.quantity) {
+      if (posSnapshot !== undefined && adjusted.ok && adjusted.quantity && mutationId) {
         const isLong = !posSnapshot.activePos.startsWith('-');
         const side = body.direction === 'reduce'
           ? (isLong ? 'sell' : 'buy')
@@ -1377,7 +1486,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         const reqTradeId = (body as { groupTradeId?: unknown }).groupTradeId;
         const groupTradeId = typeof reqTradeId === 'string' && reqTradeId.trim() !== ''
           ? reqTradeId.trim()
-          : randomUUID();
+          : mutationId;
 
         const rtPrices = await getFuturesRtPrices().catch(() => null);
         const livePrice = rtPrices?.get(posSnapshot.pair)?.markPrice
@@ -1385,6 +1494,8 @@ export function createHttpServer(deps: HttpDeps): Server {
           ?? posSnapshot.avgEntryPrice;
 
         await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
+          mutationRequestId: mutationId,
+          reduceOnly: body.direction === 'reduce',
           groupTradeId,
           accountId: posSnapshot.accountId,
           createdBy: principal.userId,
@@ -1404,7 +1515,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         }).catch((err) => console.error('[adjust-blotter] failed to record adjust order:', err));
       }
 
-      sendJson(ctx.res, 200, adjusted);
+      positionReply(ctx, adjusted);
       return;
     }
 
@@ -1423,6 +1534,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         (typeof rawLev !== 'string' && typeof rawLev !== 'number') ||
         Number(rawLev) <= 0 ||
         Number(rawLev) > 100 ||
+        !Number.isInteger(Number(rawLev)) ||
         !Number.isFinite(Number(rawLev))
       ) {
         throw new HttpError(400, 'leverage must be a positive number between 1 and 100');
@@ -1430,15 +1542,16 @@ export function createHttpServer(deps: HttpDeps): Server {
       const levOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futLevMatch[1] as string);
       if (levOwner === null) throw new HttpError(404, 'no such futures position');
 
-      const out = await deps.futuresLeverage.updateLeverage({
+      const out = await mutatePosition(ctx, principal, futLevMatch[1] as string, levOwner, 'leverage',
+        () => deps.futuresLeverage!.updateLeverage({
         actor: { tenantId: principal.tenantId, accountId: levOwner.accountId },
         venuePositionId: futLevMatch[1] as string,
         leverage: rawLev,
-      });
+      }));
       if (!out.ok) {
         throw new HttpError(400, out.detail);
       }
-      sendJson(ctx.res, 200, out);
+      positionReply(ctx, out);
       return;
     }
 
@@ -1485,28 +1598,38 @@ export function createHttpServer(deps: HttpDeps): Server {
       const tp = body.takeProfitPrice;
       const removeSl = body.removeStopLoss === true;
       const removeTp = body.removeTakeProfit === true;
-      if ((sl !== undefined && (typeof sl !== 'string' || Number(sl) <= 0 || !Number.isFinite(Number(sl)))) ||
-          (tp !== undefined && (typeof tp !== 'string' || Number(tp) <= 0 || !Number.isFinite(Number(tp))))) {
+      const validTrigger = (v: unknown) => typeof v === 'string' && v.length <= 80 && /^\d+(\.\d{1,18})?$/.test(v) && /[1-9]/.test(v);
+      if ((sl !== undefined && !validTrigger(sl)) || (tp !== undefined && !validTrigger(tp))) {
         throw new HttpError(400, 'stopLossPrice and takeProfitPrice must be positive decimal strings');
       }
+      if (removeSl && sl !== undefined || removeTp && tp !== undefined) throw new HttpError(400, 'Cannot set and remove the same protection leg');
       if (sl === undefined && tp === undefined && !removeSl && !removeTp) {
         throw new HttpError(400, 'at least one of stopLossPrice, takeProfitPrice, removeStopLoss, or removeTakeProfit is required');
       }
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futTpslMatch[1] as string);
       if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
       try {
-        const out = await deps.futuresTpSl.setProtection({
-          actor: { tenantId: principal.tenantId, accountId: tpslOwner.accountId },
-          venuePositionId: futTpslMatch[1] as string,
-          ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
-          ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
-          ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
-          ...(removeSl ? { removeStopLoss: true } : {}),
-          ...(removeTp ? { removeTakeProfit: true } : {}),
-        });
-        sendJson(ctx.res, 200, out);
+        const out = await mutatePosition(ctx, principal, futTpslMatch[1] as string, tpslOwner, 'tpsl',
+          async () => {
+            // A manual SL change invalidates the old trailing baseline under
+            // the same account/pair lock as the exchange replacement.
+            if (sl !== undefined || removeSl) {
+              const { clearTrailingSl } = await import('@tradex/db');
+              await clearTrailingSl(forTenant(deps.db, principal.tenantId), tpslOwner.accountId, futTpslMatch[1] as string);
+            }
+            return deps.futuresTpSl!.setProtection({
+              actor: { tenantId: principal.tenantId, accountId: tpslOwner.accountId },
+              venuePositionId: futTpslMatch[1] as string,
+              ...(sl !== undefined ? { stopLossPrice: sl as string } : {}),
+              ...(tp !== undefined ? { takeProfitPrice: tp as string } : {}),
+              ...(typeof body.moveExisting === 'boolean' ? { moveExisting: body.moveExisting } : {}),
+              ...(removeSl ? { removeStopLoss: true } : {}),
+              ...(removeTp ? { removeTakeProfit: true } : {}),
+            });
+          });
+        positionReply(ctx, out);
       } catch (e) {
-        if (e instanceof HttpError) throw e;
+        if (e instanceof HttpError || e instanceof PositionMutationError) throw e;
         throw new HttpError(500, e instanceof Error ? e.message : 'failed to set protection');
       }
       return;
@@ -1517,27 +1640,40 @@ export function createHttpServer(deps: HttpDeps): Server {
     if (method === 'POST' && futTrailingMatch !== null) {
       requireAction(principal, 'trade.cancel');
       await assertTradingNotHalted();
-      const body = (ctx.body ?? {}) as { enable?: unknown; distanceBp?: unknown; stepBp?: unknown; currentSlPrice?: unknown };
+      const body = (ctx.body ?? {}) as { enable?: unknown; distanceBp?: unknown; stepBp?: unknown; currentSlPrice?: unknown; stepBasis?: unknown };
       const venuePositionId = futTrailingMatch[1] as string;
       const tpslOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), venuePositionId);
       if (tpslOwner === null) throw new HttpError(404, 'no such futures position');
       
       const tdb = forTenant(deps.db, principal.tenantId);
+      if (typeof body.enable !== 'boolean') throw new HttpError(400, 'enable must be a boolean');
       const enable = body.enable === true;
       
       if (!enable) {
         const { clearTrailingSl } = await import('@tradex/db');
-        await clearTrailingSl(tdb, tpslOwner.accountId, venuePositionId);
+        await mutatePosition(ctx, principal, venuePositionId, tpslOwner, 'trailing', async () => {
+          await clearTrailingSl(tdb, tpslOwner.accountId, venuePositionId);
+          return { ok: true };
+        });
         sendJson(ctx.res, 200, { ok: true, message: 'Trailing SL disabled' });
         return;
       }
       
-      if (typeof body.distanceBp !== 'string' || typeof body.stepBp !== 'string' || typeof body.currentSlPrice !== 'string') {
+      const stepBasis = body.stepBasis ?? 'price';
+      if (stepBasis !== 'price' && stepBasis !== 'roe') throw new HttpError(400, 'Invalid trailing step basis');
+      const distanceBp = body.distanceBp ?? (stepBasis === 'roe' ? '100' : undefined);
+      if (typeof distanceBp !== 'string' || typeof body.stepBp !== 'string' || typeof body.currentSlPrice !== 'string') {
          throw new HttpError(400, 'distanceBp, stepBp, and currentSlPrice must be decimal strings');
+      }
+      if (!/^\d{1,5}$/.test(distanceBp) || !/^\d{1,5}$/.test(body.stepBp)
+        || Number(distanceBp) < 1 || Number(distanceBp) > 10_000 || Number(body.stepBp) < 1 || Number(body.stepBp) > 10_000
+        || body.currentSlPrice.length > 80 || !/^\d+(\.\d{1,18})?$/.test(body.currentSlPrice) || !/[1-9]/.test(body.currentSlPrice)) {
+        throw new HttpError(400, 'Trailing percentages must be 1..10000 basis points and the stop price must be positive');
       }
       
       const pos = await tdb.selectFrom('futures_position')
-        .select('pair')
+        .select(['pair', 'active_pos', 'locked_margin_minor', 'avg_entry_price', 'margin_currency', 'settlement_currency_avg_price', 'updated_at'])
+        .where('account_id', '=', tpslOwner.accountId)
         .where('venue_position_id', '=', venuePositionId)
         .executeTakeFirst();
       
@@ -1546,26 +1682,37 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
 
       let quote: 'INR' | 'USDT' = 'USDT';
-      let asset = pos.pair;
-      if (pos.pair.endsWith('USDT')) { quote = 'USDT'; asset = pos.pair.slice(0, -4); }
-      else if (pos.pair.endsWith('INR')) { quote = 'INR'; asset = pos.pair.slice(0, -3); }
+      let asset = pos.pair.replace(/^[A-Z]+-/, '').split('_')[0] ?? pos.pair;
+      if (pos.pair.endsWith('INR')) quote = 'INR';
+      if (!pos.pair.includes('_')) asset = asset.replace(/(USDT|INR)$/, '');
       
       const book = await deps.getOrderBook({ asset, quote }, 1);
       const startingPrice = book.bids[0]?.price ?? book.asks[0]?.price;
 
-      if (!startingPrice) {
+      if (!startingPrice || Date.now() - book.observedAtMs > 5000) {
          throw new HttpError(400, 'Cannot enable trailing SL: orderbook is empty');
+      }
+
+      let positionBasisKey: string | undefined;
+      if (stepBasis === 'roe') {
+        const observedAt = new Date(pos.updated_at as unknown as Date).getTime();
+        if (!Number.isFinite(observedAt) || Date.now() - observedAt > 60_000) throw new HttpError(409, 'Refresh the position before enabling ROE trailing');
+        try {
+          positionBasisKey = roePositionBasis({ pair: pos.pair, activePos: pos.active_pos,
+            lockedMarginMinor: pos.locked_margin_minor, avgEntryPrice: pos.avg_entry_price,
+            marginCurrency: pos.margin_currency, settlementCurrencyAvgPrice: pos.settlement_currency_avg_price }).key;
+        } catch { throw new HttpError(409, 'Refresh the position before enabling ROE trailing; current margin, size and settlement rate are required'); }
       }
       
       const { upsertTrailingSl } = await import('@tradex/db');
-      await upsertTrailingSl(tdb, {
-        accountId: tpslOwner.accountId,
-        venuePositionId,
-        pair: pos.pair,
-        distanceBp: body.distanceBp,
-        stepBp: body.stepBp,
-        highWaterMark: startingPrice,
-        currentSlPrice: body.currentSlPrice,
+      const stepBp = body.stepBp, currentSlPrice = body.currentSlPrice;
+      await mutatePosition(ctx, principal, venuePositionId, tpslOwner, 'trailing', async () => {
+        await upsertTrailingSl(tdb, {
+          accountId: tpslOwner.accountId, venuePositionId, pair: pos.pair,
+          distanceBp, stepBp, highWaterMark: startingPrice, currentSlPrice, stepBasis,
+          ...(positionBasisKey ? { positionBasisKey, stepAnchorPrice: startingPrice } : {}),
+        });
+        return { ok: true };
       });
       
       sendJson(ctx.res, 200, { ok: true, message: 'Trailing SL enabled' });
@@ -1591,6 +1738,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
       const exitOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futExitMatch[1] as string);
       if (exitOwner === null) throw new HttpError(404, 'no such futures position');
+      if (mc !== exitOwner.marginCurrency) throw new HttpError(400, 'marginCurrency does not match this position');
 
       // Snapshot position before exit for blotter audit trail
       const posSnapshot = await forTenant(deps.db, principal.tenantId)
@@ -1606,20 +1754,21 @@ export function createHttpServer(deps: HttpDeps): Server {
         } | undefined;
 
       try {
-        const out = await hardExit(deps.futuresExit, {
+        let mutationId: string | undefined;
+        const out = await mutatePosition(ctx, principal, futExitMatch[1] as string, exitOwner, 'exit', (lockId) => { mutationId = lockId; return hardExit(deps.futuresExit!, {
           actor: { tenantId: principal.tenantId, accountId: exitOwner.accountId },
           venuePositionId: futExitMatch[1] as string,
           marginCurrency: mc,
-        });
+        }); });
 
-        if (posSnapshot !== undefined && out.exited) {
+        if (posSnapshot !== undefined && out.exited && mutationId) {
           const isLong = !posSnapshot.activePos.startsWith('-');
           const side = isLong ? 'sell' : 'buy';
-          const qty = Math.abs(Number(posSnapshot.activePos)).toString();
+          const qty = posSnapshot.activePos.trim().replace(/^-/, '');
           const reqTradeId = (body as { groupTradeId?: unknown }).groupTradeId;
           const groupTradeId = typeof reqTradeId === 'string' && reqTradeId.trim() !== ''
             ? reqTradeId.trim()
-            : randomUUID();
+            : mutationId;
 
           const rtPrices = await getFuturesRtPrices().catch(() => null);
           const livePrice = rtPrices?.get(posSnapshot.pair)?.markPrice
@@ -1627,6 +1776,7 @@ export function createHttpServer(deps: HttpDeps): Server {
             ?? posSnapshot.avgEntryPrice;
 
           await recordDirectOrder(forTenant(deps.db, principal.tenantId), {
+            mutationRequestId: mutationId,
             groupTradeId,
             accountId: posSnapshot.accountId,
             createdBy: principal.userId,
@@ -1658,9 +1808,9 @@ export function createHttpServer(deps: HttpDeps): Server {
           }, 1000);
         }
 
-        sendJson(ctx.res, 200, out);
+        positionReply(ctx, out);
       } catch (e) {
-        if (e instanceof HttpError) throw e;
+        if (e instanceof HttpError || e instanceof PositionMutationError) throw e;
         if (e instanceof HardExitError) throw new HttpError(409, e.message);
         throw new HttpError(500, e instanceof Error ? e.message : 'position exit failed');
       }
@@ -1913,6 +2063,9 @@ export function createHttpServer(deps: HttpDeps): Server {
       // Re-read the venue's balances for this account and store them.
       if (method === 'POST' && verb === 'sync') {
         requireAction(principal, 'view.dashboards');
+        const owned = await forTenant(deps.db, principal.tenantId).selectFrom('exchange_account').select('id')
+          .where('id', '=', accountId).executeTakeFirst();
+        if (!owned) throw new HttpError(404, 'account not found');
         if (deps.accountSync === undefined) {
           throw new HttpError(503, 'exchange reads are not configured in this build');
         }
@@ -2138,51 +2291,13 @@ export function createHttpServer(deps: HttpDeps): Server {
       // it sends nothing, because it reads balances and decides quantities.
       requireAction(principal, 'trade.place');
       const body = (ctx.body ?? {}) as Partial<PlanRequest>;
-      if (typeof body.groupId !== 'string' || typeof body.asset !== 'string'
-        || (body.side !== 'buy' && body.side !== 'sell')) {
-        throw new HttpError(400, 'groupId, asset and side are required');
-      }
+      validatePlanRequest(body as PlanRequest);
 
-      // Synchronize live exchange balances for target accounts before preview sizing
-      if (deps.accountSync !== undefined) {
-        try {
-          const tdb = forTenant(deps.db, principal.tenantId);
-          let targetAccounts: readonly string[] = [];
-          if (body.accountIds && body.accountIds.length > 0) {
-            targetAccounts = body.accountIds;
-          } else if (body.accountId) {
-            targetAccounts = [body.accountId];
-          } else if (body.groupId) {
-            const members = await tdb.selectFrom('group_member')
-              .select('account_id as accountId')
-              .where('group_id' as never, '=', body.groupId as never)
-              .where('enabled' as never, '=', true as never)
-              .execute() as Array<{ accountId: string }>;
-            targetAccounts = members.map((m) => m.accountId);
-          }
-          // Sync concurrently in small chunks to protect exchange rate budget
-          const CHUNK = 8;
-          for (let i = 0; i < targetAccounts.length; i += CHUNK) {
-            const slice = targetAccounts.slice(i, i + CHUNK);
-            await Promise.allSettled(
-              slice.map((accId) => deps.accountSync!({ tenantId: principal.tenantId, accountId: accId }))
-            );
-          }
-
-          // Also reconcile any stale in-flight orders older than 2 minutes for target accounts
-          const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-          if (targetAccounts.length > 0) {
-            await tdb.updateTable('child_order')
-              .set({ state: 'filled', terminal_at: new Date() } as never)
-              .where('account_id' as never, 'in', targetAccounts as never)
-              .where('state' as never, 'in', ['open', 'sending', 'acked', 'partially_filled'] as never)
-              .where('created_at' as never, '<', twoMinutesAgo as never)
-              .execute()
-              .catch(() => {});
-          }
-        } catch (syncErr) {
-          console.warn('[preview] pre-plan balance sync encountered non-fatal error:', syncErr);
-        }
+      const requestedAccounts = body.accountIds ?? (body.accountId ? [body.accountId] : []);
+      if (requestedAccounts.length > 0) {
+        const owned = await forTenant(deps.db, principal.tenantId).selectFrom('exchange_account').select('id')
+          .where('id', 'in', requestedAccounts).execute();
+        if (owned.length !== requestedAccounts.length) throw new HttpError(404, 'One or more selected accounts were not found');
       }
 
       // The actor is the session's user, never a client-supplied field.
@@ -2267,9 +2382,12 @@ export function createHttpServer(deps: HttpDeps): Server {
       // REAL execution. beginExecution is a FOR UPDATE transition guarded by the
       // preview token, so a racing second confirm sees 'executing' (already_started
       // → 409) and can never double-start the fan-out.
+      let enqueued = { enqueued: 0, alreadyTerminal: 0, conditionals: 0 };
       try {
         await beginExecution(forTenant(deps.db, principal.tenantId), tradeId, body.previewToken,
-          deps.now?.());
+          deps.now?.(), async (tx) => {
+            enqueued = await engine.executor.enqueueWithinTransaction(tx, tradeId);
+          });
       } catch (e) {
         const reason = (e as { reason?: string }).reason;
         if (reason === 'token_expired') throw new HttpError(410, 'this preview has expired; re-preview for fresh prices');
@@ -2280,7 +2398,6 @@ export function createHttpServer(deps: HttpDeps): Server {
         throw e;
       }
       const tdb = forTenant(deps.db, principal.tenantId);
-      const enqueued = await engine.executor.enqueue(tdb, tradeId);
       // Inline drain so the confirm response returns a REAL report — the send is
       // done before the client hears back. A later SSE surface (T08.6) decouples
       // the wait from the request; the group executor's 200-round cap keeps a
@@ -2338,6 +2455,29 @@ export function createHttpServer(deps: HttpDeps): Server {
     }
 
     // ---- Algo Trading API Routes ----
+
+    if (path.startsWith('/api/research')) {
+      requireAction(principal, 'view.dashboards');
+      if (method === 'GET' && path === '/api/research/capabilities') {
+        sendJson(ctx.res, 200, await research.capabilities(principal.tenantId)); return;
+      }
+      if (path === '/api/research/jobs' && method === 'GET') {
+        sendJson(ctx.res, 200, await research.list(principal.tenantId)); return;
+      }
+      if (path === '/api/research/jobs' && method === 'POST') {
+        requireAction(principal, 'research.run');
+        sendJson(ctx.res, 202, await research.create(principal.tenantId, principal.userId, ctx.body, ctx.req.headers['idempotency-key'])); return;
+      }
+      const match = /^\/api\/research\/jobs\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/cancel)?$/.exec(path);
+      if (match && method === 'GET' && !match[2]) {
+        sendJson(ctx.res, 200, await research.get(principal.tenantId, match[1]!)); return;
+      }
+      if (match && method === 'POST' && match[2]) {
+        requireAction(principal, 'research.run');
+        sendJson(ctx.res, 200, await research.cancel(principal.tenantId, principal.userId, match[1]!)); return;
+      }
+      throw new HttpError(404, 'not found');
+    }
 
     // GET /api/algo/templates - list prebuilt strategy templates
     if (method === 'GET' && path === '/api/algo/templates') {
@@ -2595,9 +2735,11 @@ export function createHttpServer(deps: HttpDeps): Server {
 
   const serveStatic = (req: IncomingMessage, res: ServerResponse, url: URL): boolean => {
     if (url.pathname.startsWith('/api/')) return false;
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     let pathname = decodeURIComponent(url.pathname);
     if (pathname === '/') pathname = '/index.html';
-    const filePath = join(distDir, pathname);
+    const filePath = confinedStaticPath(distDir, pathname);
+    if (filePath === null) throw new HttpError(404, 'not found');
     try {
       if (!existsSync(filePath) || !statSync(filePath).isFile()) {
         const indexPath = join(distDir, 'index.html');
@@ -2662,8 +2804,15 @@ export function createHttpServer(deps: HttpDeps): Server {
   const server = createServer((req, res) => {
     void (async () => {
       try {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Referrer-Policy', 'same-origin');
+        res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
         const url = new URL(req.url ?? '/', 'http://localhost');
         if (serveStatic(req, res, url)) return;
+        res.setHeader('Cache-Control', 'no-store');
+        const unsafe = unsafeRequestReason(req, deps.appUrl);
+        if (unsafe !== null) throw new HttpError(403, unsafe);
         const cookies = parseCookieHeader(req.headers.cookie);
         const method = (req.method ?? 'GET').toUpperCase();
         const body = method === 'POST' || method === 'PUT' || method === 'PATCH' ? await readBody(req) : undefined;
@@ -2675,8 +2824,12 @@ export function createHttpServer(deps: HttpDeps): Server {
       } catch (err) {
         if (res.headersSent) { res.end(); return; }
         console.error('request failed', err);
-        if (err instanceof HttpError) {
+        if (err instanceof ResearchError) {
+          sendJson(res, err.status, { message: err.message, error: err.code });
+        } else if (err instanceof HttpError || err instanceof PositionMutationError) {
           sendJson(res, err.status, { message: err.message });
+        } else if (err instanceof PlanningError) {
+          sendJson(res, err.reason === 'no_market_data' || err.reason === 'stale_balances' ? 503 : 400, { message: err.message });
         } else {
           // Do not leak an internal error message to the client.
           sendJson(res, 500, { message: 'internal error' });

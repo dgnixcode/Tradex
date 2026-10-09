@@ -82,11 +82,11 @@ export async function hardExit(port: FuturesExitPort, req: HardExitRequest): Pro
   const conditionals = await port.listUntriggeredConditionals(req.actor, req.venuePositionId);
   const cancelled: string[] = [];
   const cancelFailures: { venueOrderId: string; reason: string }[] = [];
-  for (const c of conditionals) {
+  await Promise.all(conditionals.map(async (c) => {
     const out = await port.cancelOrder(req.actor, c.venueOrderId);
     if (out.ok) cancelled.push(c.venueOrderId);
     else cancelFailures.push({ venueOrderId: c.venueOrderId, reason: out.message ?? 'unknown' });
-  }
+  }));
 
   // ---- 2. refuse if a conditional is still untriggered ----
   // The venue's cancel is not idempotent by anything but its own status field,
@@ -115,7 +115,7 @@ export async function hardExit(port: FuturesExitPort, req: HardExitRequest): Pro
     const positions = await port.listPositions(req.actor, req.marginCurrency);
     const p = positions.find((x) => x.venuePositionId === req.venuePositionId);
     finalActivePos = p?.activePos ?? '0';
-    if (finalActivePos === '0') break;
+    if (/^-?0+(\.0+)?$/.test(finalActivePos)) { finalActivePos = '0'; break; }
     if (attempt < pollDelays.length) {
       await new Promise((resolve) => setTimeout(resolve, pollDelays[attempt]));
     }

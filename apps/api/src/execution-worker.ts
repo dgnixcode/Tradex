@@ -41,6 +41,7 @@ import {
   claimJobsFair, forTenant, completeGroupTradeIfAllSettled,
   latestMarketMetadataVersion, listWorkingChildren, loadMarketRules,
   CANCELLABLE_STATES,
+  readPlatformFlags, readTenantCaps, readAccountStates, readMarketStates,
 } from '@tradex/db';
 import type { DB, TenantDb } from '@tradex/db';
 import { notional, nat, quoteScaleOf, resizeSellForSend, toStr } from '@tradex/sizing';
@@ -118,7 +119,7 @@ export type ListActivePort = (accountId: string, market: string) => Promise<
 >;
 
 /** Per-leg result the venue reports on an attach (partial success at HTTP 200). */
-export interface AttachLegResult { readonly ok: boolean; readonly reason?: string | undefined; }
+export interface AttachLegResult { readonly ok: boolean; readonly reason?: string | undefined; readonly venueOrderId?: string | undefined; }
 
 /**
  * Attach (or replace) a stop-loss and/or take-profit on a live futures position
@@ -129,6 +130,8 @@ export interface AttachLegResult { readonly ok: boolean; readonly reason?: strin
  * Partial success is normal: one leg can land while the other is refused.
  */
 export type AttachTpSlPort = (args: {
+  readonly tenantId: string;
+  readonly entryChildOrderId: string;
   readonly accountId: string;
   readonly pair: string;
   readonly marginCurrency: 'INR' | 'USDT';
@@ -137,8 +140,9 @@ export type AttachTpSlPort = (args: {
   readonly trailingStopLoss?: boolean | undefined;
   readonly trailingDistanceBp?: string | null | undefined;
   readonly trailingStepBp?: string | null | undefined;
+  readonly trailingStepBasis?: 'price' | 'roe' | undefined;
 }) => Promise<
-  | { readonly ok: true; readonly stopLoss?: AttachLegResult | undefined; readonly takeProfit?: AttachLegResult | undefined }
+  | { readonly ok: true; readonly stopLoss?: AttachLegResult | undefined; readonly takeProfit?: AttachLegResult | undefined; readonly trailingWarning?: string | undefined }
   | { readonly ok: false; readonly code: string; readonly detail: string; readonly orderMayExist?: boolean | undefined }
 >;
 
@@ -273,7 +277,7 @@ export class ExecutionWorker {
   /** Drain up to `limit` 'place' jobs in parallel: write-before-send, submit, classify. */
   async runPlaceOnce(limit = 50): Promise<WorkerRunSummary> {
     const sum: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
-    const jobs = await claimJobsFair(this.deps.db, `worker-${process.pid}`, { limit });
+    const jobs = await claimJobsFair(this.deps.db, `worker-${process.pid}`, { limit, kind: 'place' });
     const placeJobs = jobs.filter((j) => j.kind === 'place');
     sum.handled = placeJobs.length;
 
@@ -296,7 +300,7 @@ export class ExecutionWorker {
   /** Drain up to `limit` 'resolve' jobs in parallel: ask the venue by coid and settle. */
   async runResolveOnce(limit = 50): Promise<WorkerRunSummary> {
     const sum: WorkerRunSummary = { handled: 0, sent: 0, ambiguous: 0, rejected: 0, terminal: 0 };
-    const jobs = await claimJobsFair(this.deps.db, `resolve-${process.pid}`, { limit });
+    const jobs = await claimJobsFair(this.deps.db, `resolve-${process.pid}`, { limit, kind: 'resolve' });
     const resolveJobs = jobs.filter((j) => j.kind === 'resolve');
     sum.handled = resolveJobs.length;
 
@@ -527,7 +531,7 @@ export class ExecutionWorker {
 
     const coid = clientOrderIdOf(this.deps.pepper, child.groupTradeId, child.accountId, child.legSeq);
     const reserved = await tdb.updateTable('child_order')
-      .set({ state: 'sending', client_order_id: coid } as never)
+      .set({ state: 'sending', client_order_id: coid, send_started_at: nowDate() } as never)
       .where('id' as never, '=', child.id as never)
       .where('state' as never, '=', 'planned' as never)
       .where('client_order_id' as never, 'is', null as never)
@@ -537,6 +541,20 @@ export class ExecutionWorker {
 
     if (trade === null || child.market === null || child.finalQuantity === null) {
       await this.settle(tdb, child, 'needs_human');
+      return 'skipped';
+    }
+
+    // A preview is not a lasting permission to trade: brakes may change before send.
+    const [platform, caps, accounts, markets] = await Promise.all([
+      readPlatformFlags(this.deps.db), readTenantCaps(tdb),
+      readAccountStates(tdb, [child.accountId]), readMarketStates(this.deps.db, [child.market]),
+    ]);
+    const account = accounts.get(child.accountId);
+    if (process.env['TRADEX_KILL_SWITCH'] === '1' || platform.killSwitch || platform.mode !== 'normal'
+      || caps.tradingPaused || account?.status !== 'active' || account.credentialStatus !== 'active'
+      || account.frozenReason !== null || (markets[child.market]?.mode ?? 'normal') !== 'normal') {
+      await this.settle(tdb, child, 'skipped', { refusalCode: 'send_permission_changed',
+        refusalDetail: 'Trading permission changed after preview; no order was sent.' });
       return 'skipped';
     }
 
@@ -555,16 +573,11 @@ export class ExecutionWorker {
       .limit(1)
       .executeTakeFirst();
     if (competing !== undefined) {
-      const comp = competing as unknown as { id: string; state: string; createdAt: Date | string | null };
-      const compAgeMs = comp.createdAt ? Date.now() - new Date(comp.createdAt).getTime() : 0;
-      // Only active competing orders created within the last 5 minutes block send; older stale rows are ignored
-      if (compAgeMs < 5 * 60 * 1000) {
         await this.settle(tdb, child, 'not_placed', {
           refusalCode: 'order_in_flight',
           refusalDetail: `another order on ${child.market} is still open for this account`,
         });
         return 'skipped';
-      }
     }
 
     // T09.2/3/4 — a SELL re-derives its quantity from a FRESH free read right
@@ -794,7 +807,7 @@ export class ExecutionWorker {
     // a filled entry owes an attach; a terminal non-fill owes a labelled skip
     // (never a leg left 'planned' forever, which would wedge the trade open).
     if (updatedRow?.legKind === 'entry') {
-      if (state === 'filled') {
+      if (state === 'filled' || state === 'partially_cancelled') {
         await this.attachProtection(tdb, child, updatedRow.market);
       } else if (ENTRY_NO_POSITION.has(state)) {
         await this.skipConditionals(tdb, child, 'entry_' + state);
@@ -846,9 +859,9 @@ export class ExecutionWorker {
     const attach = this.deps.attachTpSl;
 
     const trade = await tdb.byId('group_trade', entry.groupTradeId)
-      .select(['asset', 'margin_currency as marginCurrency', 'quote_currency as quoteCurrency', 'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp'] as unknown as never)
+      .select(['asset', 'margin_currency as marginCurrency', 'quote_currency as quoteCurrency', 'trailing_stop_loss as trailingStopLoss', 'trailing_distance_bp as trailingDistanceBp', 'trailing_step_bp as trailingStepBp', 'trailing_step_basis as trailingStepBasis'] as unknown as never)
       .executeTakeFirst();
-    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; quoteCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean; trailingDistanceBp: string | null; trailingStepBp: string | null } | undefined;
+    const tradeRow = trade as unknown as { asset: string; marginCurrency: 'INR' | 'USDT' | null; quoteCurrency: 'INR' | 'USDT' | null; trailingStopLoss: boolean; trailingDistanceBp: string | null; trailingStepBp: string | null; trailingStepBasis: 'price' | 'roe' } | undefined;
 
     // Nothing can be attached: no port, no market, or no margin currency. Skip
     // every leg with a reason the customer can read, so the trade completes.
@@ -865,7 +878,10 @@ export class ExecutionWorker {
     const slLeg = rows.find((l) => l.legKind === 'stop_loss');
     const tpLeg = rows.find((l) => l.legKind === 'take_profit');
 
-    const out = await attach({
+    let out: Awaited<ReturnType<AttachTpSlPort>>;
+    try { out = await attach({
+      tenantId: tdb.tenantId,
+      entryChildOrderId: entry.id,
       accountId: entry.accountId,
       pair,
       marginCurrency: tradeRow.marginCurrency,
@@ -874,14 +890,17 @@ export class ExecutionWorker {
       trailingStopLoss: tradeRow.trailingStopLoss,
       trailingDistanceBp: tradeRow.trailingDistanceBp,
       trailingStepBp: tradeRow.trailingStepBp,
-    });
+      trailingStepBasis: tradeRow.trailingStepBasis,
+    }); } catch (error) {
+      out = { ok: false, orderMayExist: true, code: 'TP_SL_UNCONFIRMED', detail: error instanceof Error ? error.message : String(error) };
+    }
 
     if (!out.ok) {
       // Venue refused the whole call (or could not be reached). Every leg is
       // rejected with the same reason; the position is open and unprotected,
       // which A21 surfaces.
       for (const leg of rows) {
-        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'rejected', {
+        await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, out.orderMayExist ? 'needs_human' : 'rejected', {
           refusalCode: out.code,
           refusalDetail: out.detail,
         });
@@ -901,6 +920,8 @@ export class ExecutionWorker {
       if (res.ok) {
         await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'untriggered', {
           triggerState: 'untriggered',
+          ...(res.venueOrderId ? { exchangeOrderId: res.venueOrderId } : {}),
+          ...(label === 'stop-loss' && out.trailingWarning ? { refusalCode: 'TRAILING_INACTIVE', refusalDetail: out.trailingWarning } : {}),
         });
       } else {
         await this.settle(tdb, { id: leg.id, groupTradeId: entry.groupTradeId, accountId: entry.accountId }, 'rejected', {
@@ -937,8 +958,8 @@ export class ExecutionWorker {
 
 /** Entry outcomes that prove no position was opened. */
 const ENTRY_NO_POSITION: ReadonlySet<string> = new Set([
-  'rejected', 'not_placed', 'skipped', 'needs_human', 'cancelled', 'partially_cancelled', 'liquidated',
+  'rejected', 'not_placed', 'skipped', 'cancelled', 'liquidated',
 ]);
 
 /** The states that keep a group trade executing (mirrors the DB WORKING set). */
-const WORKING_SET: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous', 'acked', 'open']);
+const WORKING_SET: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous', 'acked', 'open', 'partially_filled', 'unknown', 'needs_human']);

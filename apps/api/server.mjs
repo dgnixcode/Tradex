@@ -22,10 +22,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { createHttpServer, listAccounts, placeFuturesOrder, planAdjustment } from './dist/index.js';
+import { createHttpServer, listAccounts, placeFuturesOrder, planAdjustment, floorQuantityToStep, hardExit, findIntentOrder } from './dist/index.js';
+import { executePositionMutation } from './dist/futures/mutation.js';
+import { ResearchKeyVault } from './dist/research/ai-settings.js';
+import { reservePositionIncrease } from './dist/futures/risk-reservation.js';
 import { forTenant, findByAccount, getChildOrders, requeueStale, replaceFuturesPositions, recordObservedBalances, recordVenueBasis, upsertFuturesClosedTrades } from '../../packages/db/dist/index.js';
 import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/index.js';
 import { Signer } from '../signer/dist/index.js';
@@ -41,6 +44,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, '..', '..', 'checks', 'fixtures');
 
 const PORT = Number(process.env['PORT'] ?? 8080);
+function validateProductionConfiguration() {
+  let appOrigin;
+  try { appOrigin = new URL(process.env['APP_URL']); } catch { /* validated below */ }
+  if (!appOrigin || appOrigin.protocol !== 'https:' || appOrigin.username || appOrigin.password) {
+    throw new Error('Production requires APP_URL set to the public HTTPS application URL');
+  }
+  if (!process.env['TRADEX_COOKIE_SECRET']) throw new Error('Production requires a persistent TRADEX_COOKIE_SECRET');
+  if (!/^[0-9a-f]{64}$/i.test(process.env['TRADEX_LOCAL_ROOT_KEY'] ?? '') || process.env['TRADEX_LOCAL_ROOT_KEY']?.toLowerCase() === 'cd'.repeat(32)) {
+    throw new Error('Production requires an explicitly configured private TRADEX_LOCAL_ROOT_KEY; the development default is forbidden');
+  }
+  if (process.env['TRADEX_SIGNER_URL'] && (process.env['TRADEX_SIGNER_TOKEN']?.length ?? 0) < 32) {
+    throw new Error('Production requires TRADEX_SIGNER_TOKEN with at least 32 characters, shared with the signer');
+  }
+}
 const url = process.env['DATABASE_URL'];
 if (url === undefined || url === '') {
   console.error('DATABASE_URL is not set — see .env.example');
@@ -72,6 +89,7 @@ function cookieSecret() {
 const fixtureBooks = {
   BTCINR: () => JSON.parse(readFileSync(join(fixturesDir, 'orderbook_btcinr.json'), 'utf8')),
   BTCUSDT: () => JSON.parse(readFileSync(join(fixturesDir, 'orderbook_btcusdt.json'), 'utf8')),
+  USDTINR: () => ({ timestamp: Date.now(), asks: { '80.01': '1000000' }, bids: { '79.99': '1000000' } }),
 };
 
 function toPort(market, mapped) {
@@ -128,6 +146,10 @@ try {
 }
 /** The venue that spends real money. A sandbox host is not this. */
 const REAL_VENUE = /(^|\.)coindcx\.com$/.test(VENUE_HOST);
+if (process.env['NODE_ENV'] === 'production' || sending && REAL_VENUE) validateProductionConfiguration();
+if (sending && REAL_VENUE && process.env['TRADEX_LIVE_BOOK'] !== '1') {
+  throw new Error('Real-money sending requires TRADEX_LIVE_BOOK=1; fixture prices cannot authorize live orders');
+}
 
 /**
  * THE INVARIANT THIS ENFORCES: no plaintext credential exists outside the signer
@@ -292,6 +314,7 @@ async function signFor(tenantId, accountId, customReason) {
     return async (body) => {
       const res = await fetch(new URL('/sign', SIGNER_URL), {
         method: 'POST',
+        signal: globalThis.AbortSignal.timeout(5000),
         headers: {
           'content-type': 'application/json',
           ...(token !== undefined && token !== '' ? { 'x-tradex-signer-token': token } : {}),
@@ -573,17 +596,8 @@ const enginePorts = {};
             // a complete picture and absent means closed.
             const written = await replaceFuturesPositions(tdb, accountId, read.positions);
 
-            // Auto-reconcile stale child orders for this account:
-            // Settle historical in-flight child orders older than 2 minutes to 'filled' so they do not block Gate 12
-            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-            await tdb.updateTable('child_order')
-              .set({ state: 'filled', terminal_at: new Date() })
-              .where('account_id', '=', accountId)
-              .where('state', 'in', ['open', 'sending', 'acked', 'partially_filled'])
-              .where('created_at', '<', twoMinutesAgo)
-              .execute()
-              .catch(() => {});
-
+            // Position mirroring never settles orders. Resting/partial limits
+            // remain live until their own venue order status proves otherwise.
             // Sync verified closed trades and realized PnL directly from exchange transactions
             syncClosedTradesForAccount(tdb, tenantId, accountId, sign, VENUE_BASE).catch((err) => {
               console.error(`[sync-closed-trades] error syncing account ${accountId}:`, err instanceof Error ? err.message : String(err));
@@ -669,7 +683,16 @@ const accountSync = async ({ tenantId, accountId }) => {
     return result;
   }
 
-Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached });
+Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached,
+  refreshTrailingPositions: async (targets) => {
+    const byTenant = new Map();
+    for (const target of targets) {
+      if (!byTenant.has(target.tenantId)) byTenant.set(target.tenantId, new Set());
+      byTenant.get(target.tenantId).add(target.accountId);
+    }
+    for (const [tenantId, ids] of byTenant) await mirrorAccounts(tenantId, [...ids]);
+  },
+});
 
 if (sending) {
   /**
@@ -688,41 +711,24 @@ if (sending) {
     workerId: process.env['TRADEX_CODE_VERSION'] ?? 'dev',
     // L3 — signed at call time, never earlier: the venue rejects a body over 10s.
     create: async (intent) => {
-      let sendQuantity = intent.quantity;
+      const sendQuantity = intent.quantity;
       try {
         const inst = await getFuturesInstrumentCached(intent.pair, spec.marginCurrency);
-        if (inst && inst.ok && inst.instrument && inst.instrument.quantityIncrement && inst.instrument.quantityIncrement !== '0') {
-          const stepStr = inst.instrument.quantityIncrement;
-          const dot = stepStr.indexOf('.');
-          const precision = dot >= 0 ? stepStr.length - dot - 1 : 0;
-          const factor = 10n ** BigInt(precision);
-          const stepNum = Number(stepStr);
-          const qNum = Number(sendQuantity);
-          if (Number.isFinite(stepNum) && stepNum > 0 && Number.isFinite(qNum) && qNum > 0) {
-            const stepInt = BigInt(Math.round(stepNum * Math.pow(10, precision)));
-            const qInt = BigInt(Math.floor(qNum * Math.pow(10, precision)));
-            if (stepInt > 0n) {
-              const flooredInt = (qInt / stepInt) * stepInt;
-              const whole = (flooredInt / factor).toString();
-              const frac = (flooredInt % factor).toString().padStart(precision, '0');
-              const floored = precision > 0 ? `${whole}.${frac}` : whole;
-              if (floored !== sendQuantity && Number(floored) > 0) {
-                console.warn(`[futures-order] Quantized quantity for ${intent.pair} from ${sendQuantity} to ${floored} (step: ${stepStr})`);
-                sendQuantity = floored;
-                intent.quantity = floored;
-                if (intent.childOrderId) {
-                  db.updateTable('child_order')
-                    .set({ final_quantity: floored })
-                    .where('id', '=', intent.childOrderId)
-                    .execute()
-                    .catch((err) => console.error('[futures-order] failed to update quantized quantity on child_order:', err));
-                }
-              }
-            }
-          }
+        if (!inst?.ok || !inst.instrument) {
+          return { kind: 'rejected', orderMayExist: false, code: 'instrument_unavailable', detail: 'Cannot verify futures trading rules; preview again.' };
+        }
+        const canonical = (v) => v.replace(/^0+(?=\d)/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+        if (floorQuantityToStep(sendQuantity, inst.instrument.quantityIncrement) !== canonical(sendQuantity)) {
+          return { kind: 'rejected', orderMayExist: false, code: 'instrument_changed', detail: 'The confirmed quantity is no longer on the futures quantity step; preview again.' };
+        }
+        if (intent.orderType === 'limit' && (intent.price === null || floorQuantityToStep(intent.price, inst.instrument.priceIncrement) !== canonical(intent.price))) {
+          return { kind: 'rejected', orderMayExist: false, code: 'invalid_limit_price', detail: 'The limit price must be positive and on the futures price step.' };
+        }
+        if (inst.instrument.exitOnly && spec.allowReduce !== true) {
+          return { kind: 'rejected', orderMayExist: false, code: 'exit_only', detail: 'This futures instrument allows exits only.' };
         }
       } catch (e) {
-        console.error(`[futures-order] failed to verify instrument step for ${intent.pair}:`, e);
+        return { kind: 'rejected', orderMayExist: false, code: 'invalid_order', detail: e instanceof Error ? e.message : 'Cannot verify the futures order.' };
       }
 
       const placed = await submitFuturesOrderSigned(sign, {
@@ -782,6 +788,9 @@ if (sending) {
         detail: 'this build trades futures only; refusing to send a spot order',
       };
     }
+    if (order.futures.reduceOnly === true) {
+      return { kind: 'rejected', orderMayExist: false, code: 'reduce_only_unsupported', detail: 'Use the position reduce or exit action for a futures close.' };
+    }
 
     const outcome = await placeFuturesOrder(db, order.tenantId,
       protocolPortsFor(sign, {
@@ -822,6 +831,8 @@ if (sending) {
         'child_order.final_quantity as finalQuantity', 'child_order.leg_seq as legSeq',
         'child_order.exchange_order_id as exchangeOrderId',
         'child_order.created_at as createdAt',
+        'child_order.send_started_at as sendStartedAt',
+        'group_trade.submitted_at as submittedAt',
         'child_order.leg_kind as legKind',
         'group_trade.order_type as orderType', 'group_trade.limit_price as limitPrice',
         'group_trade.asset as asset', 'group_trade.is_futures as isFutures',
@@ -843,52 +854,29 @@ if (sending) {
     const read = await listFuturesOrdersSigned(sign, { pair, side: row.side, marginCurrency: row.marginCurrency }, { baseUrl: VENUE_BASE })
       .catch(() => ({ ok: false }));
     if (read.ok === true && Array.isArray(read.orders)) {
-      const match = read.orders.find((o) => {
-        if (row.exchangeOrderId && o.venueOrderId === row.exchangeOrderId) return true;
-        return o.pair === pair && o.side === row.side
-          && o.orderType === row.orderType
-          && o.totalQuantity === row.finalQuantity
-          && (o.price ?? null) === (row.limitPrice ?? null);
-      });
+      const match = findIntentOrder(read.orders, {
+        accountId: row.accountId, childOrderId: row.childId, pair,
+        marginCurrency: row.marginCurrency, side: row.side, orderType: row.orderType,
+        quantity: row.finalQuantity, price: row.limitPrice,
+        sentAtMs: new Date(row.sendStartedAt ?? row.submittedAt ?? row.createdAt).getTime(),
+      }, row.exchangeOrderId);
       if (match !== undefined) {
         return { ok: true, order: { id: match.venueOrderId, statusRaw: match.statusRaw } };
       }
     }
 
-    // L4c: An active position on this pair is physical proof that the entry filled,
-    // even when CoinDCX's order list read lags behind or omits the order.
-    // Handles both long (activePos > 0) and short (activePos < 0) positions.
-    if (row.legKind === 'entry' || row.legSeq === 0) {
-      const posRead = await fetchFuturesPositionsSigned(sign, [row.marginCurrency], { baseUrl: VENUE_BASE })
-        .catch(() => ({ ok: false }));
-      if (posRead.ok && Array.isArray(posRead.positions)) {
-        const pos = posRead.positions.find((p) => p.pair === pair && Math.abs(Number(p.activePos)) > 0);
-        if (pos !== undefined) {
-          return { ok: true, order: { id: row.exchangeOrderId ?? pos.venuePositionId, statusRaw: 'filled' } };
-        }
-      }
-    }
-
-    // Replication lag grace period: CoinDCX derivatives orders endpoint can lag
-    // by 1-3 seconds after order submission. If the order was created recently (< 30s),
-    // return ok: false so the next poll retries instead of prematurely declaring order: null.
-    const ageMs = row.createdAt ? Date.now() - new Date(row.createdAt).getTime() : 0;
-    if (ageMs < 30_000) {
-      return { ok: false };
-    }
-
-    // If the order is older than 30 seconds and not in active orders list:
-    // On CoinDCX derivatives, market orders execute immediately upon acceptance.
-    // If it is no longer listed in active/untriggered orders, it completed (filled or closed).
-    if (row.orderType === 'market') {
-      return { ok: true, order: { id: row.exchangeOrderId ?? row.childId, statusRaw: 'filled' } };
-    }
-
-    return { ok: true, order: null };
+    // Neither elapsed time nor a pre-existing position proves this order filled.
+    // Futures read-back absence is not authoritative non-placement either.
+    return { ok: false };
   };
 
   /** Phase-15 SL/TP: find the position this entry opened and attach protection. */
-  const attachTpSl = async (args) => {
+  const attachTpSl = (args) => executePositionMutation({ db, tenantId: args.tenantId,
+    accountId: args.accountId, pair: args.pair, positionId: `entry:${args.entryChildOrderId}`,
+    operation: 'tpsl', requestId: args.entryChildOrderId, body: args,
+    execute: () => attachTpSlUnlocked(args),
+  });
+  const attachTpSlUnlocked = async (args) => {
     const sign = await signFor(args.tenantId, args.accountId);
     if (sign === null) return { ok: false, code: 'no_credential', detail: 'no credential to sign with' };
     const positions = await fetchFuturesPositionsSigned(sign, [args.marginCurrency], { baseUrl: VENUE_BASE });
@@ -906,20 +894,41 @@ if (sending) {
       ...(args.takeProfitPrice !== null
         ? { takeProfit: { triggerPrice: args.takeProfitPrice, orderType: 'take_profit_market' } } : {}),
     }, { baseUrl: VENUE_BASE });
-    if (!out.ok) return { ok: false, code: out.failure.code ?? 'attach_failed', detail: out.failure.detail ?? '' };
+    if (!out.ok) return { ok: false, code: out.failure.code ?? 'attach_failed', detail: out.failure.detail ?? '',
+      outcomeUnknown: out.failure.orderMayExist === true, orderMayExist: out.failure.orderMayExist === true };
+    if ((args.stopLossPrice !== null && out.stopLoss === undefined) || (args.takeProfitPrice !== null && out.takeProfit === undefined)
+      || [out.stopLoss, out.takeProfit].some((leg) => leg?.ok === false && leg.reason === 'venue response did not include an order id')) {
+      return { ok: false, code: 'TP_SL_UNCONFIRMED', detail: 'The venue did not confirm the requested protection orders', outcomeUnknown: true, orderMayExist: true };
+    }
+    let trailingWarning;
     if (args.trailingStopLoss && args.stopLossPrice !== null && out.stopLoss?.ok === true) {
       const { upsertTrailingSl } = await import('@tradex/db');
-      await upsertTrailingSl(db, {
+      let basisKey;
+      if (args.trailingStepBasis === 'roe') {
+        try { basisKey = roePositionBasis(position).key; }
+        catch {
+          // The fixed SL is confirmed. Report trailing registration separately;
+          // never retry attaching that SL because collateral was unavailable.
+          trailingWarning = 'Fixed SL is active; ROE trailing is inactive because current position margin/settlement data is unavailable. Refresh and re-enable trailing.';
+        }
+      }
+      await upsertTrailingSl(forTenant(db, args.tenantId), {
         accountId: args.accountId,
         venuePositionId: position.venuePositionId,
         pair: args.pair,
         currentSlPrice: args.stopLossPrice,
+        highWaterMark: position.markPrice ?? position.avgEntryPrice ?? args.stopLossPrice,
         distanceBp: args.trailingDistanceBp ?? '500',
         stepBp: args.trailingStepBp ?? '100',
+        stepBasis: args.trailingStepBasis ?? 'price',
+        status: trailingWarning ? 'failed' : 'active',
+        ...(args.trailingStepBasis === 'roe' ? { stepAnchorPrice: position.markPrice ?? position.avgEntryPrice,
+          positionBasisKey: basisKey } : {}),
       });
     }
     return {
       ok: true,
+      ...(trailingWarning ? { trailingWarning } : {}),
       ...(out.stopLoss !== undefined ? { stopLoss: out.stopLoss } : {}),
       ...(out.takeProfit !== undefined ? { takeProfit: out.takeProfit } : {}),
     };
@@ -955,36 +964,10 @@ if (sending) {
           /no\s+active\s+position/i.test(out.failure.detail ?? '')
         );
         if (isAlreadyClosed) {
-          console.log(`[exitPosition] position ${venuePositionId} has no active position at venue (already exited)`);
-          // Immediately delete from local mirror so positions page updates with 0 delay
-          await forTenant(db, actor.tenantId)
-            .deleteFrom('futures_position')
-            .where('venue_position_id', '=', venuePositionId)
-            .execute()
-            .catch(() => {});
-          setTimeout(() => {
-            mirrorAccounts(actor.tenantId, [actor.accountId]).catch(() => {});
-          }, 1500);
           return { ok: true, venueGroupId: null, alreadyClosed: true };
         }
         return { ok: false, message: out.failure.detail ?? 'exit refused' };
       }
-
-      // Immediately delete from local mirror so positions page reflects the exit with 0 delay.
-      // Do NOT query venue immediately at 0ms because market matching takes 200-1000ms
-      // and would re-write the old open position back into the database.
-      await forTenant(db, actor.tenantId)
-        .deleteFrom('futures_position')
-        .where('venue_position_id', '=', venuePositionId)
-        .execute()
-        .catch(() => {});
-
-      // Schedule background mirror sync after venue order match settles
-      setTimeout(() => {
-        mirrorAccounts(actor.tenantId, [actor.accountId]).catch((e) => {
-          console.error('[mirror] post-exit background refresh failed:', e instanceof Error ? e.message : String(e));
-        });
-      }, 1500);
 
       return { ok: true, venueGroupId: out.venueGroupId };
     },
@@ -1036,9 +1019,10 @@ if (sending) {
       const shouldCancelSl = args.removeStopLoss === true || (args.moveExisting === true && args.stopLossPrice !== undefined);
       const shouldCancelTp = args.removeTakeProfit === true || (args.moveExisting === true && args.takeProfitPrice !== undefined);
       if (shouldCancelSl || shouldCancelTp || args.moveExisting === true) {
-        const pos = await db.selectFrom('futures_position')
+        const pos = await forTenant(db, args.actor.tenantId).selectFrom('futures_position')
           .select(['pair', 'margin_currency as marginCurrency'])
           .where('venue_position_id', '=', args.venuePositionId)
+          .where('account_id', '=', args.actor.accountId)
           .executeTakeFirst();
         if (pos !== undefined) {
           for (const side of ['buy', 'sell']) {
@@ -1048,18 +1032,31 @@ if (sending) {
               status: 'untriggered',
               marginCurrency: pos.marginCurrency,
             }, { baseUrl: VENUE_BASE });
+            if (!active.ok) throw new Error('Could not read existing protection; no replacement was submitted');
             if (active.ok) {
               for (const order of active.orders) {
                 if (order.pair !== pos.pair) continue;
                 if ((shouldCancelSl || (args.stopLossPrice !== undefined && args.moveExisting === true)) && (order.orderType === 'stop_market' || order.orderType === 'stop_limit')) {
-                  await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                  const cancelled = await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                  if (!cancelled.ok) throw new Error('Stop-loss cancellation was not confirmed; check existing protection');
                 }
                 if ((shouldCancelTp || (args.takeProfitPrice !== undefined && args.moveExisting === true)) && (order.orderType === 'take_profit_market' || order.orderType === 'take_profit_limit')) {
-                  await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                  const cancelled = await cancelFuturesOrderSigned(sign, order.venueOrderId, { baseUrl: VENUE_BASE });
+                  if (!cancelled.ok) throw new Error('Take-profit cancellation was not confirmed; check existing protection');
                 }
               }
             }
           }
+          for (const side of ['buy', 'sell']) {
+            const verify = await listFuturesOrdersSigned(sign, { pair: pos.pair, side, status: 'untriggered', marginCurrency: pos.marginCurrency }, { baseUrl: VENUE_BASE });
+            if (!verify.ok || verify.orders.some((o) => o.pair === pos.pair && (
+              shouldCancelSl && ['stop_market', 'stop_limit'].includes(o.orderType)
+              || shouldCancelTp && ['take_profit_market', 'take_profit_limit'].includes(o.orderType)))) {
+              throw new Error('Old protection may still be live; replacement requires reconciliation');
+            }
+          }
+        } else {
+          throw new Error('Position was not found in this account');
         }
       }
       if (args.removeStopLoss === true) {
@@ -1075,9 +1072,10 @@ if (sending) {
         if (args.removeStopLoss === true) updates.stop_loss_trigger = null;
         if (args.removeTakeProfit === true) updates.take_profit_trigger = null;
         if (Object.keys(updates).length > 0) {
-          await db.updateTable('futures_position')
+          await forTenant(db, args.actor.tenantId).updateTable('futures_position')
             .set(updates)
             .where('venue_position_id', '=', args.venuePositionId)
+            .where('account_id', '=', args.actor.accountId)
             .execute();
         }
         return {
@@ -1093,16 +1091,22 @@ if (sending) {
           ? { takeProfit: { triggerPrice: args.takeProfitPrice, orderType: 'take_profit_market' } } : {}),
       }, { baseUrl: VENUE_BASE });
       if (!out.ok) {
+        if (out.failure.orderMayExist === true) throw new Error('Protection may have been created; reconcile before retrying');
         return { stopLoss: { ok: false, reason: out.failure.detail ?? 'the venue refused the attach' } };
+      }
+      if ((args.stopLossPrice !== undefined && out.stopLoss === undefined) || (args.takeProfitPrice !== undefined && out.takeProfit === undefined)
+        || [out.stopLoss, out.takeProfit].some((leg) => leg?.ok === false && leg.reason === 'venue response did not include an order id')) {
+        throw new Error('The venue did not confirm the requested protection orders; reconcile before retrying');
       }
       if (args.removeStopLoss === true || args.removeTakeProfit === true) {
         const updates = {};
         if (args.removeStopLoss === true) updates.stop_loss_trigger = null;
         if (args.removeTakeProfit === true) updates.take_profit_trigger = null;
         if (Object.keys(updates).length > 0) {
-          await db.updateTable('futures_position')
+          await forTenant(db, args.actor.tenantId).updateTable('futures_position')
             .set(updates)
             .where('venue_position_id', '=', args.venuePositionId)
+            .where('account_id', '=', args.actor.accountId)
             .execute();
         }
       }
@@ -1139,6 +1143,7 @@ if (sending) {
    * close becomes a reversal.
    */
   const adjustPosition = async (args) => {
+    if (!args.executionLockId) return { ok: false, code: 'lock_required', detail: 'Position changes require a durable action lock.' };
     const sign = await signFor(args.actor.tenantId, args.actor.accountId);
     if (sign === null) return { ok: false, code: 'no_credential', detail: 'no credential for this account' };
 
@@ -1172,28 +1177,24 @@ if (sending) {
     });
     if (!plan.ok) return plan;
 
+    if (args.direction === 'increase') {
+      // Caps are denominated in INR; never compare USDT amounts to INR limits.
+      const fxBook = await getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
+      const fx = fxBook.asks[0]?.price;
+      if (!fx) return { ok: false, code: 'fx_unreadable', detail: 'Cannot safely apply margin limits without INR/USDT pricing' };
+      try {
+        await reservePositionIncrease({ db, tdb: forTenant(db, args.actor.tenantId), requestId: args.executionLockId,
+          accountId: args.actor.accountId, pair: pos.pair, quantity: plan.quantity, price, leverage: Number(pos.leverage ?? 1),
+          quote: pos.pair.endsWith('_INR') ? 'INR' : 'USDT', usdtInrMid: fx });
+      } catch (error) {
+        return { ok: false, code: 'risk_limit', detail: error.message };
+      }
+    }
+
     // A full reduce is promoted to `positions/exit`: one atomic venue call, rather
     // than an opposite order racing fills and funding across two crossings.
     if (args.direction === 'reduce' && plan.isFull) {
-      const out = await exitFuturesPositionSigned(sign, args.venuePositionId, { baseUrl: VENUE_BASE });
-      if (!out.ok) {
-        const isAlreadyClosed = out.failure && (
-          out.failure.code === 'no_active_position' ||
-          /no\s+active\s+position/i.test(out.failure.detail ?? '')
-        );
-        if (isAlreadyClosed) {
-          await forTenant(db, args.actor.tenantId)
-            .deleteFrom('futures_position')
-            .where('venue_position_id', '=', args.venuePositionId)
-            .execute()
-            .catch(() => {});
-          setTimeout(() => {
-            mirrorAccounts(args.actor.tenantId, [args.actor.accountId]).catch(() => {});
-          }, 1500);
-          return { ok: true, quantity: plan.quantity, venueOrderId: null, full: true };
-        }
-        return { ok: false, code: out.failure.code ?? 'exit_refused', detail: out.failure.detail ?? 'the venue refused the exit' };
-      }
+      await hardExit(futuresExit, { actor: args.actor, venuePositionId: args.venuePositionId, marginCurrency: pos.marginCurrency });
       await forTenant(db, args.actor.tenantId)
         .deleteFrom('futures_position')
         .where('venue_position_id', '=', args.venuePositionId)
@@ -1206,11 +1207,12 @@ if (sending) {
     }
 
     const outcome = await placeFuturesOrder(db, args.actor.tenantId,
-      protocolPortsFor(sign, {
+      { ...protocolPortsFor(sign, {
         leverage: pos.leverage ?? 1,
         marginCurrency: pos.marginCurrency,
         positionMarginType: pos.marginType ?? 'isolated',
-      }),
+        allowReduce: args.direction === 'reduce',
+      }), lockAlreadyHeld: true },
       {
         accountId: args.actor.accountId,
         pair: pos.pair,
@@ -1222,35 +1224,42 @@ if (sending) {
         sentAtMs: Date.now(),
         // An adjust is not a child_order row; the lock is keyed by this id purely
         // to exclude a concurrent send on the same (account, pair).
-        childOrderId: randomUUID(),
+        childOrderId: args.executionLockId,
       });
 
-    // The venue is the truth about what the position became, so re-read it after allowing
-    // the market order fill a moment to reflect in venue position — and check the sign did not flip.
-    // Query both margin currencies so INR positions are not wiped out.
-    await new Promise((r) => setTimeout(r, 400));
-    const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
-    if (after.ok) {
-      await replaceFuturesPositions(forTenant(db, args.actor.tenantId), args.actor.accountId, after.positions);
-      const now = after.positions.find((p) => p.venuePositionId === args.venuePositionId);
-      if (args.direction === 'reduce' && now !== undefined
-        && pos.activePos.startsWith('-') !== now.activePos.startsWith('-')) {
-        return {
-          ok: false,
-          code: 'position_flipped',
-          detail: `the reduce REVERSED the position (${pos.activePos} -> ${now.activePos}) — needs a human`,
-        };
-      }
-    }
-
     if (outcome.submit.kind !== 'accepted') {
+      if (outcome.submit.orderMayExist !== true && outcome.submit.needsHuman !== true) {
+        await forTenant(db, args.actor.tenantId).updateTable('position_mutation').set({ risk_margin_inr_minor: null })
+          .where('request_id', '=', args.executionLockId).execute();
+      }
       return {
         ok: false,
         code: outcome.submit.code ?? 'not_placed',
+        outcomeUnknown: outcome.submit.orderMayExist === true || outcome.submit.needsHuman === true,
         detail: outcome.submit.detail ?? `the venue did not accept the order (${outcome.resolution})`,
       };
     }
-    return { ok: true, quantity: plan.quantity, venueOrderId: outcome.submit.exchangeOrderId ?? null, full: false };
+    const decimal = (v) => {
+      const negative = v.startsWith('-');
+      const [whole, fraction = ''] = v.replace(/^-/, '').split('.');
+      return (negative ? -1n : 1n) * (BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0')));
+    };
+    const beforePos = decimal(pos.activePos);
+    const expected = beforePos + decimal(plan.quantity) * (plan.side === 'buy' ? 1n : -1n);
+    // Poll reads only while retaining the account/pair lock. Never repeat the send.
+    for (const delay of [0, 250, 500, 750, 1000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      const after = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+      if (!after.ok) continue;
+      await replaceFuturesPositions(forTenant(db, args.actor.tenantId), args.actor.accountId, after.positions);
+      const observed = after.positions.find((p) => p.venuePositionId === args.venuePositionId);
+      const actual = decimal(observed?.activePos ?? '0');
+      if (args.direction === 'reduce' && actual !== 0n && (beforePos < 0n) !== (actual < 0n)) {
+        return { ok: false, code: 'position_flipped', outcomeUnknown: true, detail: 'The reduction reversed the position; exchange reconciliation is required.' };
+      }
+      if (actual === expected) return { ok: true, quantity: plan.quantity, venueOrderId: outcome.submit.exchangeOrderId ?? null, full: false };
+    }
+    return { ok: false, code: 'position_unconfirmed', outcomeUnknown: true, detail: 'The order was accepted, but the expected position change is not confirmed. Check the exchange before another adjustment.' };
   };
 
 
@@ -1278,7 +1287,7 @@ if (sending) {
     }, { baseUrl: VENUE_BASE });
 
     if (!out.ok) {
-      return { ok: false, code: out.failure.code ?? 'leverage_refused', detail: out.failure.detail ?? 'the venue refused to update leverage' };
+      return { ok: false, code: out.failure.code ?? 'leverage_refused', outcomeUnknown: out.failure.orderMayExist === true, detail: out.failure.detail ?? 'the venue refused to update leverage' };
     }
 
     // Immediately update local DB cache
@@ -1299,9 +1308,26 @@ if (sending) {
     return { ok: true, newLeverage: String(args.leverage) };
   };
 
+  const cancel = async (accountId, coid) => {
+    const child = await db.selectFrom('child_order').select(['tenant_id', 'exchange_order_id'])
+      .where('account_id', '=', accountId).where('client_order_id', '=', coid).executeTakeFirst();
+    if (!child) return { kind: 'rejected', code: 'order_not_owned', detail: 'No such order in this account' };
+    let venueId = child.exchange_order_id;
+    if (!venueId) {
+      const observed = await resolve(coid);
+      if (observed.ok && observed.order) venueId = observed.order.id;
+    }
+    if (!venueId) return { kind: 'rejected', orderMayExist: true, code: 'order_unconfirmed', detail: 'Reconcile this order before cancelling it' };
+    const sign = await signFor(child.tenant_id, accountId);
+    if (!sign) return { kind: 'rejected', code: 'no_credential', detail: 'No credential for this account' };
+    const result = await cancelFuturesOrderSigned(sign, venueId, { baseUrl: VENUE_BASE });
+    return result.ok ? { kind: 'cancelled' } : { kind: 'rejected', orderMayExist: result.failure.orderMayExist,
+      code: result.failure.code, detail: result.failure.detail };
+  };
   Object.assign(enginePorts, {
     submit,
     resolve,
+    cancel,
     executionPepper,
     attachTpSl,
     futuresExit,
@@ -1317,6 +1343,12 @@ if (sending) {
 
 // --- boot the server ---
 const server = createHttpServer({
+  researchEnabled: process.env['TRADEX_RESEARCH_ENABLED'] === '1',
+  researchVault: process.env['TRADEX_RESEARCH_ROOT_KEY'] ? new ResearchKeyVault(process.env['TRADEX_RESEARCH_ROOT_KEY']) : undefined,
+  researchPolicy: {
+    dailyLimit: Number(process.env['TRADEX_RESEARCH_DAILY_LIMIT'] ?? 10),
+    pendingLimit: Number(process.env['TRADEX_RESEARCH_PENDING_LIMIT'] ?? 3),
+  },
   db,
   getOrderBook,
   cookieSecret: cookieSecret(),
@@ -1338,7 +1370,7 @@ const server = createHttpServer({
   codeVersion: process.env['TRADEX_CODE_VERSION'] ?? 'dev',
   // Local dev is plain HTTP, so the cookie must not be marked Secure or the
   // browser will drop it. Set TRADEX_SECURE_COOKIES=1 behind TLS.
-  secureCookies: process.env['TRADEX_SECURE_COOKIES'] === '1',
+  secureCookies: process.env['NODE_ENV'] === 'production' || sending && REAL_VENUE || process.env['TRADEX_SECURE_COOKIES'] === '1',
   resendApiKey: process.env['RESEND_API_KEY'],
   resendFrom: process.env['RESEND_FROM'],
   adminAlertEmail: process.env['ADMIN_ALERT_EMAIL'] ?? 'bariaza006@gmail.com',
@@ -1347,24 +1379,51 @@ const server = createHttpServer({
 });
 
 import { TrailingSlEngine } from './dist/trailing-sl-worker.js';
+import { roePositionBasis, canReplaceRoeStop } from './dist/futures/roe-trailing.js';
 const tslEngine = new TrailingSlEngine(
   db,
-  async ({ tenantId, accountId, venuePositionId, stopLossPrice }) => {
+  async ({ tenantId, accountId, venuePositionId, stopLossPrice, positionBasisKey, expectedSlPrice, evaluationClaimAt }) => {
     console.log(`[TrailingSL] Target SL for position ${venuePositionId} crossed threshold, moving to ${stopLossPrice}`);
     if (!enginePorts.futuresTpSl?.setProtection) {
       console.warn('[TrailingSL] futuresTpSl port not available');
       return { ok: false, reason: 'futuresTpSl port not configured' };
     }
     try {
-      const out = await enginePorts.futuresTpSl.setProtection({
-        actor: { tenantId, accountId },
-        venuePositionId,
-        stopLossPrice,
-        moveExisting: true,
-      });
-      if (out.stopLoss?.ok === false) {
-        console.error(`[TrailingSL] Exchange rejected SL move for position ${venuePositionId}:`, out.stopLoss.reason);
-        return { ok: false, reason: out.stopLoss.reason };
+      const position = await forTenant(db, tenantId).selectFrom('futures_position').select('pair')
+        .where('account_id', '=', accountId).where('venue_position_id', '=', venuePositionId).executeTakeFirst();
+      if (!position) return { ok: false, reason: 'Position has already closed' };
+      const out = await executePositionMutation({ db, tenantId, accountId, pair: position.pair,
+        positionId: venuePositionId, operation: 'tpsl', body: { stopLossPrice, positionBasisKey }, execute: async () => {
+          if (positionBasisKey) {
+            // Configuration changes share this action lock. A step claimed
+            // before a disable/re-enable must not replace that user's stop.
+            const claim = evaluationClaimAt && expectedSlPrice && await forTenant(db, tenantId)
+              .selectFrom('futures_trailing_sl').select('id').where('account_id', '=', accountId)
+              .where('venue_position_id', '=', venuePositionId).where('status', '=', 'updating')
+              .where('last_evaluated_at', '=', new Date(evaluationClaimAt))
+              .where('position_basis_key', '=', positionBasisKey).where('current_sl_price', '=', expectedSlPrice)
+              .executeTakeFirst();
+            if (!claim) return { stopLoss: { ok: false, reason: 'Trailing configuration changed before this step' } };
+            const sign = await signFor(tenantId, accountId);
+            if (!sign) return { stopLoss: { ok: false, reason: 'Position could not be refreshed before ROE stop update' } };
+            const fresh = await fetchFuturesPositionsSigned(sign, ['INR', 'USDT'], { baseUrl: VENUE_BASE });
+            const livePosition = fresh.ok ? fresh.positions.find((p) => p.venuePositionId === venuePositionId) : undefined;
+            if (!livePosition) return { stopLoss: { ok: false, reason: 'Position could not be refreshed before ROE stop update' } };
+            if (roePositionBasis(livePosition).key !== positionBasisKey) {
+              await enginePorts.refreshTrailingPositions?.([{ tenantId, accountId }]);
+              return { stopLoss: { ok: false, reason: 'position_basis_changed' } };
+            }
+            if (!expectedSlPrice || !canReplaceRoeStop(livePosition, stopLossPrice, expectedSlPrice)) {
+              return { stopLoss: { ok: false, reason: 'Current venue stop or mark changed; existing protection was left in place. Review and re-enable trailing.' } };
+            }
+          }
+          return enginePorts.futuresTpSl.setProtection({
+            actor: { tenantId, accountId }, venuePositionId, stopLossPrice, moveExisting: true,
+          });
+        } });
+      if (out.stopLoss?.ok !== true) {
+        console.error(`[TrailingSL] Exchange did not confirm SL move for position ${venuePositionId}:`, out.stopLoss?.reason);
+        return { ok: false, reason: out.stopLoss?.reason ?? 'Stop update was not confirmed' };
       }
       console.log(`[TrailingSL] Successfully moved SL to ${stopLossPrice} on exchange for position ${venuePositionId}`);
       return { ok: true };
@@ -1373,7 +1432,13 @@ const tslEngine = new TrailingSlEngine(
       return { ok: false, reason: err.message };
     }
   },
-  getOrderBook
+  getOrderBook,
+  async (pair, margin) => {
+    const out = await fetchFuturesInstrument(pair, margin, { baseUrl: VENUE_BASE });
+    if (!out.ok) throw new Error('Cannot trail without current price tick rules');
+    return out.instrument.priceIncrement;
+  },
+  enginePorts.refreshTrailingPositions,
 );
 tslEngine.start();
 

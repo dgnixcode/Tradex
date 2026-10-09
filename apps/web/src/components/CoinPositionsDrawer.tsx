@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition,
@@ -18,15 +17,12 @@ import {
   QuickExitModal,
   addMinors,
   buildGroups,
-  calcEstimatedTpSl,
-  calcRoePct,
-  fmtMinor,
-  fmtPrice,
   pnlText,
-  roeText,
 } from '../routes/Futures.tsx';
 import type { PositionGroup, QuickExitTarget } from '../routes/Futures.tsx';
 import { parseCoinFromPair } from '../routes/TradeTicket.tsx';
+import { TerminalPositionGroup } from './TerminalPositionGroup.tsx';
+import { PositionCurrencyBadge } from './PositionCurrencyBadge.tsx';
 
 export interface CoinPositionsDrawerProps {
   readonly coin: string;
@@ -45,6 +41,7 @@ export function CoinPositionsDrawer({
 
   // Scope: 'coin' = positions for the currently displayed chart coin; 'all' = all open positions
   const [scope, setScope] = useState<'coin' | 'all'>('coin');
+  const [search, setSearch] = useState('');
   const [pnlFilter, setPnlFilter] = useState<'all' | 'profit' | 'loss'>('all');
   const [showHiddenAccounts, setShowHiddenAccounts] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -226,34 +223,21 @@ export function CoinPositionsDrawer({
     return groups;
   }, [groups, pnlFilter]);
 
-  // Aggregated Net PnL and ROE for the active scope separated by currency
+  const visibleGroups = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return displayedGroups.filter((group) => !query ||
+      [group.asset, group.marginCurrency, ...group.groupNames, ...group.positions.map((p) => p.accountName)].some((value) => value.toLowerCase().includes(query)));
+  }, [displayedGroups, search]);
+
+  // Keep margin currencies separate; do not sum unlike currencies or average account ROEs.
   const summaryKpis = useMemo(() => {
-    const byCurrency: Record<string, string> = {};
-    const roeByCurrency: Record<string, { sum: number; count: number }> = {};
-    let totalQty = 0;
-
-    for (const p of targetRows) {
-      const cur = p.marginCurrency;
-      if (p.unrealisedPnlMinor !== null) {
-        byCurrency[cur] = byCurrency[cur] === undefined
-          ? p.unrealisedPnlMinor
-          : addMinors(byCurrency[cur]!, p.unrealisedPnlMinor);
-      }
-      const roe = calcRoePct(p);
-      if (roe !== null) {
-        if (!roeByCurrency[cur]) roeByCurrency[cur] = { sum: 0, count: 0 };
-        roeByCurrency[cur].sum += roe;
-        roeByCurrency[cur].count += 1;
-      }
-      totalQty += Number(p.quantity) || 0;
+    const pnlByCurrency: Record<string, string> = {};
+    for (const position of targetRows) {
+      if (position.unrealisedPnlMinor === null) continue;
+      const currency = position.marginCurrency;
+      pnlByCurrency[currency] = addMinors(pnlByCurrency[currency] ?? '0', position.unrealisedPnlMinor);
     }
-
-    return {
-      pnlByCurrency: byCurrency,
-      roeByCurrency,
-      totalQty,
-      count: targetRows.length,
-    };
+    return { pnlByCurrency };
   }, [targetRows]);
 
   // Live polling updates for open modals
@@ -286,710 +270,49 @@ export function CoinPositionsDrawer({
     });
   };
 
-  // Currency breakdown for the header
-  const hasUsdt = summaryKpis.pnlByCurrency['USDT'] !== undefined;
-  const hasInr = summaryKpis.pnlByCurrency['INR'] !== undefined;
-  const usdtPnlMinor = summaryKpis.pnlByCurrency['USDT'] ?? '0';
-  const inrPnlMinor = summaryKpis.pnlByCurrency['INR'] ?? '0';
-  const usdtRoe = summaryKpis.roeByCurrency['USDT'] ? summaryKpis.roeByCurrency['USDT'].sum / summaryKpis.roeByCurrency['USDT'].count : null;
-  const inrRoe = summaryKpis.roeByCurrency['INR'] ? summaryKpis.roeByCurrency['INR'].sum / summaryKpis.roeByCurrency['INR'].count : null;
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        width: '100%',
-        boxSizing: 'border-box',
-      }}
-    >
-      {/* ── Fixed Sticky Header: Scope Switcher + Dual Currency PnL (USDT & INR) + Sync ── */}
-      <div
-        style={{
-          position: 'sticky',
-          top: 38,
-          zIndex: 15,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          padding: '8px 10px',
-          background: '#0a0d12',
-          borderBottom: '1px solid #1a1e27',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.45)',
-        }}
-      >
-        {/* Row 1: Scope Pills + Live PnL (USDT and/or INR) + Sync */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-          {/* Scope Segmented Pill */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              background: '#141820',
-              padding: 2,
-              borderRadius: 6,
-              border: '1px solid #202633',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setScope('coin')}
-              style={{
-                padding: '3px 8px',
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 4,
-                border: 'none',
-                background: scope === 'coin' ? '#10b981' : 'transparent',
-                color: scope === 'coin' ? '#ffffff' : '#8b949e',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span>{normCoin}</span>
-              <span
-                style={{
-                  fontSize: 9.5,
-                  padding: '0 4px',
-                  borderRadius: 8,
-                  background: scope === 'coin' ? 'rgba(255,255,255,0.25)' : '#1e2430',
-                  color: scope === 'coin' ? '#ffffff' : '#8b949e',
-                  fontWeight: 800,
-                }}
-              >
-                {coinPositions.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setScope('all')}
-              style={{
-                padding: '3px 8px',
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 4,
-                border: 'none',
-                background: scope === 'all' ? '#3b82f6' : 'transparent',
-                color: scope === 'all' ? '#ffffff' : '#8b949e',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span>All</span>
-              <span
-                style={{
-                  fontSize: 9.5,
-                  padding: '0 4px',
-                  borderRadius: 8,
-                  background: scope === 'all' ? 'rgba(255,255,255,0.25)' : '#1e2430',
-                  color: scope === 'all' ? '#ffffff' : '#8b949e',
-                  fontWeight: 800,
-                }}
-              >
-                {activeRows.length}
-              </span>
-            </button>
+    <div className="terminal-positions">
+      <div className="terminal-positions-toolbar">
+        <div className="terminal-positions-toolbar-row">
+          <div className="terminal-position-segments" aria-label="Position scope">
+            <button type="button" aria-pressed={scope === 'coin'} onClick={() => setScope('coin')}>{normCoin} <span>{coinPositions.length}</span></button>
+            <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>All <span>{activeRows.length}</span></button>
           </div>
-
-          {/* Right side: Dual/Single Currency PnL + Sync button */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {targetRows.length > 0 && (
-              hasUsdt && hasInr ? (
-                /* BOTH USDT AND INR EXIST: Show BOTH cleanly stacked */
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                  {/* USDT Line */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="trade-drawer-curr-badge usdt" style={{ fontSize: 9, padding: '0 3px' }}>
-                      USDT
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 800,
-                        fontFamily: 'monospace',
-                        color: Number(usdtPnlMinor) > 0 ? '#10b981' : Number(usdtPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
-                      }}
-                    >
-                      {pnlText(usdtPnlMinor, 'USDT')}
-                    </span>
-                    {usdtRoe !== null && (
-                      <span
-                        style={{
-                          fontSize: 9.5,
-                          fontWeight: 800,
-                          color: usdtRoe >= 0 ? '#34d399' : '#f87171',
-                        }}
-                      >
-                        {roeText(usdtRoe).trim()}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* INR Line */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="trade-drawer-curr-badge inr" style={{ fontSize: 9, padding: '0 3px' }}>
-                      INR
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 800,
-                        fontFamily: 'monospace',
-                        color: Number(inrPnlMinor) > 0 ? '#10b981' : Number(inrPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
-                      }}
-                    >
-                      {pnlText(inrPnlMinor, 'INR')}
-                    </span>
-                    {inrRoe !== null && (
-                      <span
-                        style={{
-                          fontSize: 9.5,
-                          fontWeight: 800,
-                          color: inrRoe >= 0 ? '#34d399' : '#f87171',
-                        }}
-                      >
-                        {roeText(inrRoe).trim()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : hasInr ? (
-                /* ONLY INR POSITIONS: Show ONLY INR */
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span className="trade-drawer-curr-badge inr" style={{ fontSize: 9, padding: '1px 4px' }}>
-                    INR
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      fontFamily: 'monospace',
-                      color: Number(inrPnlMinor) > 0 ? '#10b981' : Number(inrPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
-                    }}
-                  >
-                    {pnlText(inrPnlMinor, 'INR')}
-                  </span>
-                  {inrRoe !== null && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '1px 4px',
-                        borderRadius: 3,
-                        color: inrRoe >= 0 ? '#34d399' : '#f87171',
-                        background: inrRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                      }}
-                    >
-                      {roeText(inrRoe).trim()}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                /* ONLY USDT POSITIONS: Show ONLY USDT */
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span className="trade-drawer-curr-badge usdt" style={{ fontSize: 9, padding: '1px 4px' }}>
-                    USDT
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      fontFamily: 'monospace',
-                      color: Number(usdtPnlMinor) > 0 ? '#10b981' : Number(usdtPnlMinor) < 0 ? '#ef4444' : '#c9d1d9',
-                    }}
-                  >
-                    {pnlText(usdtPnlMinor, 'USDT')}
-                  </span>
-                  {usdtRoe !== null && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '1px 4px',
-                        borderRadius: 3,
-                        color: usdtRoe >= 0 ? '#34d399' : '#f87171',
-                        background: usdtRoe >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                      }}
-                    >
-                      {roeText(usdtRoe).trim()}
-                    </span>
-                  )}
-                </div>
-              )
-            )}
-
-            {/* Sync button */}
-            <button
-              type="button"
-              disabled={refreshMut.isPending}
-              onClick={() => refreshMut.mutate()}
-              style={{
-                background: '#161b22',
-                border: '1px solid #28303d',
-                color: '#8b949e',
-                borderRadius: 5,
-                width: 26,
-                height: 26,
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-              title="Sync positions with exchange"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="13"
-                height="13"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ animation: refreshMut.isPending ? 'spin 1s linear infinite' : 'none' }}
-              >
-                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-              </svg>
-            </button>
+          <div className="terminal-position-filters" aria-label="Filter position groups">
+            <button type="button" aria-pressed={pnlFilter === 'all'} onClick={() => setPnlFilter('all')}>All</button>
+            <button type="button" aria-pressed={pnlFilter === 'profit'} onClick={() => setPnlFilter('profit')}>Profit</button>
+            <button type="button" aria-pressed={pnlFilter === 'loss'} onClick={() => setPnlFilter('loss')}>Loss</button>
           </div>
-        </div>
-
-        {/* Row 2: Filter tabs (only if multiple positions) */}
-        {targetRows.length > 1 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-            <div style={{ display: 'inline-flex', gap: 3 }}>
-              <button
-                type="button"
-                onClick={() => setPnlFilter('all')}
-                style={{
-                  padding: '2px 7px',
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  borderRadius: 4,
-                  border: 'none',
-                  background: pnlFilter === 'all' ? '#21262d' : 'transparent',
-                  color: pnlFilter === 'all' ? '#f0f6fc' : '#8b949e',
-                  cursor: 'pointer',
-                }}
-              >
-                All ({groups.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setPnlFilter('profit')}
-                style={{
-                  padding: '2px 7px',
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  borderRadius: 4,
-                  border: 'none',
-                  background: pnlFilter === 'profit' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-                  color: pnlFilter === 'profit' ? '#10b981' : '#8b949e',
-                  cursor: 'pointer',
-                }}
-              >
-                Profit
-              </button>
-              <button
-                type="button"
-                onClick={() => setPnlFilter('loss')}
-                style={{
-                  padding: '2px 7px',
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  borderRadius: 4,
-                  border: 'none',
-                  background: pnlFilter === 'loss' ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
-                  color: pnlFilter === 'loss' ? '#ef4444' : '#8b949e',
-                  cursor: 'pointer',
-                }}
-              >
-                Loss
-              </button>
-            </div>
-
-            {hiddenRowsCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowHiddenAccounts((prev) => !prev)}
-                style={{
-                  padding: '2px 6px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  borderRadius: 4,
-                  border: 'none',
-                  background: showHiddenAccounts ? 'rgba(239, 68, 68, 0.2)' : '#161b22',
-                  color: showHiddenAccounts ? '#fca5a5' : '#8b949e',
-                  cursor: 'pointer',
-                }}
-              >
-                {showHiddenAccounts ? `Hide ${hiddenRowsCount}` : `+${hiddenRowsCount} Hidden`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Status Message Toast ── */}
-      {message && (
-        <div
-          style={{
-            position: 'sticky',
-            top: 104,
-            zIndex: 14,
-            padding: '6px 10px',
-            fontSize: 11,
-            fontWeight: 600,
-            background: message.kind === 'ok' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)',
-            color: '#ffffff',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <span>{message.text}</span>
-          <button
-            type="button"
-            onClick={() => setMessage(null)}
-            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 4px' }}
-          >
-            ✕
+          <button type="button" className="terminal-sync-button" onClick={() => refreshMut.mutate()} disabled={refreshMut.isPending} title="Sync positions with exchange" aria-label="Sync positions">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M5 8a7 7 0 0 1 12-3l3 3M4 16l3 3a7 7 0 0 0 12-3" /></svg>
           </button>
         </div>
-      )}
-
-      {/* ── Kill Switch Banner ── */}
-      {isHalted && (
-        <div
-          style={{
-            position: 'sticky',
-            top: 104,
-            zIndex: 14,
-            background: 'rgba(239, 68, 68, 0.95)',
-            borderBottom: '1px solid var(--danger)',
-            padding: '6px 10px',
-            fontSize: 11,
-            color: '#ffffff',
-            fontWeight: 700,
-          }}
-        >
-          KILL SWITCH ACTIVE — Exits locked (Read-Only).
+        {targetRows.length > 0 && <div className="terminal-position-totals" aria-label="Unrealised P&L by margin currency">
+          {(['INR', 'USDT'] as const).filter((currency) => summaryKpis.pnlByCurrency[currency] !== undefined).map((currency) => {
+            const minor = summaryKpis.pnlByCurrency[currency]!;
+            return <div key={currency}><span><PositionCurrencyBadge currency={currency} /> P&L</span><strong className={minor.startsWith('-') ? 'negative' : minor !== '0' ? 'positive' : ''}>{pnlText(minor, currency)}</strong></div>;
+          })}
+        </div>}
+        <div className="terminal-positions-toolbar-row">
+          <input type="search" className="terminal-position-search" aria-label="Search positions" placeholder="Find account, group or coin" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <button type="button" className="terminal-text-button" onClick={() => setCollapsedGroups((current) => displayedGroups.every((group) => current.has(group.key)) ? new Set() : new Set(displayedGroups.map((group) => group.key)))}>{displayedGroups.length > 0 && displayedGroups.every((group) => collapsedGroups.has(group.key)) ? 'Expand all' : 'Collapse all'}</button>
         </div>
-      )}
-
-      {/* ── Position Cards Container: Flows naturally for smooth outer panel scrolling ── */}
-      <div
-        className="coin-positions-cards-container"
-        style={{
-          padding: '8px 10px 48px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          boxSizing: 'border-box',
-          width: '100%',
-        }}
-      >
-        {targetRows.length === 0 ? (
-          /* Empty State */
-          <div className="trade-drawer-empty">
-            <div style={{ color: '#8b949e', fontSize: 13, fontWeight: 700 }}>
-              {scope === 'coin' ? `No Open Positions on ${normCoin}` : 'No Open Positions'}
-            </div>
-
-            {scope === 'coin' && otherPositions.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 2 }}>
-                <span style={{ fontSize: 11, color: '#64748b' }}>
-                  Open on other coins:
-                </span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
-                  {otherCoinsList.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className="trade-drawer-coin-btn"
-                      onClick={() => onSelectCoin?.(c)}
-                      title={`Open ${c} chart`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-sm secondary"
-                  style={{ width: '100%', marginTop: 4, fontSize: 11.5, padding: '5px 8px' }}
-                  onClick={() => setScope('all')}
-                >
-                  View All {activeRows.length} Open Positions &rarr;
-                </button>
-              </div>
-            )}
-
-            {onSwitchToOrder && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={onSwitchToOrder}
-                style={{ width: '100%', marginTop: 4, fontSize: 12, padding: '6px 12px' }}
-              >
-                Place New {normCoin} Order
-              </button>
-            )}
-          </div>
-        ) : displayedGroups.length === 0 ? (
-          <div style={{ padding: '20px 10px', textAlign: 'center', color: '#8b949e', fontSize: 11.5 }}>
-            No positions match your filter.
-          </div>
-        ) : (
-          displayedGroups.map((g) => {
-            const isGrouped = g.positions.length > 1 || scope === 'all';
-            const isCollapsed = collapsedGroups.has(g.key);
-            const isGroupInr = g.marginCurrency === 'INR';
-            const groupPnlNum = Number(g.totalPnlMinor ?? 0);
-            const groupRoe = calcRoePct({
-              avgEntryPrice: String(g.positions.reduce((acc, p) => acc + Number(p.avgEntryPrice || 0), 0) / (g.positions.length || 1)),
-              markPrice: g.positions[0]?.markPrice ?? null,
-              leverage: g.positions[0]?.leverage ?? '1',
-              side: g.side,
-            });
-
-            return (
-              <div key={g.key} className={`trade-drawer-group ${isGroupInr ? 'inr-group' : 'usdt-group'}`}>
-                {/* Group Summary Banner (when grouped) */}
-                {isGrouped && (
-                  <div
-                    className="trade-drawer-group-head"
-                    onClick={() => toggleGroupCollapse(g.key)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ fontWeight: 800, fontSize: 13, color: '#f0f6fc' }}>
-                          {g.asset}
-                        </span>
-                        {/* Distinct Currency Badge on Group */}
-                        <span className={`trade-drawer-curr-badge ${isGroupInr ? 'inr' : 'usdt'}`} style={{ fontSize: 9.5, padding: '1px 5px' }}>
-                          {isGroupInr ? '₹ INR' : '$ USDT'}
-                        </span>
-                        <span className={`trade-drawer-side-pill ${g.side}`}>
-                          {g.side.toUpperCase()}
-                        </span>
-                        <span className="trade-drawer-grp-tag">
-                          {g.groupNames[0] || 'Group'} ({g.positions.length})
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span className={`trade-drawer-pnl ${groupPnlNum > 0 ? 'pos' : groupPnlNum < 0 ? 'neg' : ''}`}>
-                          {pnlText(g.totalPnlMinor, g.marginCurrency)}
-                        </span>
-                        {groupRoe !== null && (
-                          <span className={`trade-drawer-roe-pill ${groupRoe >= 0 ? 'pos' : 'neg'}`}>
-                            {roeText(groupRoe).trim()}
-                          </span>
-                        )}
-                        <span style={{ fontSize: 9.5, color: '#8b949e', marginLeft: 2 }}>
-                          {isCollapsed ? '▼' : '▲'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Group Actions Bar */}
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span style={{ fontSize: 10.5, color: '#8b949e' }}>
-                        Qty: <strong style={{ color: '#e2e8f0' }}>{g.totalQty.toFixed(4).replace(/\.?0+$/, '')}</strong>
-                      </span>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm secondary"
-                          style={{ padding: '3px 8px', fontSize: 10.5, fontWeight: 700, borderRadius: 5 }}
-                          onClick={() => { setManagingGroup(g); setMessage(null); }}
-                          title="Group-wide TP/SL & adjustments"
-                        >
-                          Manage Group
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm quick-exit-btn"
-                          disabled={isHalted}
-                          style={{ padding: '3px 8px', fontSize: 10.5, fontWeight: 700, borderRadius: 5 }}
-                          onClick={() => { setQuickExitTarget({ type: 'group', group: g }); setMessage(null); }}
-                          title="Instant market exit for all accounts in this group"
-                        >
-                          Quick Exit
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Individual Position Cards with INR vs USDT Distinct Themes */}
-                {!isCollapsed && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: isGrouped ? '6px' : 0 }}>
-                    {g.positions.map((p) => {
-                      const isCurrInr = p.marginCurrency === 'INR';
-                      const roe = calcRoePct(p);
-                      const tpSl = calcEstimatedTpSl(p);
-                      const pnlNum = Number(p.unrealisedPnlMinor ?? 0);
-                      const isProfit = pnlNum > 0;
-                      const isLoss = pnlNum < 0;
-
-                      return (
-                        <div
-                          key={p.venuePositionId}
-                          className={`trade-drawer-card ${isCurrInr ? 'inr-card' : 'usdt-card'}`}
-                        >
-                          {/* Top: Account Link + Currency Badge + Side/Lev + PnL/ROE */}
-                          <div className="trade-drawer-card-top">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flexWrap: 'wrap' }}>
-                              <Link
-                                to={`/app/accounts/${p.accountId}`}
-                                className="trade-drawer-acc-link"
-                                title={`Open account ${p.accountName}`}
-                              >
-                                {p.accountName}
-                              </Link>
-
-                              {/* Prominent High-Contrast Currency Badge (INR vs USDT) */}
-                              <span className={`trade-drawer-curr-badge ${isCurrInr ? 'inr' : 'usdt'}`}>
-                                {isCurrInr ? '₹ INR' : '$ USDT'}
-                              </span>
-
-                              <span className={`trade-drawer-side-pill ${p.side}`}>
-                                {p.side.toUpperCase()} {p.leverage ? `${p.leverage}×` : ''}
-                              </span>
-
-                              {p.groupName && !isGrouped && (
-                                <span className="trade-drawer-grp-tag">
-                                  {p.groupName}
-                                </span>
-                              )}
-                            </div>
-
-                            <div style={{ textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4, flexShrink: 0 }}>
-                              <span className={`trade-drawer-pnl ${isProfit ? 'pos' : isLoss ? 'neg' : ''}`}>
-                                {pnlText(p.unrealisedPnlMinor, p.marginCurrency)}
-                              </span>
-                              {roe !== null && (
-                                <span className={`trade-drawer-roe-pill ${roe >= 0 ? 'pos' : 'neg'}`}>
-                                  {roeText(roe).trim()}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Major Information Grid: 2x2 Clean Layout */}
-                          <div className="trade-drawer-grid">
-                            <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">
-                                Entry → Mark {isCurrInr ? '(₹)' : '($)'}
-                              </span>
-                              <span className="trade-drawer-val mono">
-                                {isCurrInr ? `₹${fmtPrice(p.avgEntryPrice)}` : fmtPrice(p.avgEntryPrice)}{' '}
-                                <span style={{ color: '#64748b' }}>→</span>{' '}
-                                {isCurrInr ? `₹${fmtPrice(p.markPrice)}` : fmtPrice(p.markPrice)}
-                              </span>
-                            </div>
-
-                            <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">
-                                Margin {isCurrInr ? '(₹)' : '($)'} · Qty
-                              </span>
-                              <span className="trade-drawer-val mono">
-                                {p.lockedMarginMinor ? fmtMinor(p.lockedMarginMinor, p.marginCurrency) : '—'}{' '}
-                                <span style={{ color: '#64748b' }}>·</span> {p.quantity}
-                              </span>
-                            </div>
-
-                            <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">
-                                Liq Price {isCurrInr ? '(₹)' : '($)'}
-                              </span>
-                              <span
-                                className="trade-drawer-val mono"
-                                style={{
-                                  color: p.liqBufferBp !== null && p.liqBufferBp < 1000 ? '#ef4444' : '#facc15',
-                                }}
-                              >
-                                {isCurrInr ? `₹${fmtPrice(p.liquidationPrice)}` : fmtPrice(p.liquidationPrice)}
-                                {p.liqBufferBp !== null && (
-                                  <span
-                                    style={{
-                                      fontSize: 10,
-                                      marginLeft: 4,
-                                      color: p.liqBufferBp < 1000 ? '#ef4444' : '#ca8a04',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    ({(p.liqBufferBp / 100).toFixed(1)}% buf)
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-
-                            <div className="trade-drawer-cell">
-                              <span className="trade-drawer-lbl">TP / SL</span>
-                              <span className="trade-drawer-val">
-                                {!tpSl.hasSl && !tpSl.hasTp ? (
-                                  <span style={{ color: '#64748b', fontSize: 11 }}>None</span>
-                                ) : (
-                                  <span style={{ display: 'inline-flex', gap: 3 }}>
-                                    {tpSl.hasTp && (
-                                      <span className="trade-drawer-target-pill tp">
-                                        TP {isCurrInr ? `₹${tpSl.tpPriceText}` : tpSl.tpPriceText}
-                                      </span>
-                                    )}
-                                    {tpSl.hasSl && (
-                                      <span className="trade-drawer-target-pill sl">
-                                        SL {isCurrInr ? `₹${tpSl.slPriceText}` : tpSl.slPriceText}
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Main Action Buttons */}
-                          <div className="trade-drawer-actions">
-                            <button
-                              type="button"
-                              className="btn btn-sm secondary trade-drawer-btn"
-                              onClick={() => { setManagingPosition(p); setMessage(null); }}
-                              title="Set TP/SL, trailing stop, partial close, or leverage"
-                            >
-                              Manage
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm quick-exit-btn trade-drawer-btn danger"
-                              disabled={isHalted}
-                              onClick={() => { setQuickExitTarget({ type: 'account', position: p }); setMessage(null); }}
-                              title={isHalted ? 'Emergency Kill Switch Active' : 'Market Quick Exit'}
-                            >
-                              Quick Exit
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+        {hiddenRowsCount > 0 && <button type="button" className="terminal-text-button" aria-pressed={showHiddenAccounts} onClick={() => setShowHiddenAccounts(!showHiddenAccounts)}>{showHiddenAccounts ? 'Hide excluded accounts' : `Show ${hiddenRowsCount} hidden accounts`}</button>}
+      </div>
+      {message && <div role="status" className={`terminal-position-message ${message.kind}`}><span>{message.text}</span><button type="button" aria-label="Dismiss position message" onClick={() => setMessage(null)}>×</button></div>}
+      {isHalted && <div className="terminal-position-message err" role="status">Trading halted · Position actions locked</div>}
+      {positionsQuery.isError && <div className="terminal-position-message err" role="alert">Positions unavailable. {positionsQuery.error.message}</div>}
+      <div className="terminal-position-list">
+        {positionsQuery.isPending ? <p className="terminal-position-empty" role="status">Loading positions…</p> : targetRows.length === 0 ? <div className="terminal-position-empty">
+          <p>{scope === 'coin' ? `No ${normCoin} positions` : 'No open positions'}</p>
+          {scope === 'coin' && otherPositions.length > 0 && <><div className="terminal-other-coins">{otherCoinsList.map((asset) => <button type="button" key={asset} onClick={() => onSelectCoin?.(asset)}>{asset}</button>)}</div><button type="button" className="btn secondary btn-sm" onClick={() => setScope('all')}>View all {activeRows.length} positions</button></>}
+          {onSwitchToOrder && <button type="button" className="btn secondary btn-sm" onClick={onSwitchToOrder}>New {normCoin} order</button>}
+        </div> : visibleGroups.length === 0 ? <p className="terminal-position-empty">No matching positions</p> : visibleGroups.map((group) => <TerminalPositionGroup key={group.key} group={group} collapsed={collapsedGroups.has(group.key)} search={search} halted={isHalted}
+          onToggle={() => toggleGroupCollapse(group.key)}
+          onManageGroup={(selected) => { setManagingGroup(selected); setMessage(null); }}
+          onExitGroup={(selected) => { setQuickExitTarget({ type: 'group', group: selected }); setMessage(null); }}
+          onManagePosition={(selected) => { setManagingPosition(selected); setMessage(null); }}
+          onExitPosition={(selected) => { setQuickExitTarget({ type: 'account', position: selected }); setMessage(null); }} />)}
       </div>
 
       {/* ── Position Management Modal (Individual Account) ── */}

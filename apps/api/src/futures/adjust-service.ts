@@ -46,6 +46,16 @@ function unscaled(value: bigint): string {
   return frac === '' ? whole : `${whole}.${frac}`;
 }
 
+/** Exact floor; never pass an order quantity through a JavaScript Number. */
+export function floorQuantityToStep(quantity: string, step: string): string {
+  const q = scaled(quantity, 'quantity');
+  const s = scaled(step, 'quantity_increment');
+  if (s <= 0n) throw new AdjustError('quantity_increment must be positive');
+  const floored = (q / s) * s;
+  if (floored === 0n) throw new AdjustError('quantity is below one quantity step');
+  return unscaled(floored);
+}
+
 export type AdjustDirection = 'reduce' | 'increase';
 
 export interface AdjustInput {
@@ -81,7 +91,8 @@ export type AdjustPlan =
  * leverage and margin decisions, not something to reach by sending 25% of zero.
  */
 export function planAdjustment(input: AdjustInput): AdjustPlan {
-  const pos = scaled(input.activePos.replace(/^-/, ''), 'active_pos');
+  const activePos = input.activePos.trim();
+  const pos = scaled(activePos.replace(/^-/, ''), 'active_pos');
   if (pos === 0n) {
     return { ok: false, code: 'no_position', detail: 'this pair has no open position to adjust' };
   }
@@ -110,7 +121,7 @@ export function planAdjustment(input: AdjustInput): AdjustPlan {
   // it, buying a short closes it. Getting this backwards doubles the position
   // instead of halving it, so it is derived from the venue's sign, never from the
   // caller's intent.
-  const isLong = !input.activePos.startsWith('-');
+  const isLong = !activePos.startsWith('-');
   const side = input.direction === 'reduce'
     ? (isLong ? 'sell' : 'buy')
     : (isLong ? 'buy' : 'sell');
@@ -126,7 +137,7 @@ export function planAdjustment(input: AdjustInput): AdjustPlan {
   // position and flip it.
   let quantity = (raw / step) * step;
   if (input.direction === 'reduce' && quantity > pos) {
-    quantity = pos; // belt-and-braces against a race or oversized reduce
+    quantity = (pos / step) * step;
   }
   if (quantity === 0n) {
     return {

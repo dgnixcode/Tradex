@@ -74,10 +74,14 @@ export async function recordLoginFailure(
       created_at: nowDate,
     } as never)
     .onConflict((oc) =>
-      oc.column('ip').doUpdateSet((eb) => ({
-        failed_attempts: sql<number>`login_ip_attempt.failed_attempts + 1`,
+      oc.column('ip').doUpdateSet(() => ({
+        failed_attempts: sql<number>`CASE WHEN login_ip_attempt.blocked_until <= ${nowDate} THEN 1 ELSE login_ip_attempt.failed_attempts + 1 END`,
         last_attempt_at: nowDate as never,
-        blocked_until: blockedUntil !== null ? (blockedUntil as never) : eb.ref('login_ip_attempt.blocked_until'),
+        blocked_until: sql<Date | null>`CASE
+          WHEN login_ip_attempt.blocked_until > ${nowDate} THEN login_ip_attempt.blocked_until
+          WHEN login_ip_attempt.blocked_until <= ${nowDate} THEN NULL
+          WHEN login_ip_attempt.failed_attempts + 1 >= 4 THEN ${new Date(nowMs + 86_400_000)}
+          ELSE ${blockedUntil} END`,
       })),
     )
     .returning(['failed_attempts', 'blocked_until'] as never)

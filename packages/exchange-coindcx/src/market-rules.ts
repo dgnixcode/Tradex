@@ -38,6 +38,7 @@ export class MarketMappingError extends Error {
  * belongs here, at the boundary where venue vocabulary becomes ours.
  */
 export function plainDecimal(text: string, field: string): string {
+  if (text.length > 256) throw new MarketMappingError(`${field} exceeds decimal size limit`);
   if (/^-?\d+(\.\d+)?$/.test(text)) return text; // already plain — leave it byte-identical
   const m = /^(-?)(\d+)(?:\.(\d+))?[eE]([-+]?\d+)$/.exec(text);
   if (m === null) throw new MarketMappingError(`${field} is not a decimal number: ${text}`);
@@ -45,6 +46,7 @@ export function plainDecimal(text: string, field: string): string {
   const whole = m[2] ?? '0';
   const frac = m[3] ?? '';
   const exp = Number.parseInt(m[4] ?? '0', 10);
+  if (!Number.isFinite(exp) || Math.abs(exp) > 1000) throw new MarketMappingError(`${field} exceeds decimal exponent limit`);
   const digits = whole + frac;
   const point = whole.length + exp;
 

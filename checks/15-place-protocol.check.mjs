@@ -152,7 +152,7 @@ export async function run(assert) {
         create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
         listOrders: async () => ({ ok: true, orders: [wrong] }),
       }), intent());
-      assert(near.resolution === 'not_placed',
+      assert(near.resolution === 'undecidable',
         `an order differing only in ${label} was treated as ${near.resolution}`);
     }
 
@@ -161,14 +161,14 @@ export async function run(assert) {
       create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
       listOrders: async () => ({ ok: true, orders: [listed({ orderType: 'limit', price: '8000000' })] }),
     }), intent({ orderType: 'limit', price: '8100000' }));
-    assert(priceMismatch.resolution === 'not_placed', 'a limit order at a different price was adopted');
+    assert(priceMismatch.resolution === 'undecidable', 'a limit order at a different price was adopted');
 
     // ------------------------------------------------ 5. zero matches, no position
     const notPlaced = await placeFuturesOrder(db, T1, ports({
       create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
     }), intent());
-    assert(notPlaced.resolution === 'not_placed', `an empty read-back resolved as ${notPlaced.resolution}`);
-    assert(notPlaced.submit.orderMayExist === false, 'not_placed must not claim the order may exist');
+    assert(notPlaced.resolution === 'undecidable', `an empty read-back resolved as ${notPlaced.resolution}`);
+    assert(notPlaced.submit.orderMayExist === true, 'an empty read-back must not prove non-placement');
     assert(notPlaced.submit.needsHuman === undefined, 'not_placed must not escalate to a human');
 
     // ------------------------------------------------ 6. a failed read is NOT "no orders"
@@ -205,7 +205,7 @@ export async function run(assert) {
       create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
       readPositions: async () => ({ ok: true, positions: [{ pair: PAIR, activePos: '0' }] }),
     }), intent());
-    assert(zeroPosition.resolution === 'not_placed', 'a flat position should not keep the send ambiguous');
+    assert(zeroPosition.resolution === 'undecidable', 'a reducing fill can leave a flat position; keep it ambiguous');
 
     // ------------------------------------------------ 8. two matches need a human
     // The customer placed an identical order by hand. Nothing can separate them,
@@ -225,12 +225,12 @@ export async function run(assert) {
       create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
       listOrders: async () => ({ ok: true, orders: [listed({ createdAtMs: NOW - 60_000 })] }),
     }), intent());
-    assert(tooOld.resolution === 'not_placed', 'an order from a minute ago was adopted as ours');
+    assert(tooOld.resolution === 'undecidable', 'an order from a minute ago was adopted as ours');
     const noTimestamp = await placeFuturesOrder(db, T1, ports({
       create: async () => ({ kind: 'rejected', orderMayExist: true, code: 'timeout', detail: '' }),
       listOrders: async () => ({ ok: true, orders: [listed({ createdAtMs: null })] }),
     }), intent());
-    assert(noTimestamp.resolution === 'not_placed', 'an order with no timestamp was adopted');
+    assert(noTimestamp.resolution === 'undecidable', 'an order with no timestamp was adopted');
 
     // ------------------------------------------------ 10. L1: the lock really locks
     const held = await acquireFuturesLock(db, {

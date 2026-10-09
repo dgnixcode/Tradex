@@ -4,11 +4,11 @@ import type { Kysely } from 'kysely';
 import type { DB } from '@tradex/db';
 import {
   findUserByEmail,
-  getLoginIpAttempt,
   isIpBlocked,
   recordLoginFailure,
   resetLoginIpAttempt,
 } from '@tradex/db';
+import { clientIp } from './request-security.js';
 
 export interface LoginSecurityDeps {
   readonly db: Kysely<DB>;
@@ -50,24 +50,7 @@ export class LoginSecurityService {
    * Extract normalized client IP address from incoming HTTP request.
    */
   extractClientIp(req: IncomingMessage): string {
-    const forwarded = req.headers['x-forwarded-for'];
-    let ip = '';
-    if (typeof forwarded === 'string') {
-      ip = forwarded.split(',')[0]?.trim() ?? '';
-    } else if (Array.isArray(forwarded) && forwarded.length > 0) {
-      ip = forwarded[0]?.split(',')[0]?.trim() ?? '';
-    }
-
-    if (!ip) {
-      ip = req.socket.remoteAddress ?? 'unknown';
-    }
-
-    // Strip IPv4-mapped IPv6 prefix (e.g., ::ffff:192.168.1.1 -> 192.168.1.1)
-    if (ip.startsWith('::ffff:')) {
-      ip = ip.slice(7);
-    }
-
-    return ip || 'unknown';
+    return clientIp(req, (process.env['TRADEX_TRUSTED_PROXY_IPS'] ?? '').split(',').map((s) => s.trim()).filter(Boolean));
   }
 
   /**
@@ -90,21 +73,9 @@ export class LoginSecurityService {
     const ip = details.ip || 'unknown';
     const nowMs = this.now();
 
-    // Check current count
-    const existing = await getLoginIpAttempt(this.db, ip);
-    const prevAttempts = existing ? existing.failedAttempts : 0;
-    const newAttempts = prevAttempts + 1;
-
-    let blockedUntil: Date | null = null;
-    let blocked = false;
-
-    // Rule: if more than 3 attempts, block IP for 24 hours on the 4th attempt
-    if (newAttempts >= 4) {
-      blocked = true;
-      blockedUntil = new Date(nowMs + 24 * 60 * 60 * 1000); // 24 hours
-    }
-
-    const recorded = await recordLoginFailure(this.db, ip, blockedUntil, nowMs);
+    // Increment and decide the block together, even for concurrent failures.
+    const recorded = await recordLoginFailure(this.db, ip, null, nowMs);
+    const blocked = recorded.blockedUntil !== null && recorded.blockedUntil.getTime() > nowMs;
 
     // Asynchronously dispatch email alert (never block or fail the auth response)
     void this.dispatchAlertEmail({

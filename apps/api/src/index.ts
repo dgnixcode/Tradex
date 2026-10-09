@@ -19,3 +19,6 @@ export * from './futures/positions.js';
 export * from './futures/exit-service.js';
 export * from './futures/adjust-service.js';
 export * from './password-reset-service.js';
+export * from './research/contracts.js';
+export type { ResearchAiSettings, SaveResearchAiSettings, ResearchProvider } from './research/ai-settings.js';
+export type { ResearchAiTestResult, ResearchModelTestOutcome, ResearchAiTestCode } from './research/ai-model-test.js';

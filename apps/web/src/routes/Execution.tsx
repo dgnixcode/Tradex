@@ -23,7 +23,7 @@ import type { PreviewRow } from '../api.ts';
 /** A settle that is not a working state — worth announcing. */
 const PENDING: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous']);
 /** States that mean the leg never got placed and may be retried (T08.7). */
-const RETRYABLE: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed', 'needs_human', 'unknown']);
+const RETRYABLE: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed']);
 /** States that count as a placed order for the summary. */
 const PLACED: ReadonlySet<string> = new Set(['acked', 'open', 'partially_filled', 'filled']);
 
