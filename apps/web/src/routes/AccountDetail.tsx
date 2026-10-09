@@ -420,6 +420,7 @@ export function AccountDetail() {
       if (p.side === 'flat') return false;
       const q = Number(p.quantity);
       if (!Number.isFinite(q) || q <= 0) return false;
+      if (!p.pair.startsWith('B-') && !p.pair.startsWith('INR-')) return false;
       return true;
     });
   }, [futuresPositions.data?.views, accountId, a]);

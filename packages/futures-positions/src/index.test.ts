@@ -40,12 +40,29 @@ describe('Futures Positions View', () => {
     expect(view.entryTimeMs).toBeNull();
   });
 
-  it('filters out flat activePos = 0 in buildFuturesViews', () => {
-    const flatRow: FuturesPositionRow = {
+  it('filters out flat activePos = 0 and 0.0 in buildFuturesViews', () => {
+    const flatRow1: FuturesPositionRow = {
       ...baseRow,
+      venuePositionId: 'pos-flat-1',
       activePos: '0',
     };
-    const views = buildFuturesViews([baseRow, flatRow], 1726830500000);
+    const flatRow2: FuturesPositionRow = {
+      ...baseRow,
+      venuePositionId: 'pos-flat-2',
+      activePos: '0.0',
+    };
+    const flatRow3: FuturesPositionRow = {
+      ...baseRow,
+      venuePositionId: 'pos-flat-3',
+      activePos: '0.00',
+    };
+    const spotRow: FuturesPositionRow = {
+      ...baseRow,
+      venuePositionId: 'pos-spot-1',
+      pair: 'BTCUSDT',
+      activePos: '0.5',
+    };
+    const views = buildFuturesViews([baseRow, flatRow1, flatRow2, flatRow3, spotRow], 1726830500000);
     expect(views.length).toBe(1);
     expect(views[0]?.venuePositionId).toBe('pos-123');
   });

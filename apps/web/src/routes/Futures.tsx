@@ -317,6 +317,10 @@ export interface PositionGroup {
 export function buildGroups(rows: readonly FuturesPositionRow[]): PositionGroup[] {
   const map = new Map<string, PositionGroup>();
   for (const p of rows) {
+    if (p.side === 'flat') continue;
+    const q = Number(p.quantity);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    if (!p.pair.startsWith('B-') && !p.pair.startsWith('INR-')) continue;
     const key = `${p.pair}|${p.side}|${p.marginCurrency}`;
     let g = map.get(key);
     if (g === undefined) {
@@ -6247,7 +6251,16 @@ export function Futures() {
 
   const [showHiddenAccounts, setShowHiddenAccounts] = useState(false);
 
-  const allRows = positions.data?.views ?? [];
+  const allRows = useMemo(() => {
+    const views = positions.data?.views ?? [];
+    return views.filter((p) => {
+      if (p.side === 'flat') return false;
+      const q = Number(p.quantity);
+      if (!Number.isFinite(q) || q <= 0) return false;
+      if (!p.pair.startsWith('B-') && !p.pair.startsWith('INR-')) return false;
+      return true;
+    });
+  }, [positions.data?.views]);
   const hiddenRowsCount = useMemo(() => allRows.filter((r) => r.hideFromPositions).length, [allRows]);
 
   const rows = useMemo(() => {

@@ -163,6 +163,7 @@ export function Groups() {
   const groupCoinsMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const v of positions.data?.views ?? []) {
+      if (v.side === 'flat' || Number(v.quantity) <= 0 || (!v.pair.startsWith('B-') && !v.pair.startsWith('INR-'))) continue;
       if (v.groupName) {
         const set = map.get(v.groupName) ?? new Set<string>();
         const asset = v.pair.replace(/^[A-Z]-/, '').replace(/_.*$/, '');

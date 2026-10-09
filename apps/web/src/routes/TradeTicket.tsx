@@ -1010,7 +1010,7 @@ export function TradeTicket() {
   const coinPositionsCount = useMemo(() => {
     const rows = positionsQuery.data?.views ?? [];
     const target = (asset || '').trim().toUpperCase();
-    return rows.filter((r) => !r.hideFromPositions && (parseCoinFromPair(r.pair) || '').toUpperCase() === target).length;
+    return rows.filter((r) => !r.hideFromPositions && r.side !== 'flat' && Number(r.quantity) > 0 && (r.pair.startsWith('B-') || r.pair.startsWith('INR-')) && (parseCoinFromPair(r.pair) || '').toUpperCase() === target).length;
   }, [positionsQuery.data, asset]);
 
   // Futures shape — every field required except the two conditionals + reduceOnly.

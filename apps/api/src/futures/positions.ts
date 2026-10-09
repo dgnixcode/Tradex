@@ -12,7 +12,7 @@
 
 import type { DB, TenantDb } from '@tradex/db';
 import { forTenant, DEFAULT_GROUP_NAME } from '@tradex/db';
-import { buildFuturesViews } from '@tradex/futures-positions';
+import { buildFuturesViews, isLiveFuturesPosition, isFuturesContractPair } from '@tradex/futures-positions';
 import { listAccounts } from '../accounts-query.js';
 import type { FuturesPositionRow, FuturesPositionView, Quote } from '@tradex/futures-positions';
 import type { Kysely } from 'kysely';
@@ -86,7 +86,13 @@ async function readFuturesPositions(tdb: TenantDb, accountIds: readonly string[]
     ] as unknown as never)
     .where('account_id' as never, 'in', accountIds as never)
     .execute();
-  return (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
+  return (rows as unknown as Array<Record<string, unknown>>)
+    .filter((r) => {
+      const pos = String(r['activePos'] ?? '');
+      const pair = String(r['pair'] ?? '');
+      return isLiveFuturesPosition(pos) && isFuturesContractPair(pair);
+    })
+    .map((r) => ({
     accountId: String(r['accountId']),
     pair: String(r['pair']),
     marginCurrency: String(r['marginCurrency']),
@@ -197,7 +203,7 @@ export async function buildFuturesPositions(
   }
 
   const shaped: FuturesPositionRow[] = raw
-    .filter((r) => r.marginCurrency === 'INR' || r.marginCurrency === 'USDT')
+    .filter((r) => (r.marginCurrency === 'INR' || r.marginCurrency === 'USDT') && isLiveFuturesPosition(r.activePos) && isFuturesContractPair(r.pair))
     .map((r) => {
       const live = findRtPrice(prices, r.pair);
       const markPrice = live?.markPrice ?? r.markPrice;

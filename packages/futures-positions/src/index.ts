@@ -83,13 +83,25 @@ const align = (a: { v: bigint; scale: number }, b: { v: bigint; scale: number })
 
 const QUOTE_SCALE: Record<Quote, number> = { INR: 2, USDT: 8 };
 
+export const isLiveFuturesPosition = (pos: string | null | undefined): boolean => {
+  if (!pos) return false;
+  const n = Number(pos.trim());
+  return Number.isFinite(n) && Math.abs(n) > 1e-12;
+};
+
+export const isFuturesContractPair = (pair: string | null | undefined): boolean => {
+  if (!pair) return false;
+  const trimmed = pair.trim();
+  return trimmed.startsWith('B-') || trimmed.startsWith('INR-');
+};
+
 /**
  * Compose the position view. Unrealised PnL = qty × (mark − avg_entry), in
  * quote minor units. Signed by convention: positive when the position is
  * profitable. Rendered as a plain integer string in quote minor.
  */
 function unrealisedPnlMinor(row: FuturesPositionRow): string | null {
-  if (row.markPrice === null || row.avgEntryPrice === null || row.activePos === '0') return null;
+  if (row.markPrice === null || row.avgEntryPrice === null || !isLiveFuturesPosition(row.activePos)) return null;
   const qty = parseDecimal(row.activePos);
   const mark = parseDecimal(row.markPrice);
   const entry = parseDecimal(row.avgEntryPrice);
@@ -123,7 +135,7 @@ function unrealisedPnlMinor(row: FuturesPositionRow): string | null {
 
 /** Distance from mark to liquidation as bp of mark. Signed magnitude of |mark − liq| / mark. */
 function liqBufferBp(row: FuturesPositionRow): number | null {
-  if (row.markPrice === null || row.liquidationPrice === null || row.activePos === '0') return null;
+  if (row.markPrice === null || row.liquidationPrice === null || !isLiveFuturesPosition(row.activePos)) return null;
   const mark = parseDecimal(row.markPrice);
   const liq = parseDecimal(row.liquidationPrice);
   const { av: markV, bv: liqV } = align(mark, liq);
@@ -134,8 +146,9 @@ function liqBufferBp(row: FuturesPositionRow): number | null {
 
 /** Present the row as a display view. Deterministic; no clock beyond `nowMs`. */
 export function buildFuturesView(row: FuturesPositionRow, nowMs: number): FuturesPositionView {
+  const isLive = isLiveFuturesPosition(row.activePos);
   const quantity = row.activePos.startsWith('-') ? row.activePos.slice(1) : row.activePos;
-  const side: 'long' | 'short' | 'flat' = row.activePos === '0' ? 'flat'
+  const side: 'long' | 'short' | 'flat' = !isLive ? 'flat'
     : row.activePos.startsWith('-') ? 'short' : 'long';
   return {
     venuePositionId: row.venuePositionId,
@@ -165,5 +178,7 @@ export function buildFuturesView(row: FuturesPositionRow, nowMs: number): Future
 }
 
 export function buildFuturesViews(rows: readonly FuturesPositionRow[], nowMs: number): readonly FuturesPositionView[] {
-  return rows.filter((r) => r.activePos !== '0').map((r) => buildFuturesView(r, nowMs));
+  return rows
+    .filter((r) => isLiveFuturesPosition(r.activePos) && isFuturesContractPair(r.pair))
+    .map((r) => buildFuturesView(r, nowMs));
 }

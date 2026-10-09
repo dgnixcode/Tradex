@@ -248,7 +248,7 @@ export async function buildTradingAnalytics(
   const rtPricesMap = await getFuturesRtPrices().catch(() => new Map<string, FuturesRtPrice>());
   const posResponse = await buildFuturesPositions(db, tenantId, nowMs, rtPricesMap);
   const targetPositions: FuturesPositionView[] = posResponse.views.filter(
-    (p) => targetAccountIds.has(p.accountId) && p.side !== 'flat' && !p.hideFromPositions,
+    (p) => targetAccountIds.has(p.accountId) && p.side !== 'flat' && !p.hideFromPositions && Number(p.quantity) > 0 && (p.pair.startsWith('B-') || p.pair.startsWith('INR-')),
   );
 
   // 4. Compute Live KPIs
@@ -532,7 +532,7 @@ export async function buildTradingAnalytics(
       return acc !== undefined && !acc.hideFromPositions;
     });
     const memberSet = new Set(memberIds);
-    const grpPositions = posResponse.views.filter((p) => memberSet.has(p.accountId) && p.side !== 'flat');
+    const grpPositions = posResponse.views.filter((p) => memberSet.has(p.accountId) && p.side !== 'flat' && Number(p.quantity) > 0 && (p.pair.startsWith('B-') || p.pair.startsWith('INR-')));
 
     const allocatedMinor: Record<string, string> = {};
     for (const mId of memberIds) {
@@ -600,7 +600,7 @@ export async function buildTradingAnalytics(
 
   // 9. Account Analytics & Leaderboard
   const accounts: AccountAnalyticsRow[] = targetAccounts.map((a) => {
-    const accPositions = posResponse.views.filter((p) => p.accountId === a.id && p.side !== 'flat');
+    const accPositions = posResponse.views.filter((p) => p.accountId === a.id && p.side !== 'flat' && Number(p.quantity) > 0 && (p.pair.startsWith('B-') || p.pair.startsWith('INR-')));
     const pnlByCur: Record<string, string> = {};
     const marginByCur: Record<string, string> = {};
     let totalMarginNum = 0;

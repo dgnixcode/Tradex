@@ -67,7 +67,16 @@ export function CoinPositionsDrawer({
     refetchInterval: isStreaming ? 10_000 : 2_000,
   });
 
-  const allRows = positionsQuery.data?.views ?? [];
+  const allRows = useMemo(() => {
+    const views = positionsQuery.data?.views ?? [];
+    return views.filter((p) => {
+      if (p.side === 'flat') return false;
+      const q = Number(p.quantity);
+      if (!Number.isFinite(q) || q <= 0) return false;
+      if (!p.pair.startsWith('B-') && !p.pair.startsWith('INR-')) return false;
+      return true;
+    });
+  }, [positionsQuery.data?.views]);
 
   const handleRefreshAll = useCallback(async () => {
     void qc.invalidateQueries({ queryKey: ['futures-positions'] });
