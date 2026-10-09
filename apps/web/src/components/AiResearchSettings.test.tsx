@@ -3,16 +3,17 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AiResearchSettings } from './AiResearchSettings.tsx';
 
-const api = vi.hoisted(() => ({ test: vi.fn(), save: vi.fn(), remove: vi.fn(), stepUp: vi.fn() }));
+const api = vi.hoisted(() => ({ fetch: vi.fn(), test: vi.fn(), save: vi.fn(), remove: vi.fn(), stepUp: vi.fn() }));
 vi.mock('../auth.tsx', () => ({ useAuth: () => ({ state: { status: 'authenticated', session: { tenantId: 'tenant-a', role: 'owner', totpEnabled: false } } }) }));
 vi.mock('../api.ts', () => ({
-  fetchResearchAiSettings: async () => ({ storageAvailable: true, configured: true, provider: 'openai', deepModel: 'test-deep', quickModel: 'test-quick', updatedAt: null }),
+  fetchResearchAiSettings: api.fetch,
   testResearchAiModels: api.test, saveResearchAiSettings: api.save, removeResearchAiSettings: api.remove, stepUp: api.stepUp,
 }));
 let root: Root | undefined; let container: HTMLDivElement | undefined;
+beforeEach(() => api.fetch.mockReset().mockResolvedValue({ storageAvailable: true, configured: true, provider: 'openai', deepModel: 'test-deep', quickModel: 'test-quick', updatedAt: null }));
 afterEach(async () => { if (root) await act(async () => root!.unmount()); container?.remove(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 it('clears a pasted key before testing, avoids secret caches and invalidates results on edits', async () => {
@@ -44,5 +45,26 @@ it('clears a pasted key before testing, avoids secret caches and invalidates res
     key.dispatchEvent(new Event('input', { bubbles: true }));
   });
   expect(container.querySelector('.ai-research-test-results')).toBeNull();
+  client.clear();
+});
+
+it('shows an unavailable status and supports retry after a database upgrade', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  api.fetch.mockRejectedValueOnce(new Error('The workspace update is incomplete. An administrator needs to finish the database update before this action is available.'));
+  container = document.createElement('div'); document.body.append(container);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  root = createRoot(container);
+  await act(async () => root!.render(<MemoryRouter><QueryClientProvider client={client}><AiResearchSettings /></QueryClientProvider></MemoryRouter>));
+  await act(async () => { await vi.waitFor(() => expect(container!.querySelector('[role="alert"]')).not.toBeNull()); });
+  expect(container.textContent).toContain('Unavailable');
+  expect(container.textContent).not.toContain('Not configured');
+  expect(container.textContent).toContain('finish the database update');
+  expect(container.querySelector('form')).toBeNull();
+  const retry = [...container.querySelectorAll('button')].find(button => button.textContent === 'Retry loading AI settings')!;
+  await act(async () => retry.click());
+  await act(async () => { await vi.waitFor(() => expect(container!.querySelector('form')).not.toBeNull()); });
+  expect(container.textContent).toContain('Key saved');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(api.fetch).toHaveBeenCalledTimes(2);
   client.clear();
 });

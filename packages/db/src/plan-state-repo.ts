@@ -304,8 +304,19 @@ export async function dailySpentMinor(
       continue;
     }
     const notional = BigInt(row.notional_minor);
-    const leverage = marginBasis && row.is_futures ? BigInt(row.leverage ?? 1) : 1n;
-    sum += convertSpend((notional + leverage - 1n) / leverage, row.quote_currency ?? quote, quote, usdtInrMid);
+    let spend = notional;
+    if (marginBasis && row.is_futures) {
+      // Mirrored/historical positions may have fractional leverage (e.g. 1.6×).
+      // Divide exactly and round margin UP; BigInt('1.6') crashes a new preview.
+      const leverage = String(row.leverage ?? 1);
+      if (!/^\d+(?:\.\d{1,18})?$/.test(leverage)) throw new PlanStateError('Stored leverage is invalid for daily limits');
+      const [whole, fraction = ''] = leverage.split('.');
+      const unit = 10n ** BigInt(fraction.length);
+      const denominator = BigInt(whole as string) * unit + BigInt(fraction || '0');
+      if (denominator <= 0n) throw new PlanStateError('Stored leverage must be positive for daily limits');
+      spend = (notional * unit + denominator - 1n) / denominator;
+    }
+    sum += convertSpend(spend, row.quote_currency ?? quote, quote, usdtInrMid);
   }
   const mutations = await tdb.selectFrom('position_mutation').select('risk_margin_inr_minor')
     .where('account_id', '=', accountId).where('created_at' as never, '>=', new Date(sinceMs) as never)

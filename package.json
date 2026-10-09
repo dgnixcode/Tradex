@@ -20,6 +20,8 @@
     "verify": "npm run typecheck && npm run lint && npm run rules && npm run test && npm run checks",
     "db:migrate": "node --env-file-if-exists=.env packages/db/dist/migrate.js",
     "db:status": "node --env-file-if-exists=.env packages/db/dist/migrate.js --status",
+    "db:check": "node --env-file-if-exists=.env packages/db/dist/migrate.js --check",
+    "deploy:check": "node --env-file-if-exists=.env scripts/deploy-guard.mjs",
     "db:seed": "node --env-file-if-exists=.env db/seed-demo.mjs",
     "checks:live": "node --env-file-if-exists=.env --env-file-if-exists=.env.live checks/run-all.mjs",
     "api": "npm run typecheck && npm run -w @tradex/api start",

@@ -2835,7 +2835,12 @@ export function createHttpServer(deps: HttpDeps): Server {
       } catch (err) {
         if (res.headersSent) { res.end(); return; }
         console.error('request failed', err);
-        if (err instanceof ResearchError) {
+        const databaseCode = err !== null && typeof err === 'object' && 'code' in err ? err.code : undefined;
+        if (databaseCode === '42P01' || databaseCode === '42703') {
+          console.error('[database] API/schema mismatch. Apply pending database migrations before activating this API version.');
+          sendJson(res, 503, { error: 'DATABASE_UPDATE_REQUIRED',
+            message: 'The workspace update is incomplete. An administrator needs to finish the database update before this action is available.' });
+        } else if (err instanceof ResearchError) {
           sendJson(res, err.status, { message: err.message, error: err.code });
         } else if (err instanceof HttpError || err instanceof PositionMutationError) {
           sendJson(res, err.status, { message: err.message });

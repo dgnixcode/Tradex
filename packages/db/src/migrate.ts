@@ -51,6 +51,26 @@ export class MigrationError extends Error {
   override readonly name = 'MigrationError';
 }
 
+/** Read-only release check. A database without migration history is not current. */
+export async function readMigrationStatus(pool: Pool, dir: string): Promise<MigrationStatus[]> {
+  const files = loadMigrations(dir);
+  let rows: { version: string; checksum: string }[];
+  try {
+    rows = (await pool.query<{ version: string; checksum: string }>('SELECT version, checksum FROM schema_migration')).rows;
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === '42P01') rows = [];
+    else throw error;
+  }
+  const applied = new Map(rows.map((r) => [r.version, r.checksum]));
+  return files.map((file) => {
+    const checksum = applied.get(file.version);
+    if (checksum !== undefined && checksum !== file.checksum) {
+      throw new MigrationError(`${file.version} has already been applied but its contents changed. Migrations are immutable — ship a new one.`);
+    }
+    return { version: file.version, applied: checksum !== undefined, checksumMatches: checksum === undefined ? null : true };
+  });
+}
+
 export async function migrate(
   pool: Pool,
   dir: string,
@@ -111,13 +131,17 @@ if (isCli) {
     process.exit(2);
   }
   const pool = new Pool({ connectionString: url });
-  const dryRun = process.argv.includes('--status');
+  const check = process.argv.includes('--check');
+  const dryRun = check || process.argv.includes('--status');
   try {
-    const result = await migrate(pool, dir, { dryRun });
+    const result = dryRun ? await readMigrationStatus(pool, dir) : await migrate(pool, dir);
     for (const s of result) {
       console.log(`${s.applied ? 'applied ' : 'PENDING '} ${s.version}`);
     }
-    console.log(dryRun ? '(status only, nothing applied)' : 'migrations up to date');
+    if (check && result.some((s) => !s.applied)) {
+      console.error('DATABASE UPDATE REQUIRED — apply pending migrations before activating the matching API version.');
+      process.exitCode = 1;
+    } else console.log(dryRun ? '(read-only check, nothing applied)' : 'migrations up to date');
   } finally {
     await pool.end();
   }

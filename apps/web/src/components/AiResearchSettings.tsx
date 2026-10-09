@@ -14,7 +14,7 @@ export function AiResearchSettings() {
   const totp = state.status === 'authenticated' && state.session.totpEnabled;
   const client = useQueryClient();
   const queryKey = ['research', tenant, 'ai-settings'] as const;
-  const settings = useQuery({ queryKey, queryFn: fetchResearchAiSettings });
+  const settings = useQuery({ queryKey, queryFn: fetchResearchAiSettings, enabled: state.status === 'authenticated', retry: false });
   const [provider, setProvider] = useState<ResearchProvider>('openai');
   const [deepModel, setDeepModel] = useState('');
   const [quickModel, setQuickModel] = useState('');
@@ -66,10 +66,16 @@ export function AiResearchSettings() {
   };
   return <section className="settings-section-card ai-research-settings">
     <div className="ai-research-settings-heading"><div><h3>AI Research</h3><p className="sub">Connect your AI provider to run full TradingAgents research for this workspace.</p></div>
-      <span className={`ai-research-key-status ${settings.data?.configured ? 'saved' : ''}`}>{settings.data?.configured ? 'Key saved' : 'Not configured'}</span></div>
+      <span className={`ai-research-key-status ${settings.data?.configured ? 'saved' : ''}`}>{settings.isPending ? 'Loading…' : settings.isError ? 'Unavailable' : settings.data?.configured ? 'Key saved' : 'Not configured'}</span></div>
     <p className="ai-research-explainer">The research team analyses markets, sentiment, news and company fundamentals, debates the bull and bear cases, and produces an investment thesis and risk review. Crypto uses the applicable analysts and token evidence.</p>
     {settings.isPending && <p role="status">Loading AI settings…</p>}
-    {settings.isError && <p className="error" role="alert">AI settings could not be loaded.</p>}
+    {settings.isError && <div className="error" role="alert">
+      <p>AI settings could not be loaded. {settings.error instanceof Error && settings.error.message !== 'internal error'
+        ? settings.error.message : 'Please retry. If this continues, contact your administrator.'}</p>
+      <button type="button" className="btn secondary" disabled={settings.isFetching} onClick={() => void settings.refetch()}>
+        {settings.isFetching ? 'Retrying…' : 'Retry loading AI settings'}
+      </button>
+    </div>}
     {settings.data && <>
       <div className="ai-research-privacy">Saved API keys are encrypted and write-only. This page never receives a saved key. Paste a replacement key to change it; leave the field empty to keep the current key for the same provider.</div>
       {!owner && <p className="sub">A workspace owner can manage AI credentials. Traders can run research with the saved configuration.</p>}
