@@ -108,6 +108,37 @@ export async function run(assert) {
     const protectedResult = await protection.json();
     assert(protection.status === 200 && protectedResult.stopLoss?.ok && protectedResult.takeProfit?.ok, `protection replacement must cancel old legs and confirm new ones: ${JSON.stringify(protectedResult)}`);
     assert(!await ctx.tdb.selectFrom('futures_trailing_sl').select('id').where('account_id', '=', accountId).executeTakeFirst(), 'manual stop replacement removes the previous ROE baseline');
+    const priorOrders = venue.futuresOrdersSnapshot().length;
+    const nativeAdd = await post(`/api/futures/positions/${position.venue_position_id}/margin`, { marginCurrency: 'USDT', direction: 'add', amount: '4.2857' }, cookie, randomUUID());
+    assert(nativeAdd.status === 200 && (await nativeAdd.json()).amount === '4.2857', 'custom USDT collateral uses the exact amount endpoint instead of rounded leverage');
+    const nativeRemove = await post(`/api/futures/positions/${position.venue_position_id}/margin`, { marginCurrency: 'USDT', direction: 'remove', amount: '1' }, cookie, randomUUID());
+    assert(nativeRemove.status === 200 && venue.futuresOrdersSnapshot().length === priorOrders, 'native margin removal changes collateral without placing or cancelling any order');
+    venue.setBalance('INR', 1000, 0);
+    const inrPosId = venue.settleFuturesPosition({ pair: 'B-ETH_USDT', marginCurrency: 'INR', activePos: '2', avgEntryPrice: '100', markPrice: '100',
+      leverage: '2', lockedMargin: '100', settlementCurrencyAvgPrice: '100' });
+    await post('/api/futures/positions/refresh', {}, cookie);
+    const walletRead = await fetch(`${base}/api/accounts/${accountId}/futures-balance?currency=INR`, { headers: { cookie } });
+    assert(walletRead.status === 200 && (await walletRead.json()).freeMinor === '100000', 'native INR balance reads the authenticated account futures wallet');
+    const badAmount = await post(`/api/futures/positions/${inrPosId}/margin`, { marginCurrency: 'INR', direction: 'add', amount: '500.001' }, cookie, randomUUID());
+    const badCurrency = await post(`/api/futures/positions/${inrPosId}/margin`, { marginCurrency: 'USDT', direction: 'add', amount: '500' }, cookie, randomUUID());
+    assert(badAmount.status === 400 && badCurrency.status === 400, 'invalid amount precision and a mismatched currency are rejected before transfer');
+    const beforeNativeCount = venue.marginChangesSnapshot().length;
+    const nativeId = randomUUID(), nativeBody = { marginCurrency: 'INR', direction: 'add', amount: '500' };
+    const addRupees = await post(`/api/futures/positions/${inrPosId}/margin`, nativeBody, cookie, nativeId);
+    const replayRupees = await post(`/api/futures/positions/${inrPosId}/margin`, nativeBody, cookie, nativeId);
+    assert(addRupees.status === 200 && replayRupees.status === 200 && venue.marginChangesSnapshot().length === beforeNativeCount + 1,
+      'an exact ₹500 request and replay debit the wallet once under the durable receipt');
+    assert(venue.marginChangesSnapshot().at(-1).amount === '500' && venue.marginChangesSnapshot().at(-1).currency === 'INR',
+      'CoinDCX receives 500 INR, never a USDT conversion or leverage approximation');
+    const inrAfter = await ctx.tdb.selectFrom('futures_position').selectAll().where('venue_position_id', '=', inrPosId).executeTakeFirstOrThrow();
+    assert(inrAfter.locked_margin_minor === '1050000' && inrAfter.active_pos === '2' && inrAfter.leverage === '2',
+      'adding ₹500 changes ₹10,000 margin to ₹10,500 without changing quantity or configured leverage');
+    const remainingWallet = await (await fetch(`${base}/api/accounts/${accountId}/futures-balance?currency=INR`, { headers: { cookie } })).json();
+    assert(remainingWallet.freeMinor === '50000', 'the wallet has exactly ₹500 remaining after the native transfer');
+    const refusedNative = await post(`/api/futures/positions/${inrPosId}/margin`, { ...nativeBody, amount: '500.01' }, cookie, randomUUID());
+    assert(refusedNative.status === 400 && venue.marginChangesSnapshot().length === beforeNativeCount + 1, 'fresh wallet shortfall refuses the exact amount without changing it or sending a transfer');
+    const changedBody = await post(`/api/futures/positions/${inrPosId}/margin`, { ...nativeBody, amount: '499' }, cookie, nativeId);
+    assert(changedBody.status === 409, 'the same request ID cannot authorize a different collateral amount');
     const originalEntry = legs.find(leg => leg.leg_kind === 'entry');
     await ctx.tdb.updateTable('child_order').set({ state: 'open' }).where('id', '=', originalEntry.id).execute();
     venue.settleFuturesOrder(originalEntry.exchange_order_id, 'open');

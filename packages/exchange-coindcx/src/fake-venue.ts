@@ -37,6 +37,7 @@ import type { AddressInfo, Socket } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AUTH_KEY_HEADER, AUTH_SIGNATURE_HEADER } from './signing.js';
+import { add, sub, div, scaledFromString, toPlainString } from '@tradex/money';
 
 const DEFAULT_FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'checks', 'fixtures');
 
@@ -141,6 +142,7 @@ export class FakeVenue {
   private readonly futuresOrders = new Map<string, Record<string, unknown>>();
   private futuresOrderSeq = 0;
   private readonly futuresPositions = new Map<string, Record<string, unknown>>();
+  private readonly marginChanges: Array<{ id: string; amount: string; direction: string; currency: string }> = [];
   private futuresPositionSeq = 0;
   /** Per (account_key, pair, marginCurrency): sticky leverage the venue remembers. */
   private readonly futuresLeverage = new Map<string, string>();
@@ -363,6 +365,8 @@ export class FakeVenue {
   futuresOrdersSnapshot(): ReadonlyArray<Record<string, unknown>> {
     return [...this.futuresOrders.values()];
   }
+
+  marginChangesSnapshot() { return this.marginChanges.map(change => ({ ...change })); }
 
   private takeFault(path: string): Fault | undefined {
     for (let i = 0; i < this.faults.length; i += 1) {
@@ -909,6 +913,33 @@ export class FakeVenue {
         if (tpOut !== undefined) outcome['take_profit'] = tpOut;
         this.send(res, 200, JSON.stringify(outcome));
         return;
+      }
+
+      if (route === '/exchange/v1/derivatives/futures/positions/add_margin'
+        || route === '/exchange/v1/derivatives/futures/positions/remove_margin') {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        const id = String(parsed['id'] ?? '');
+        const position = this.futuresPositions.get(id);
+        const amount = Number(parsed['amount']);
+        if (!position || Number(position['active_pos']) === 0 || position['margin_type'] !== 'isolated' || !Number.isFinite(amount) || amount <= 0) {
+          this.send(res, 422, '{"code":422,"status":422,"message":"Cannot change margin for an inactive position or invalid amount"}'); return;
+        }
+        const currency = String(position['margin_currency_short_name']);
+        const wallet = this.balanceRows.find(row => row.currency === currency);
+        const removing = route.endsWith('remove_margin');
+        if (!wallet || (!removing && amount > wallet.balance)) {
+          this.send(res, 400, '{"code":400,"status":400,"message":"Insufficient funds"}'); return;
+        }
+        const native = scaledFromString(amount.toFixed(currency === 'INR' ? 2 : 8), 18);
+        const converted = currency === 'INR' ? div(native, scaledFromString(String(position['settlement_currency_avg_price'] ?? '100'), 18), 18) : native;
+        const current = scaledFromString(String(position['locked_margin']), 18);
+        const next = removing ? sub(current, converted) : add(current, converted);
+        if (next.v <= 0n) { this.send(res, 422, '{"code":422,"message":"Cannot remove margin more than available in position"}'); return; }
+        wallet.balance += removing ? amount : -amount;
+        position['locked_margin'] = toPlainString(next);
+        position['updated_at'] = new Date().toISOString();
+        this.marginChanges.push({ id, amount: toPlainString(native).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''), direction: removing ? 'remove' : 'add', currency });
+        this.send(res, 200, '{"message":"success","status":200,"code":200}'); return;
       }
 
       if (route === '/exchange/v1/derivatives/futures/positions/update_leverage') {

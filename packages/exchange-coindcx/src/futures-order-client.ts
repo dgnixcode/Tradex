@@ -922,6 +922,54 @@ export type FuturesExitOutcome =
   | { readonly ok: true; readonly venueGroupId: string | null }
   | { readonly ok: false; readonly failure: ClassifiedFailure };
 
+/** CoinDCX amounts are in the position's native margin currency, not USDT
+ * converted from INR and not a rounded target-leverage value. No automatic retry. */
+export async function changeFuturesMarginSigned(
+  sign: BodySigner,
+  request: { positionId: string; amount: string; direction: 'add' | 'remove' },
+  opts: FuturesCallOptions = {},
+): Promise<FuturesCancelOutcome> {
+  if (request.direction !== 'add' && request.direction !== 'remove') throw new Error('Invalid margin direction');
+  const signed = await signBody(sign, { id: request.positionId, amount: exactQuantityForWire(request.amount) }, (opts.nowMs ?? Date.now)());
+  let result: HttpResult;
+  try {
+    result = await send({ method: 'POST',
+      url: new URL(`/exchange/v1/derivatives/futures/positions/${request.direction}_margin`, opts.baseUrl ?? DEFAULT_BASE_URL),
+      body: signed.body, headers: signed.headers, deadlineMs: opts.deadlineMs });
+  } catch (error) {
+    if (error instanceof TransportError) return { ok: false, failure: classify({ transport: error.kind }) };
+    throw error;
+  }
+  let body: Record<string, unknown> | null = null;
+  try { body = JSON.parse(result.body) as Record<string, unknown>; } catch { /* unconfirmed below */ }
+  if (result.status < 200 || result.status >= 300) {
+    return { ok: false, failure: classify({ status: result.status, message: messageFrom(result.body) }) };
+  }
+  if (body && (Number(body['code']) >= 400 || Number(body['status']) >= 400 || body['success'] === false || body['status'] === 'error')) {
+    return { ok: false, failure: classify({ status: 400, message: messageFrom(result.body) }) };
+  }
+  if (body && body['message'] === 'success' && (body['code'] === 200 || body['status'] === 200 || body['status'] === 'success')) return { ok: true };
+  return { ok: false, failure: classify({ status: 502, message: 'Margin change outcome is unconfirmed; check the exchange before retrying.' }) };
+}
+
+/** Fresh isolated futures-wallet funds, in native minor units. No spot fallback. */
+export async function fetchFuturesFreeBalanceSigned(sign: BodySigner, currency: 'INR' | 'USDT', opts: FuturesCallOptions = {}) {
+  const signed = await signBody(sign, {}, (opts.nowMs ?? Date.now)());
+  let result: HttpResult;
+  try { result = await send({ method: 'GET', url: new URL('/exchange/v1/derivatives/futures/wallets', opts.baseUrl ?? DEFAULT_BASE_URL),
+    body: signed.body, headers: signed.headers, deadlineMs: opts.deadlineMs }); }
+  catch { return { ok: false as const }; }
+  if (result.status !== 200) return { ok: false as const };
+  let rows: unknown;
+  try { rows = parseDecimalJson(result.body); } catch { return { ok: false as const }; }
+  if (!Array.isArray(rows)) return { ok: false as const };
+  const matches = rows.filter(row => row && typeof row === 'object' && row['currency_short_name'] === currency);
+  if (matches.length !== 1) return { ok: false as const };
+  const free = decimalField(matches[0]['balance']);
+  if (!free || !/^\d+(?:\.\d{1,18})?$/.test(free)) return { ok: false as const };
+  return { ok: true as const, freeMinor: (scaledFromString(free, 18).v / 10n ** BigInt(currency === 'INR' ? 16 : 10)).toString() };
+}
+
 /**
  * Close a position at market. NOT idempotent (research/04 F11) — the caller
  * MUST hold the per-(account, pair) lock and cancel outstanding SL/TP FIRST

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGroups, GroupPositionManageModal, PositionManageModal } from './routes/Futures.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
 import { computeCenteredLeverage, computeLeverageFromAmountDelta, computeSliderValueFromLeverage, leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
-import { fetchAccounts, fetchFuturesInstrument, type FuturesPositionRow } from './api.ts';
+import { fetchAccounts, fetchFuturesInstrument, fetchFuturesFreeBalance, changeFuturesPositionMargin, updateFuturesPositionLeverage, type FuturesPositionRow } from './api.ts';
 
 vi.mock('./api.ts', async (original) => ({ ...await original<object>(),
   fetchFuturesInstrument: vi.fn(async () => ({ pair: 'B-ETH_USDT', marginCurrency: 'USDT', leverageTiers: [{ upToNotional: '100000', maxLeverage: 20 }] })),
@@ -14,6 +14,9 @@ vi.mock('./api.ts', async (original) => ({ ...await original<object>(),
   fetchGroups: vi.fn(async () => []), fetchAccountList: vi.fn(async () => []), fetchAssets: vi.fn(async () => []),
   fetchFuturesPositions: vi.fn(async () => ({ views: [] })), fetchKillSwitchStatus: vi.fn(async () => ({ active: false })),
   fetchMarketPrice: vi.fn(async () => ({ bestBid: '100', bestAsk: '101' })),
+  fetchFuturesFreeBalance: vi.fn(async () => ({ currency: 'USDT', freeMinor: '500000000' })),
+  changeFuturesPositionMargin: vi.fn(async (_id, amount, marginCurrency, direction) => ({ ok: true, amount, marginCurrency, direction, refreshPending: false })),
+  updateFuturesPositionLeverage: vi.fn(async () => ({ ok: true, newLeverage: '10' })),
 }));
 vi.mock('./components/TradingViewChart.tsx', () => ({ TradingViewChart: () => null }));
 vi.mock('./components/WatchlistPanel.tsx', () => ({ WatchlistPanel: () => null }));
@@ -28,6 +31,8 @@ const position: FuturesPositionRow = {
 };
 let host: HTMLDivElement, root: Root, client: QueryClient;
 beforeEach(() => {
+  vi.mocked(fetchFuturesFreeBalance).mockReset().mockResolvedValue({ currency: 'USDT', freeMinor: '500000000' });
+  vi.mocked(changeFuturesPositionMargin).mockClear(); vi.mocked(updateFuturesPositionLeverage).mockClear();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -38,7 +43,10 @@ afterEach(() => { act(() => root.unmount()); client.clear(); host.remove(); loca
 async function render(element: React.ReactNode) {
   await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter>{element}</MemoryRouter></QueryClientProvider>));
 }
-function openLeverage() { act(() => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage')!.click()); }
+async function openLeverage() {
+  await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage')!.click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+}
 function typeValue(input: HTMLInputElement, value: string) {
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
@@ -78,7 +86,7 @@ describe('leverage controls', () => {
   });
   it('replaces the individual leverage slider with an available-balance slider', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
-    openLeverage();
+    await openLeverage();
     expect(host.textContent).toContain('Max 20×');
     expect(host.textContent).toContain('Available balance to use');
     expect(host.textContent).not.toContain('Slide to adjust');
@@ -109,39 +117,54 @@ describe('leverage controls', () => {
   });
   it('allows entering positive or negative margin amounts without exceeding own balance', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
-    openLeverage();
+    await openLeverage();
     const amountInput = host.querySelector<HTMLInputElement>('#margin-amount-input')!;
     expect(amountInput).toBeTruthy();
     expect(amountInput.value).toBe('0');
 
     // Type positive amount (+4.2857) to reduce leverage to 7x
     typeValue(amountInput, '+4.2857');
-    expect(host.textContent).toContain('Adjust Leverage to 7×');
+    expect(host.textContent).toContain('Add 4.2857 USDT to Margin');
     expect(amountInput.value).toBe('+4.2857');
 
     // Type negative amount (-5) to increase leverage to 20x
     typeValue(amountInput, '-5');
-    expect(host.textContent).toContain('Adjust Leverage to 20×');
+    expect(host.textContent).toContain('Remove 5 USDT from Margin');
     expect(amountInput.value).toBe('-5');
 
-    // Type amount exceeding own balance (+10) -> clamped to own balance (+5.0000)
+    // An over-budget amount stays visible and must not silently change the transfer.
     typeValue(amountInput, '+10');
-    expect(amountInput.value).toBe('+5.0000');
-    expect(host.textContent).toContain('Adjust Leverage to 6.7×');
+    expect(amountInput.value).toBe('+10');
+    expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Add 10 USDT to Margin')?.disabled).toBe(true);
   });
   it('removes the group leverage slider and filters unsupported presets', async () => {
     await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);
-    openLeverage();
+    await openLeverage();
     expect(host.textContent).toContain('Max 20×');
     expect(host.querySelectorAll('input[type="range"]')).toHaveLength(0);
     expect([...host.querySelectorAll('button')].some((b) => b.textContent === '50×' || b.textContent === '100×')).toBe(false);
     typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target group leverage"]')!, '2.5');
     expect([...host.querySelectorAll('button')].find((b) => b.textContent === 'No Accounts Selected')?.disabled).toBe(true);
   });
+  it('submits exactly ₹500 as native INR margin without updating configured leverage or placing an order', async () => {
+    vi.mocked(fetchFuturesFreeBalance).mockResolvedValue({ currency: 'INR', freeMinor: '100000' });
+    const inrPosition = { ...position, marginCurrency: 'INR' as const, lockedMarginMinor: '264000', avgEntryPrice: '97.63',
+      settlementCurrencyAvgPrice: '100', leverage: '3.7' };
+    await render(<PositionManageModal position={inrPosition} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
+    await openLeverage();
+    typeValue(host.querySelector<HTMLInputElement>('#margin-amount-input')!, '500');
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Add ₹500 to Margin')!;
+    expect(button.disabled).toBe(false);
+    await act(async () => { button.click(); button.click(); });
+    expect(changeFuturesPositionMargin).toHaveBeenCalledTimes(1);
+    expect(changeFuturesPositionMargin).toHaveBeenCalledWith('position', '500', 'INR', 'add');
+    expect(updateFuturesPositionLeverage).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Added ₹500 to position margin');
+  });
   it('disables leverage management when the exchange limits are unavailable', async () => {
     client.setQueryData(['futures-instrument', 'B-ETH_USDT', 'USDT'], { leverageTiers: [] });
     await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);
-    openLeverage();
+    await openLeverage();
     expect(host.textContent).toContain('Leverage limits unavailable');
     expect([...host.querySelectorAll('button')].find((b) => b.textContent === 'No Accounts Selected')?.disabled).toBe(true);
   });
@@ -160,17 +183,18 @@ describe('leverage controls', () => {
     await render(<Limits pair="B-SOL_USDT" />); expect(host.textContent).toBe('0');
   });
   it('supports decimal leverage adjustments for individual and group positions', async () => {
+    vi.mocked(fetchFuturesFreeBalance).mockResolvedValue({ currency: 'USDT', freeMinor: '50000000000' });
     vi.mocked(fetchAccounts).mockResolvedValue([{ id: 'account', name: 'Test account', balancesByCurrency: { USDT: '5000000000' } } as never]);
     client.setQueryData(['accounts'], [{ id: 'account', name: 'Test account', balancesByCurrency: { USDT: '5000000000' } }]);
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
-    openLeverage();
+    await openLeverage();
     typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target leverage"]')!, '3.5');
     expect(host.textContent).toContain('Adjust Leverage to 3.5×');
     const singleBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage to 3.5×');
     expect(singleBtn?.disabled).toBe(false);
 
     await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);
-    openLeverage();
+    await openLeverage();
     typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target group leverage"]')!, '3.5');
     const groupBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage on 1 Account to 3.5×');
     expect(groupBtn?.disabled).toBe(false);

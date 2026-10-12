@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   exactQuantityForWire, fetchFuturesInstrument, fetchFuturesPositionsSigned,
   listFuturesOrdersSigned, submitFuturesOrderSigned,
+  changeFuturesMarginSigned, fetchFuturesFreeBalanceSigned,
 } from './futures-order-client.js';
 import { destroyAllAgents } from './http.js';
 import { plainDecimal } from './market-rules.js';
@@ -26,6 +27,39 @@ async function serve(body: string): Promise<string> {
 const sign = async (_body: string) => ({ apiKey: 'test', signature: 'test' });
 
 describe('futures decimal precision at the exchange boundary', () => {
+  it('sends an exact native amount to add_margin, without leverage or order fields', async () => {
+    const baseUrl = await serve('{"message":"success","status":200,"code":200}');
+    let payload = '';
+    const result = await changeFuturesMarginSigned(async body => { payload = body; return sign(body); },
+      { positionId: 'inr-position', amount: '500', direction: 'add' }, { baseUrl });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(payload)).toMatchObject({ id: 'inr-position', amount: 500 });
+    expect(Object.keys(JSON.parse(payload)).sort()).toEqual(['amount', 'id', 'timestamp']);
+  });
+  it('preserves eight-place USDT amount bytes for remove_margin', async () => {
+    const baseUrl = await serve('{"message":"success","status":200,"code":200}');
+    let payload = '';
+    await changeFuturesMarginSigned(async body => { payload = body; return sign(body); },
+      { positionId: 'usdt-position', amount: '0.00000001', direction: 'remove' }, { baseUrl });
+    expect(payload).toContain('"amount":0.00000001');
+  });
+  it('does not treat a business refusal inside HTTP 200 as success', async () => {
+    const baseUrl = await serve('{"message":"Insufficient funds","status":422,"code":422}');
+    const result = await changeFuturesMarginSigned(sign, { positionId: 'position', amount: '500', direction: 'add' }, { baseUrl });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.failure.orderMayExist).toBe(false);
+  });
+  it('keeps an unreadable successful HTTP response ambiguous', async () => {
+    const baseUrl = await serve('not-json');
+    const result = await changeFuturesMarginSigned(sign, { positionId: 'position', amount: '500', direction: 'add' }, { baseUrl });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.failure.orderMayExist).toBe(true);
+  });
+  it('reads only native futures wallet free funds and floors wallet precision', async () => {
+    const baseUrl = await serve('[{"currency_short_name":"INR","balance":"500.01999","locked_balance":"999999"}]');
+    expect(await fetchFuturesFreeBalanceSigned(sign, 'INR', { baseUrl })).toEqual({ ok: true, freeMinor: '50001' });
+    expect(await fetchFuturesFreeBalanceSigned(sign, 'USDT', { baseUrl })).toEqual({ ok: false });
+  });
   it('normalizes venue fee percentages to fractional notional rates', async () => {
     const baseUrl = await serve('{"maker_fee":0.02,"taker_fee":0.06}');
     const result = await fetchFuturesInstrument('B-SOL_USDT','INR',{ baseUrl });

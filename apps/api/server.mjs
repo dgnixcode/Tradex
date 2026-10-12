@@ -34,11 +34,12 @@ import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/ind
 import { Signer } from '../signer/dist/index.js';
 import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor, maxInstrumentLeverage } from '../../packages/exchange/dist/index.js';
 import { add, cmp, mul, scaledFromString, toPlainString } from '../../packages/money/dist/index.js';
-import { futuresRequiredLeveragedMinor } from '../../packages/sizing/dist/index.js';
+import { futuresRequiredLeveragedMinor, parseMarginAmount } from '../../packages/sizing/dist/index.js';
 import {
   mapOrderBook, probeCredential, send, fetchFuturesSettlementRate,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
   attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned, updateFuturesLeverageSigned,
+  changeFuturesMarginSigned, fetchFuturesFreeBalanceSigned,
   listFuturesPositionsTransactionsSigned,
 } from '../../packages/exchange-coindcx/dist/index.js';
 
@@ -1404,6 +1405,36 @@ if (sending) {
     return { ok: true, newLeverage: String(args.leverage) };
   };
 
+  const changeMargin = async (args) => {
+    const sign = await signFor(args.actor.tenantId, args.actor.accountId);
+    if (!sign) return { ok: false, detail: 'No credential for this account' };
+    const parsed = parseMarginAmount(args.amount, args.marginCurrency);
+    const freshReads = await Promise.all([
+      fetchFuturesPositionsSigned(sign, [args.marginCurrency], { baseUrl: VENUE_BASE }),
+      args.direction === 'add' ? fetchFuturesFreeBalanceSigned(sign, args.marginCurrency, { baseUrl: VENUE_BASE }) : null,
+    ]).catch(() => null);
+    if (!freshReads) return { ok: false, detail: 'Cannot verify fresh position and funds; no margin change sent.' };
+    const [positions, wallet] = freshReads;
+    if (!positions.ok) return { ok: false, detail: 'Cannot verify the current position; no margin change sent.' };
+    const pos = positions.positions.find(p => p.venuePositionId === args.venuePositionId && p.marginCurrency === args.marginCurrency);
+    if (!pos || scaledFromString(pos.activePos, 18).v === 0n) return { ok: false, detail: 'This position is no longer active; no margin change sent.' };
+    if (pos.marginType !== 'isolated') return { ok: false, detail: 'Individual margin amounts require an isolated position.' };
+    if (args.direction === 'add' && (!wallet?.ok || parsed.minor > BigInt(wallet.freeMinor))) {
+      return { ok: false, detail: 'Fresh available balance cannot cover this exact margin amount. Refresh the balance; no margin change sent.' };
+    }
+    if (args.direction === 'remove' && (!pos.lockedMarginMinor || parsed.minor >= BigInt(pos.lockedMarginMinor))) {
+      return { ok: false, detail: 'Cannot remove all or more than the position margin. CoinDCX may impose a lower safe withdrawal limit.' };
+    }
+    const result = await changeFuturesMarginSigned(sign, { positionId: pos.venuePositionId, direction: args.direction, amount: parsed.amount }, { baseUrl: VENUE_BASE });
+    if (!result.ok) return { ok: false, outcomeUnknown: result.failure.orderMayExist === true,
+      detail: result.failure.detail ?? 'CoinDCX refused the margin change.' };
+    // A refresh failure cannot turn an acknowledged transfer into a failure that
+    // encourages a duplicate transfer. The durable action receipt stays completed.
+    let refreshPending = false;
+    try { await accountSync(args.actor); } catch { refreshPending = true; }
+    return { ok: true, amount: parsed.amount, direction: args.direction, marginCurrency: args.marginCurrency, refreshPending };
+  };
+
   const cancel = async (accountId, coid) => {
     const child = await db.selectFrom('child_order').select(['tenant_id', 'exchange_order_id'])
       .where('account_id', '=', accountId).where('client_order_id', '=', coid).executeTakeFirst();
@@ -1431,6 +1462,10 @@ if (sending) {
     afterFanOut,
     futuresAdjust: { adjustPosition },
     futuresLeverage: { updateLeverage },
+    futuresMargin: { changeMargin, readFreeBalance: async ({ tenantId, accountId, marginCurrency }) => {
+      const sign = await signFor(tenantId, accountId, 'read native futures wallet funds on behalf of the account owner');
+      return sign ? fetchFuturesFreeBalanceSigned(sign, marginCurrency, { baseUrl: VENUE_BASE }).catch(() => ({ ok: false })) : { ok: false };
+    } },
     // The sweep that keeps the resolve ladder alive after a confirm returns.
     resolverIntervalMs: 15_000,
   });

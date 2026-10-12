@@ -29,7 +29,7 @@ export async function executePositionMutation<T>(args: {
     readPlatformFlags(args.db), readTenantCaps(tdb), readAccountStates(tdb, [args.accountId]),
   ]);
   const account = accounts.get(args.accountId);
-  const increasesRisk = args.operation === 'leverage' || (args.operation === 'adjust'
+  const increasesRisk = args.operation === 'leverage' || args.operation === 'margin' || (args.operation === 'adjust'
     && (args.body as { direction?: string } | null)?.direction === 'increase');
   if (platform.killSwitch || platform.mode === 'read_only' || process.env['TRADEX_KILL_SWITCH'] === '1'
     || (increasesRisk && (platform.mode !== 'normal' || caps.tradingPaused || account?.status !== 'active'

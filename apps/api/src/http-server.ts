@@ -62,6 +62,7 @@ import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { startWsPriceFeed, priceEmitter, isWsFeedConnected } from './futures/ws-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
 import { executePositionMutation, PositionMutationError, type ReadEntryOrder } from './futures/mutation.js';
+import { parseMarginAmount } from '@tradex/sizing';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import { buildTradingAnalytics } from './futures/trading-analytics.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
@@ -135,6 +136,12 @@ export interface FuturesLeveragePort {
     readonly leverage: number | string;
   }) => Promise<{ readonly ok: true; readonly newLeverage: string } | { readonly ok: false; readonly code: string; readonly detail: string }>;
 }
+export interface FuturesMarginPort {
+  readonly readFreeBalance: (args: { tenantId: string; accountId: string; marginCurrency: 'INR' | 'USDT' }) => Promise<{ ok: true; freeMinor: string } | { ok: false }>;
+  readonly changeMargin: (args: { actor: FuturesActor; venuePositionId: string; marginCurrency: 'INR' | 'USDT'; amount: string; direction: 'add' | 'remove' }) => Promise<
+    { ok: true; amount: string; marginCurrency: 'INR' | 'USDT'; direction: 'add' | 'remove'; refreshPending: boolean }
+    | { ok: false; detail: string; outcomeUnknown?: boolean }>;
+}
 import type { Kysely } from 'kysely';
 import type { FuturesInstrument, MarketRef, OrderBook } from '@tradex/exchange';
 import { LoginService } from './login-service.js';
@@ -196,6 +203,7 @@ export interface HttpDeps {
   readonly futuresTpSl?: FuturesTpSlPort | undefined;
   /** Adjust leverage on open futures position. */
   readonly futuresLeverage?: FuturesLeveragePort | undefined;
+  readonly futuresMargin?: FuturesMarginPort | undefined;
   /**
    * Phase-15 SL/TP fan-out — the worker's own attach port, distinct from
    * `futuresTpSl` above even though both touch protection.
@@ -1424,7 +1432,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       const ids = new Set<string>();
       for (const item of actions) {
         if (!item || typeof item.id !== 'string' || !/^[0-9a-z_-]{1,100}$/i.test(item.id)
-          || typeof item.action !== 'string' || !['adjust', 'exit', 'leverage', 'tpsl'].includes(item.action)
+          || typeof item.action !== 'string' || !['adjust', 'exit', 'leverage', 'tpsl', 'margin'].includes(item.action)
           || typeof item.body !== 'object' || item.body === null || Array.isArray(item.body)
           || typeof item.requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.requestId)) {
           throw new HttpError(400, 'invalid position action');
@@ -1540,6 +1548,31 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
 
       positionReply(ctx, adjusted);
+      return;
+    }
+
+    // Native-currency collateral adjustment; no order or leverage conversion.
+    const futMarginMatch = /^\/api\/futures\/positions\/([^/]+)\/margin$/.exec(path);
+    if (method === 'POST' && futMarginMatch !== null) {
+      requireAction(principal, 'trade.place');
+      await assertTradingNotHalted();
+      if (!deps.futuresMargin) throw new HttpError(503, 'margin adjustment is not configured in this build');
+      const body = (ctx.body ?? {}) as { amount?: unknown; marginCurrency?: unknown; direction?: unknown };
+      if ((body.marginCurrency !== 'INR' && body.marginCurrency !== 'USDT') || (body.direction !== 'add' && body.direction !== 'remove') || typeof body.amount !== 'string') {
+        throw new HttpError(400, 'amount, marginCurrency and direction (add or remove) are required');
+      }
+      let amount: string;
+      try { amount = parseMarginAmount(body.amount, body.marginCurrency).amount; }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Invalid margin amount'); }
+      const owner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futMarginMatch[1] as string);
+      if (!owner) throw new HttpError(404, 'no such futures position');
+      if (owner.marginCurrency !== body.marginCurrency) throw new HttpError(400, 'marginCurrency does not match this position');
+      const out = await mutatePosition(ctx, principal, futMarginMatch[1] as string, owner, 'margin', () => deps.futuresMargin!.changeMargin({
+        actor: { tenantId: principal.tenantId, accountId: owner.accountId }, venuePositionId: futMarginMatch[1] as string,
+        amount, marginCurrency: body.marginCurrency as 'INR' | 'USDT', direction: body.direction as 'add' | 'remove',
+      }));
+      if (!out.ok) throw new HttpError(400, out.detail);
+      positionReply(ctx, out);
       return;
     }
 
@@ -1985,6 +2018,20 @@ export function createHttpServer(deps: HttpDeps): Server {
         ...(typeof body.description === 'string' ? { description: body.description } : {}),
       });
       sendJson(ctx.res, 201, { id });
+      return;
+    }
+
+    const futuresBalanceMatch = /^\/api\/accounts\/([0-9a-f-]{36})\/futures-balance$/.exec(path);
+    if (method === 'GET' && futuresBalanceMatch !== null) {
+      requireAction(principal, 'view.dashboards');
+      const currency = ctx.url.searchParams.get('currency');
+      if (currency !== 'INR' && currency !== 'USDT') throw new HttpError(400, 'currency must be INR or USDT');
+      const accountId = futuresBalanceMatch[1] as string;
+      if (!await forTenant(deps.db, principal.tenantId).byId('exchange_account', accountId).select('id').executeTakeFirst()) throw new HttpError(404, 'account not found');
+      if (!deps.futuresMargin) throw new HttpError(503, 'futures wallet reads are not configured');
+      const balance = await deps.futuresMargin.readFreeBalance({ tenantId: principal.tenantId, accountId, marginCurrency: currency });
+      if (!balance.ok) throw new HttpError(503, 'Could not read fresh futures wallet funds');
+      sendJson(ctx.res, 200, { currency, freeMinor: balance.freeMinor });
       return;
     }
 

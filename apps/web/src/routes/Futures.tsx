@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   adjustFuturesPosition, exitFuturesPosition, fetchAccounts, fetchFuturesPositions,
   fetchFuturesPrices, fetchKillSwitchStatus, refreshFuturesPositions, setFuturesProtection, setTrailingProtection,
-  syncAccount, updateFuturesPositionLeverage,
+  syncAccount, updateFuturesPositionLeverage, changeFuturesPositionMargin, fetchFuturesFreeBalance,
 } from '../api.js';
 import type { AccountListItem, FuturesPositionRow } from '../api.ts';
 import { useLivePrices } from '../useLivePrices.ts';
@@ -13,6 +13,7 @@ import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 import { planPositionAddition, planPositionReduction } from '../position-addition.ts';
 import { PositionCurrencyBadge } from '../components/PositionCurrencyBadge.tsx';
 import { computeCenteredLeverage, computeLeverageFromAmountDelta, computeSliderValueFromLeverage, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
+import { parseMarginInput } from '../margin-input.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -1135,6 +1136,8 @@ export function PositionManageModal({
     refetchInterval: false,
     staleTime: 60_000,
   });
+  const futuresBalanceQuery = useQuery({ queryKey: ['futures-free-balance', position.accountId, position.marginCurrency],
+    queryFn: () => fetchFuturesFreeBalance(position.accountId, position.marginCurrency), enabled: activeTab === 'leverage', retry: false });
 
   const matchedAccount = useMemo(() => {
     if (!accountsQuery.data) return null;
@@ -1156,6 +1159,7 @@ export function PositionManageModal({
       await syncAccount(position.accountId);
       await Promise.all([
         accountsQuery.refetch(),
+        ...(activeTab === 'leverage' ? [futuresBalanceQuery.refetch({ throwOnError: true })] : []),
         qc.invalidateQueries({ queryKey: ['futures-positions'] }),
       ]);
     } catch (err) {
@@ -1171,7 +1175,7 @@ export function PositionManageModal({
     void handleSyncBalance();
   }, [position.accountId]);
 
-  const isRefreshing = isSyncingBalance || accountsQuery.isFetching;
+  const isRefreshing = isSyncingBalance || accountsQuery.isFetching || (activeTab === 'leverage' && futuresBalanceQuery.isFetching);
 
   // Partial close / reduce state
   const [reduceSizingMode, setReduceSizingMode] = useState<'percent' | 'quantity'>('quantity');
@@ -1325,7 +1329,8 @@ export function PositionManageModal({
 
   // Sizing math for Increase based on Available Free Balance or explicit Quantity
   const quoteScale = quoteScaleOf(position.marginCurrency);
-  const freeBalanceMajor = accountFreeCashMinor !== null ? Number(accountFreeCashMinor) / (10 ** quoteScale) : 0;
+  const freeBalanceMinor = activeTab === 'leverage' ? futuresBalanceQuery.data?.freeMinor ?? null : accountFreeCashMinor;
+  const freeBalanceMajor = freeBalanceMinor !== null ? Number(freeBalanceMinor) / (10 ** quoteScale) : 0;
   const lockedMarginMajor = position.lockedMarginMinor !== null && position.lockedMarginMinor !== ''
     ? Number(position.lockedMarginMinor) / (10 ** quoteScale)
     : 0;
@@ -1404,6 +1409,11 @@ export function PositionManageModal({
   const leverageActionPending = useRef(false);
   const dialogRef = useSafeDialog(onClose, isExiting || isAdjusting || isProtecting || isUpdatingLeverage);
   const [leverageMsg, setLeverageMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  type EditSource = 'none' | 'amount' | 'leverage' | 'slider' | 'chip';
+  const [lastEditedSource, setLastEditedSource] = useState<EditSource>('none');
+  const [amountInput, setAmountInput] = useState<string>('0');
+  const isExactAmount = lastEditedSource === 'amount';
+  const exactMargin = useMemo(() => parseMarginInput(amountInput, position.marginCurrency), [amountInput, position.marginCurrency]);
 
   const targetLevNum = Number(targetLeverage);
   const leverageLimits = useLeverageLimits(position.pair, position.marginCurrency, [position]);
@@ -1425,11 +1435,13 @@ export function PositionManageModal({
 
   const leverageNotionalMajor = totalQty * posEntryPrice * posPeg;
   // Estimate from exposure, rather than scaling collateral that may include added margin.
-  const newMarginMajor = isTargetLevValid && targetLevNum > 0
+  const exactMarginDelta = exactMargin ? Number(exactMargin.amount) * (exactMargin.direction === 'remove' ? -1 : 1) : 0;
+  const newMarginMajor = isExactAmount ? currentMarginMajor + exactMarginDelta : isTargetLevValid && targetLevNum > 0
     ? leverageNotionalMajor / targetLevNum
     : 0;
 
-  const marginDeltaMajor = newMarginMajor - currentMarginMajor;
+  const marginDeltaMajor = isExactAmount ? exactMarginDelta : newMarginMajor - currentMarginMajor;
+  const effectiveLeverageEstimate = newMarginMajor > 0 ? leverageNotionalMajor / newMarginMajor : null;
 
   const isLevShortfall = marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor;
   const balanceSliderValid = maxLeverage > 0 && leverageNotionalMajor > 0;
@@ -1445,9 +1457,9 @@ export function PositionManageModal({
     return Math.max(0, currentMarginMajor - minRequiredMargin);
   }, [maxLeverage, leverageNotionalMajor, currentMarginMajor]);
 
-  type EditSource = 'none' | 'amount' | 'leverage' | 'slider' | 'chip';
-  const [lastEditedSource, setLastEditedSource] = useState<EditSource>('none');
-  const [amountInput, setAmountInput] = useState<string>('0');
+  const exactAmountBlocked = !exactMargin || isRefreshing || balanceSyncError !== null || freeBalanceMinor === null || futuresBalanceQuery.isError
+    || (exactMargin.direction === 'add' && exactMargin.minor > BigInt(freeBalanceMinor ?? '0'))
+    || (exactMargin.direction === 'remove' && (maxLeverage === 0 || Number(exactMargin.amount) > maxFreeableMajor || newMarginMajor <= 0));
 
   useEffect(() => {
     if (lastEditedSource !== 'amount') {
@@ -1474,48 +1486,26 @@ export function PositionManageModal({
     if (amountDelta === 0) {
       setAmountInput('0');
     } else if (amountDelta > 0) {
-      setAmountInput(`+${amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
+      setAmountInput(`+${amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 8)}`);
     } else {
-      setAmountInput(amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 4));
+      setAmountInput(amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 8));
     }
   };
 
   const handleAmountInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setLastEditedSource('amount');
-    const raw = e.target.value;
-
-    const hasMinus = raw.includes('-');
-    const hasPlus = raw.includes('+');
-    let sign = '';
-    if (hasMinus) sign = '-';
-    else if (hasPlus) sign = '+';
-    let rest = raw.replace(/[^\d.]/g, '');
-    const dotParts = rest.split('.');
-    if (dotParts.length > 2) {
-      rest = dotParts[0] + '.' + dotParts.slice(1).join('');
-    }
-    const cleanRaw = sign + rest;
+    const cleanRaw = e.target.value;
     setAmountInput(cleanRaw);
 
     if (cleanRaw === '' || cleanRaw === '+' || cleanRaw === '-' || cleanRaw === '.') {
       return;
     }
 
-    let deltaNum = parseFloat(cleanRaw);
+    const deltaNum = Number(cleanRaw);
     if (!Number.isFinite(deltaNum)) return;
 
-    // Constraint: cannot exceed own available balance
-    if (deltaNum > 0 && freeBalanceMajor >= 0 && deltaNum > freeBalanceMajor) {
-      deltaNum = freeBalanceMajor;
-      setAmountInput(`+${freeBalanceMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
-    }
-
-    // Constraint: for negative, cannot exceed max freeable margin at maxLeverage
-    if (deltaNum < 0 && Math.abs(deltaNum) > maxFreeableMajor) {
-      deltaNum = -maxFreeableMajor;
-      setAmountInput(`-${maxFreeableMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
-    }
-
+    // Preserve the entered amount exactly. Invalid/over-budget amounts disable
+    // submission; never silently substitute a different collateral transfer.
     const nextLev = computeLeverageFromAmountDelta(
       deltaNum,
       currentMarginMajor,
@@ -1535,30 +1525,36 @@ export function PositionManageModal({
   };
 
   const estNewLiqPrice = useMemo(() => {
-    if (!isTargetLevValid || targetLevNum <= 0 || posEntryPrice <= 0) return null;
+    const estimatedLeverage = isExactAmount ? effectiveLeverageEstimate : targetLevNum;
+    if ((!isExactAmount && !isTargetLevValid) || !estimatedLeverage || estimatedLeverage <= 0 || posEntryPrice <= 0) return null;
     const mmr = 0.005;
     if (position.side === 'long') {
-      const p = posEntryPrice * (1 - (1 / targetLevNum) + mmr);
+      const p = posEntryPrice * (1 - (1 / estimatedLeverage) + mmr);
       return p > 0 ? (posEntryPrice < 1 ? p.toFixed(6) : p.toFixed(2)) : '0';
     } else if (position.side === 'short') {
-      const p = posEntryPrice * (1 + (1 / targetLevNum) - mmr);
+      const p = posEntryPrice * (1 + (1 / estimatedLeverage) - mmr);
       return p > 0 ? (posEntryPrice < 1 ? p.toFixed(6) : p.toFixed(2)) : '0';
     }
     return null;
-  }, [isTargetLevValid, targetLevNum, posEntryPrice, position.side]);
+  }, [isTargetLevValid, targetLevNum, posEntryPrice, position.side, isExactAmount, effectiveLeverageEstimate]);
 
   const handleExecuteAdjustLeverage = async () => {
-    if (!isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall || isUpdatingLeverage || leverageActionPending.current || isHalted) return;
+    if ((isExactAmount ? exactAmountBlocked : !isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall)
+      || isUpdatingLeverage || leverageActionPending.current || isHalted) return;
     leverageActionPending.current = true;
     setIsUpdatingLeverage(true);
     setLeverageMsg(null);
     try {
-      const res = await updateFuturesPositionLeverage(position.venuePositionId, targetLeverage);
+      const res = isExactAmount && exactMargin
+        ? await changeFuturesPositionMargin(position.venuePositionId, exactMargin.amount, position.marginCurrency, exactMargin.direction)
+        : await updateFuturesPositionLeverage(position.venuePositionId, targetLeverage);
       setLeverageMsg({
         kind: 'ok',
-        text: `Successfully adjusted leverage to ${res.newLeverage || targetLeverage}×.`,
+        text: 'amount' in res
+          ? `${res.direction === 'add' ? 'Added' : 'Removed'} ${position.marginCurrency === 'INR' ? '₹' : ''}${res.amount}${position.marginCurrency === 'USDT' ? ' USDT' : ''} ${res.direction === 'add' ? 'to' : 'from'} position margin.${res.refreshPending ? ' Balance refresh is pending; do not repeat this transfer.' : ''}`
+          : `Successfully adjusted leverage to ${res.newLeverage || targetLeverage}×.`,
       });
-      await Promise.all([
+      await Promise.allSettled([
         handleSyncBalance(),
         qc.invalidateQueries({ queryKey: ['futures-positions'] }),
       ]);
@@ -2778,7 +2774,7 @@ export function PositionManageModal({
           {activeTab === 'leverage' && (
             <div>
               <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                Adjust the leverage for this open position. Decreasing leverage requires additional free balance in your account as margin. Increasing leverage reduces margin but increases liquidation risk.
+                Enter an exact margin amount to add or remove collateral, or change target leverage. Removing margin increases liquidation risk.
               </p>
 
               <div style={{ background: 'var(--panel-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
@@ -2788,8 +2784,8 @@ export function PositionManageModal({
                     <span className="pos-lev-pill">{currentLev}×</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Target Leverage:</span>
-                    <strong style={{ fontSize: 16, color: '#818cf8', fontWeight: 800 }}>{targetLeverage}×</strong>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{isExactAmount ? 'Effective leverage (est.):' : 'Target Leverage:'}</span>
+                    <strong style={{ fontSize: 16, color: '#818cf8', fontWeight: 800 }}>{isExactAmount ? effectiveLeverageEstimate?.toFixed(4) ?? '—' : targetLeverage}×</strong>
                   </div>
                 </div>
 
@@ -2900,7 +2896,7 @@ export function PositionManageModal({
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <label htmlFor="margin-amount-input" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
-                        Margin Amount Change:
+                        Exact Margin Amount (+add / −remove):
                       </label>
                       <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
                         {freeBalanceMajor > 0 ? `Max: +${freeBalanceMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}` : '0 free'}
@@ -2910,7 +2906,7 @@ export function PositionManageModal({
                       <input
                         id="margin-amount-input"
                         type="text"
-                        inputMode="text"
+                        inputMode="decimal"
                         value={amountInput}
                         aria-label="Margin amount change"
                         placeholder="+add / -free"
@@ -3088,6 +3084,11 @@ export function PositionManageModal({
                     )}
                   </p>
                   {balanceSyncError && <p role="alert" style={{ color: 'var(--danger)', fontSize: 12 }}>{balanceSyncError}</p>}
+                  {isExactAmount && <p role="status" style={{ margin: '6px 0 0', fontSize: 12, color: exactAmountBlocked ? 'var(--danger)' : 'var(--muted)' }}>
+                    {!exactMargin ? `Enter a positive amount, or a negative amount to remove margin (up to ${position.marginCurrency === 'INR' ? 2 : 8} decimal places).`
+                      : exactAmountBlocked ? 'Refresh the balance and enter an amount within the available funds or removable margin.'
+                        : 'This transfers the exact amount; position quantity and configured leverage stay the same. CoinDCX recalculates liquidation risk.'}
+                  </p>}
                 </div>
 
                 {/* Financial Breakdown Grid */}
@@ -3097,7 +3098,7 @@ export function PositionManageModal({
                     <strong>{currentMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${currentMarginMajor.toFixed(2)}` : `${currentMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: 'var(--muted)' }}>Estimated Required Margin: </span>
+                    <span style={{ color: 'var(--muted)' }}>{isExactAmount ? 'Margin after transfer (est.): ' : 'Estimated Required Margin: '}</span>
                     <strong>{newMarginMajor > 0 ? (position.marginCurrency === 'INR' ? `₹${newMarginMajor.toFixed(2)}` : `${newMarginMajor.toFixed(4)} USDT`) : '—'}</strong>
                   </div>
                   <div>
@@ -3183,11 +3184,12 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm"
                     style={{ background: '#6366f1', color: '#ffffff', fontWeight: 700, border: 'none' }}
-                    disabled={!isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall || isUpdatingLeverage || isHalted}
+                    disabled={(isExactAmount ? exactAmountBlocked : !isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall) || isUpdatingLeverage || isHalted}
                     onClick={handleExecuteAdjustLeverage}
                   >
                     {isUpdatingLeverage
-                      ? 'Updating Leverage…'
+                      ? isExactAmount ? 'Updating Margin…' : 'Updating Leverage…'
+                      : isExactAmount ? `${exactMargin?.direction === 'remove' ? 'Remove' : 'Add'} ${position.marginCurrency === 'INR' ? '₹' : ''}${exactMargin?.amount ?? '—'}${position.marginCurrency === 'USDT' ? ' USDT' : ''} ${exactMargin?.direction === 'remove' ? 'from' : 'to'} Margin`
                       : isSameLeverage
                         ? `Already at ${currentLev}×`
                         : `Adjust Leverage to ${targetLeverage}×`}

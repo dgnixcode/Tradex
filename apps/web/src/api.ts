@@ -76,7 +76,7 @@ export function notifySessionExpired(): void {
 
 /** A minimal fetch wrapper that throws a readable error on a non-2xx response. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const position = /^\/futures\/positions\/([^/]+)\/(adjust|exit|leverage|tpsl)$/.exec(path);
+  const position = /^\/futures\/positions\/([^/]+)\/(adjust|exit|leverage|tpsl|margin)$/.exec(path);
   if (init?.method === 'POST' && position !== null && typeof init.body === 'string') {
     return queuePositionAction<T>(decodeURIComponent(position[1]!), position[2]!, JSON.parse(init.body));
   }
@@ -1002,6 +1002,13 @@ export const updateFuturesPositionLeverage = (
       body: JSON.stringify({ leverage }),
     },
   );
+
+export const changeFuturesPositionMargin = (venuePositionId: string, amount: string, marginCurrency: 'INR' | 'USDT', direction: 'add' | 'remove') =>
+  request<{ ok: true; amount: string; marginCurrency: 'INR' | 'USDT'; direction: 'add' | 'remove'; refreshPending: boolean }>(
+    `/futures/positions/${encodeURIComponent(venuePositionId)}/margin`, { method: 'POST', body: JSON.stringify({ amount, marginCurrency, direction }) });
+
+export const fetchFuturesFreeBalance = (accountId: string, currency: 'INR' | 'USDT') =>
+  request<{ currency: 'INR' | 'USDT'; freeMinor: string }>(`/accounts/${encodeURIComponent(accountId)}/futures-balance?currency=${currency}`);
 
 /**
  * Update visibility (hideFromPositions) for a specific futures position / trade.

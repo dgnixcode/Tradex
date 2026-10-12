@@ -1,9 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { adjustFuturesPosition, updateFuturesPositionLeverage } from './api.ts';
+import { adjustFuturesPosition, updateFuturesPositionLeverage, changeFuturesPositionMargin } from './api.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('group position action batching', () => {
+  it('sends the exact native margin request with a durable action key', async () => {
+    const fetcher = vi.fn(async (_url: string, init: RequestInit) => {
+      const { actions } = JSON.parse(init.body as string);
+      return { ok: true, json: async () => ({ results: actions.map((action: { requestId: string }) => ({ requestId: action.requestId, status: 200,
+        body: { ok: true, amount: '500', direction: 'add', marginCurrency: 'INR', refreshPending: false } })) }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    await changeFuturesPositionMargin('position', '500', 'INR', 'add');
+    const { actions } = JSON.parse(fetcher.mock.calls[0]![1].body as string);
+    expect(actions[0]).toMatchObject({ id: 'position', action: 'margin', body: { amount: '500', marginCurrency: 'INR', direction: 'add' } });
+    expect(actions[0].requestId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('sends all 80 positions in one request with separate retry keys', async () => {
     const fetcher = vi.fn(async (_url: string, init: RequestInit) => {
       const { actions } = JSON.parse(init.body as string);
