@@ -3,6 +3,11 @@ import type { Kysely } from 'kysely';
 import { acquireFuturesLock, forTenant, releaseFuturesLock, readAccountStates, readPlatformFlags, readTenantCaps } from '@tradex/db';
 import type { DB } from '@tradex/db';
 
+/** A status read only; never cancel, attach protection, or replay an entry. */
+export type ReadEntryOrder = (args: {
+  tenantId: string; accountId: string; pair: string; marginCurrency: string; exchangeOrderId: string;
+}) => Promise<{ id: string; pair: string; marginCurrency: string; status: string } | null>;
+
 export class PositionMutationError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
@@ -11,6 +16,8 @@ export class PositionMutationError extends Error {
 export async function executePositionMutation<T>(args: {
   db: Kysely<DB>; tenantId: string; accountId: string; pair: string;
   positionId: string; operation: string; body: unknown; requestId?: string | undefined;
+  marginCurrency?: string | undefined;
+  readEntryOrder?: ReadEntryOrder | undefined;
   execute: (lockId: string) => Promise<T>;
 }): Promise<T> {
   const id = args.requestId ?? randomUUID();
@@ -63,16 +70,43 @@ export async function executePositionMutation<T>(args: {
       await releaseFuturesLock(args.db, { accountId: args.accountId, pair: args.pair, childOrderId: id });
       throw new PositionMutationError(409, 'An earlier action on this account and pair needs reconciliation');
     }
-    const liveOrder = await tdb.selectFrom('child_order')
-      .innerJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id').select('child_order.id')
+    let entryQuery = tdb.selectFrom('child_order')
+      .innerJoin('group_trade', 'group_trade.id', 'child_order.group_trade_id')
+      .select(['child_order.id', 'child_order.exchange_order_id', 'group_trade.margin_currency'])
       .where('child_order.account_id', '=', args.accountId).where('child_order.leg_kind', '=', 'entry')
       .where('child_order.state', 'in', ['sending', 'ambiguous', 'acked', 'open', 'partially_filled', 'unknown', 'needs_human'])
       .where('group_trade.is_futures', '=', true)
-      .where('group_trade.asset', '=', args.pair.split('-').at(-1)?.split('_')[0] ?? args.pair).executeTakeFirst();
-    if (liveOrder !== undefined) {
+      .where('group_trade.asset', '=', args.pair.split('-').at(-1)?.split('_')[0] ?? args.pair);
+    if (/^B-[A-Z0-9]+_(?:USDT|INR)$/.test(args.pair)) {
+      entryQuery = entryQuery.where(eb => eb.or([
+        eb('child_order.market', '=', args.pair.slice(2).replace('_', '')),
+        eb('child_order.market', 'is', null),
+      ]));
+    }
+    if (args.marginCurrency === 'INR' || args.marginCurrency === 'USDT') {
+      entryQuery = entryQuery.where('group_trade.margin_currency', '=', args.marginCurrency);
+    }
+    const entries = await entryQuery.execute();
+    const settled = new Set(['filled', 'cancelled', 'partially_cancelled', 'rejected']);
+    let blocked = false;
+    for (const entry of entries) {
+      // Position existence and order-list absence are never fill evidence. Only
+      // a fresh, terminal answer for the exact stored venue ID permits the action.
+      let observed: Awaited<ReturnType<ReadEntryOrder>> = null;
+      if (entry.exchange_order_id && entry.margin_currency && args.readEntryOrder) {
+        observed = await args.readEntryOrder({ tenantId: args.tenantId, accountId: args.accountId,
+          pair: args.pair, marginCurrency: entry.margin_currency, exchangeOrderId: entry.exchange_order_id }).catch(() => null);
+      }
+      if (!observed || observed.id !== entry.exchange_order_id || observed.pair !== args.pair
+        || observed.marginCurrency !== entry.margin_currency || !settled.has(observed.status)) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) {
       await tdb.deleteFrom('position_mutation').where('request_id', '=', id).execute();
       await releaseFuturesLock(args.db, { accountId: args.accountId, pair: args.pair, childOrderId: id });
-      throw new PositionMutationError(409, 'An entry order on this pair is still live or unresolved; cancel or reconcile it first');
+      throw new PositionMutationError(409, 'An entry order on this pair is still live or its exchange status could not be verified. Check Orders and cancel or reconcile it before retrying.');
     }
     const result = await args.execute(id);
     if (typeof result === 'object' && result !== null && 'outcomeUnknown' in result && result.outcomeUnknown === true) {

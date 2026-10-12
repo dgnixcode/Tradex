@@ -108,7 +108,7 @@ export async function listAccounts(tdb: TenantDb): Promise<AccountListItem[]> {
   return (rows as unknown as Array<Record<string, unknown>>).map((r, index) => {
     const grp = groupMap.get(r['id'] as string);
     const bal = balanceMap.get(r['id'] as string) ?? { INR: '0', USDT: '0' };
-    if (bal.INR === '0' && bal.USDT === '0' && r['allocated_currency'] && r['allocated_capital_minor']) {
+    if (!balanceMap.has(r['id'] as string) && r['allocated_currency'] && r['allocated_capital_minor']) {
       const curr = r['allocated_currency'] as SupportedQuote;
       if (curr === 'INR' || curr === 'USDT') {
         bal[curr] = String(r['allocated_capital_minor']);

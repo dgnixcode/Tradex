@@ -11,6 +11,7 @@ import {
 } from '../api.ts';
 import type { AccountListItem } from '../api.ts';
 import { useAuth } from '../auth.tsx';
+import { refreshAccountListBalances } from '../account-balances.ts';
 
 // The Accounts section — the tenant's connected exchange accounts (T02.8's read
 // model): status, the capital the exchange reports, and the currencies each can
@@ -48,6 +49,13 @@ export function Accounts() {
   const { state } = useAuth();
   const isOwner = state.status === 'authenticated' && state.session.role === 'owner';
   const [search, setSearch] = useState('');
+  const refreshBalances = useMutation({
+    mutationFn: refreshAccountListBalances,
+    onSettled: async () => {
+      await Promise.all(['accounts', 'groups', 'group', 'account', 'account-detail', 'futures-positions', 'trading-analytics']
+        .map(key => queryClient.invalidateQueries({ queryKey: [key] })));
+    },
+  });
 
   // Visibility toggle state
   const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
@@ -154,13 +162,14 @@ export function Accounts() {
 
     for (const a of list) {
       if (a.status === 'active') activeCount++;
-      const cap = a.allocatedCapitalMinor;
-      if (!cap || cap === '0') continue;
-      if (a.allocatedCurrency === 'INR') {
-        inrMinor += BigInt(cap);
+      const inr = a.balancesByCurrency?.INR ?? (a.allocatedCurrency === 'INR' ? a.allocatedCapitalMinor : null);
+      const usdt = a.balancesByCurrency?.USDT ?? (a.allocatedCurrency === 'USDT' ? a.allocatedCapitalMinor : null);
+      if (inr && BigInt(inr) > 0n) {
+        inrMinor += BigInt(inr);
         inrCount++;
-      } else if (a.allocatedCurrency === 'USDT') {
-        usdtMinor += BigInt(cap);
+      }
+      if (usdt && BigInt(usdt) > 0n) {
+        usdtMinor += BigInt(usdt);
         usdtCount++;
       }
     }
@@ -182,18 +191,15 @@ export function Accounts() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             className="btn secondary btn-sm"
-            onClick={() => {
-              void accounts.refetch();
-              void queryClient.invalidateQueries({ queryKey: ['groups'] });
-            }}
-            disabled={accounts.isFetching}
-            title="Refresh accounts list"
+            onClick={() => refreshBalances.mutate()}
+            disabled={accounts.isFetching || refreshBalances.isPending}
+            title="Refresh all account balances from the exchange"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: accounts.isFetching ? 'spin 1s linear infinite' : 'none' }}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: accounts.isFetching || refreshBalances.isPending ? 'spin 1s linear infinite' : 'none' }}>
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
             </svg>
-            {accounts.isFetching ? 'Refreshing…' : 'Refresh'}
+            {accounts.isFetching || refreshBalances.isPending ? 'Refreshing…' : 'Refresh'}
           </button>
           {isOwner ? (
             <Link to="/app/accounts/connect" className="btn btn-sm">Connect an account</Link>
@@ -208,6 +214,14 @@ export function Accounts() {
       </p>
 
       {accounts.isLoading && <p className="muted">Loading accounts…</p>}
+      {refreshBalances.isError && <p role="alert" className="error">Balance refresh failed. Displayed balances may be old; retry Refresh.</p>}
+      {refreshBalances.isSuccess && !refreshBalances.isPending && (
+        <p role={refreshBalances.data.failed.length > 0 ? 'alert' : 'status'} className={refreshBalances.data.failed.length > 0 ? 'error' : 'muted'}>
+          {refreshBalances.data.failed.length > 0
+            ? `${refreshBalances.data.refreshed} accounts refreshed. Could not refresh: ${refreshBalances.data.failed.join(', ')}. Those balances may be old; retry Refresh.`
+            : `Balances refreshed for ${refreshBalances.data.refreshed} accounts.`}
+        </p>
+      )}
       {accounts.isError && <div className="error">{(accounts.error as Error).message}</div>}
 
       {accounts.isSuccess && accounts.data.length === 0 && (

@@ -109,6 +109,10 @@ export async function run(assert) {
     amount = '0';
     const empty = await preview({ groupId, accountId: accountIds[0] });
     assert(empty.status === 200 && empty.body.plannedCount === 0, 'preview refuses stale funded trades when the refreshed wallet is empty');
+    const listed = await (await fetch(`${base}/api/accounts`, { headers: { cookie } })).json();
+    const emptyAccount = listed.find(account => account.id === accountIds[0]);
+    assert(emptyAccount.balancesByCurrency.INR === '0' && emptyAccount.balancesByCurrency.USDT === '0',
+      'a freshly empty wallet must stay zero in the list, even if its legacy allocated basis was positive');
     const beforeCount = await ctx.tdb.selectFrom('group_trade').select('id').execute();
     failId = accountIds[1]; amount = '5000000';
     const failure = await preview({ groupId });

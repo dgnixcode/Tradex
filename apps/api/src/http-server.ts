@@ -61,7 +61,7 @@ import { getFuturesRtPrices } from './futures/rt-prices.js';
 import type { FuturesRtPrice } from './futures/rt-prices.js';
 import { startWsPriceFeed, priceEmitter, isWsFeedConnected } from './futures/ws-prices.js';
 import { hardExit, HardExitError } from './futures/exit-service.js';
-import { executePositionMutation, PositionMutationError } from './futures/mutation.js';
+import { executePositionMutation, PositionMutationError, type ReadEntryOrder } from './futures/mutation.js';
 import type { FuturesActor, FuturesExitPort } from './futures/exit-service.js';
 import { buildTradingAnalytics } from './futures/trading-analytics.js';
 import type { FuturesTriggerRef } from '@tradex/exchange';
@@ -180,6 +180,7 @@ export interface HttpDeps {
    *  none to keep the rung-0 dry-run confirm. A partial engine is not an engine. */
   readonly submit?: SubmitPort | undefined;
   readonly resolve?: ResolvePort | undefined;
+  readonly readEntryOrder?: ReadEntryOrder | undefined;
   /** Pepper for the deterministic client_order_ids (must match the reserve side). */
   readonly executionPepper?: Uint8Array | undefined;
   /** Phase-09 sell side: fresh free/locked holdings, read at preview (for sell
@@ -444,10 +445,11 @@ export function createHttpServer(deps: HttpDeps): Server {
   };
 
   const mutatePosition = <T>(ctx: Ctx, p: Principal, id: string,
-    owner: { accountId: string; pair: string }, operation: string,
+    owner: { accountId: string; pair: string; marginCurrency: string }, operation: string,
     execute: (lockId: string) => Promise<T>): Promise<T> =>
     executePositionMutation({ db: deps.db, tenantId: p.tenantId, accountId: owner.accountId,
       pair: owner.pair, positionId: id, operation, body: ctx.body,
+      marginCurrency: owner.marginCurrency, readEntryOrder: deps.readEntryOrder,
       requestId: ctx.actionRequestId ?? (typeof ctx.req.headers['idempotency-key'] === 'string' ? ctx.req.headers['idempotency-key'] : undefined),
       execute });
 

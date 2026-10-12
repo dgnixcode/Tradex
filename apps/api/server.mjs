@@ -642,7 +642,7 @@ const refreshPositions = async ({ tenantId }) => {
    * a percentage order is sized against money that is no longer there.
    */
 const accountSync = async ({ tenantId, accountId }) => {
-    const sign = await signFor(tenantId, accountId);
+    const sign = await signFor(tenantId, accountId, 'read account balances on behalf of the account owner');
     if (sign === null) {
       throw new Error('this account has no credential to read balances with');
     }
@@ -653,20 +653,17 @@ const accountSync = async ({ tenantId, accountId }) => {
     const balances = probe.balances ?? [];
     const funding = deriveFundingCurrencies(balances);
     const tdb = forTenant(db, tenantId);
-    await recordObservedBalances(tdb, {
-      accountId,
-      fundingCurrencies: funding,
-      balances,
-    });
-    if (funding.length > 0) {
-      const primaryCurrency = funding[0];
+    await tdb.transaction(async (tx) => {
+      await recordObservedBalances(tx, { accountId, fundingCurrencies: funding, balances });
+      const account = await tx.byId('exchange_account', accountId).select('allocated_currency').executeTakeFirst();
+      const primaryCurrency = funding[0] ?? account?.allocated_currency ?? 'INR';
       const realFree = freeBalanceMinor(balances, primaryCurrency);
-      await recordVenueBasis(tdb, {
+      await recordVenueBasis(tx, {
         accountId,
         currency: primaryCurrency,
         capitalMinor: realFree,
       });
-    }
+    });
     try {
       await mirrorAccounts(tenantId, [accountId]);
     } catch (e) {
@@ -714,7 +711,31 @@ const accountSync = async ({ tenantId, accountId }) => {
     return result;
   }
 
-Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached, getFuturesSettlementRate,
+// Read exact IDs without entering the execution worker: polling that worker can
+// attach SL/TP orders, which is inappropriate during an exit precondition check.
+async function readEntryOrder({ tenantId, accountId, pair, marginCurrency, exchangeOrderId }) {
+  if (marginCurrency !== 'INR' && marginCurrency !== 'USDT') return null;
+  const sign = await signFor(tenantId, accountId, 'read entry order status before an owner-requested position action');
+  if (!sign) return null;
+  const readUntil = Date.now() + 10_000;
+  for (let page = 1; page <= 5 && Date.now() < readUntil; page++) {
+    const result = await listFuturesOrdersSigned(sign, { pair, marginCurrency, page, size: 100 },
+      { baseUrl: VENUE_BASE, deadlineMs: Math.max(1, readUntil - Date.now()) });
+    if (!result.ok) return null;
+    const matches = result.orders.filter(order => order.venueOrderId === exchangeOrderId);
+    if (matches.length > 0) {
+      if (matches.length !== 1) return null;
+      const order = matches[0];
+      if (order.pair !== pair || order.marginCurrency !== marginCurrency) return null;
+      return { id: order.venueOrderId, pair: order.pair, marginCurrency: order.marginCurrency, status: order.status };
+    }
+    // Pair filtering happens locally, so an empty page is not proof of absence
+    // and does not prove that later pages contain no matching instrument.
+  }
+  return null;
+}
+
+Object.assign(enginePorts, { accountSync, readEntryOrder, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached, getFuturesSettlementRate,
   refreshTrailingPositions: async (targets) => {
     const byTenant = new Map();
     for (const target of targets) {
@@ -938,6 +959,7 @@ if (sending) {
   /** Phase-15 SL/TP: find the position this entry opened and attach protection. */
   const attachTpSl = (args) => executePositionMutation({ db, tenantId: args.tenantId,
     accountId: args.accountId, pair: args.pair, positionId: `entry:${args.entryChildOrderId}`,
+    marginCurrency: args.marginCurrency, readEntryOrder,
     operation: 'tpsl', requestId: args.entryChildOrderId, body: args,
     execute: () => attachTpSlUnlocked(args),
   });
@@ -1464,10 +1486,11 @@ const tslEngine = new TrailingSlEngine(
       return { ok: false, reason: 'futuresTpSl port not configured' };
     }
     try {
-      const position = await forTenant(db, tenantId).selectFrom('futures_position').select('pair')
+      const position = await forTenant(db, tenantId).selectFrom('futures_position').select(['pair', 'margin_currency'])
         .where('account_id', '=', accountId).where('venue_position_id', '=', venuePositionId).executeTakeFirst();
       if (!position) return { ok: false, reason: 'Position has already closed' };
       const out = await executePositionMutation({ db, tenantId, accountId, pair: position.pair,
+        marginCurrency: position.margin_currency, readEntryOrder,
         positionId: venuePositionId, operation: 'tpsl', body: { stopLossPrice, positionBasisKey }, execute: async () => {
           if (positionBasisKey) {
             // Configuration changes share this action lock. A step claimed

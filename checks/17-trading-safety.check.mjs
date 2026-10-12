@@ -82,6 +82,44 @@ export async function run(assert) {
     try { await mutation({ execute: async () => { sends++; return { ok: true }; } }); } catch { /* must refuse */ }
     assert(sends === 1, 'an unresolved mutation must block further sends');
 
+    // A stale local open record must not prevent a safe user-requested exit,
+    // but only exact terminal venue evidence is sufficient to lift the guard.
+    await ctx.tdb.updateTable('child_order').set({ state: 'open', exchange_order_id: 'entry-venue-id' }).where('id', '=', entry.id).execute();
+    let exitCalls = 0;
+    const exit = (over = {}) => mutation({ pair: 'B-BTC_USDT', operation: 'exit', marginCurrency: 'USDT',
+      execute: async () => { exitCalls++; return { exited: true }; }, ...over });
+    const observed = (status, over = {}) => async (args) => {
+      assert(args.tenantId === TENANT && args.accountId === accountIds[0] && args.exchangeOrderId === 'entry-venue-id',
+        'entry status reads must use the owned account and exact venue ID');
+      return { id: 'entry-venue-id', pair: 'B-BTC_USDT', marginCurrency: 'USDT', status, ...over };
+    };
+    const mustBlock = async (over) => {
+      const before = exitCalls;
+      let refused = false;
+      try { await exit(over); } catch (e) { refused = e.status === 409; }
+      assert(refused && exitCalls === before, 'a live, absent, mismatched or unreadable entry must block before any exit');
+    };
+    await mustBlock({});
+    for (const status of ['open', 'partially_filled', 'unknown', 'initial']) {
+      await mustBlock({ readEntryOrder: observed(status) });
+    }
+    await mustBlock({ readEntryOrder: async () => null });
+    await mustBlock({ readEntryOrder: async () => { throw new Error('exchange offline'); } });
+    for (const mismatch of [{ id: 'another-order' }, { pair: 'B-SOL_USDT' }, { marginCurrency: 'INR' }]) {
+      await mustBlock({ readEntryOrder: observed('filled', mismatch) });
+    }
+    for (const status of ['filled', 'cancelled', 'partially_cancelled', 'rejected']) {
+      await exit({ readEntryOrder: observed(status) });
+    }
+    assert(exitCalls === 4, 'all verified terminal entries allow the user action without replaying an entry');
+    assert((await ctx.tdb.byId('child_order', entry.id).select('state').executeTakeFirstOrThrow()).state === 'open',
+      'the precondition read must not rewrite historical entries or attach their protection');
+    await exit({ marginCurrency: 'INR', readEntryOrder: async () => { throw new Error('wrong currency must not be read'); } });
+    assert(exitCalls === 5, 'a USDT entry must not block an INR position action');
+    await ctx.tdb.updateTable('child_order').set({ exchange_order_id: null }).where('id', '=', entry.id).execute();
+    await mustBlock({ readEntryOrder: observed('filled') });
+    await ctx.tdb.updateTable('child_order').set({ state: 'filled' }).where('id', '=', entry.id).execute();
+
     // Different pairs must still share the same account's daily margin budget.
     await ctx.tdb.updateTable('tenant_limit').set({ max_order_notional_minor: '1000000', max_daily_notional_minor: '12000' }).execute();
     const increase = (pair) => executePositionMutation({ db: ctx.db, tenantId: TENANT, accountId: accountIds[1], pair,

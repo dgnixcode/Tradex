@@ -106,8 +106,19 @@ export async function run(assert) {
     const protectedResult = await protection.json();
     assert(protection.status === 200 && protectedResult.stopLoss?.ok && protectedResult.takeProfit?.ok, `protection replacement must cancel old legs and confirm new ones: ${JSON.stringify(protectedResult)}`);
     assert(!await ctx.tdb.selectFrom('futures_trailing_sl').select('id').where('account_id', '=', accountId).executeTakeFirst(), 'manual stop replacement removes the previous ROE baseline');
+    const originalEntry = legs.find(leg => leg.leg_kind === 'entry');
+    await ctx.tdb.updateTable('child_order').set({ state: 'open' }).where('id', '=', originalEntry.id).execute();
+    venue.settleFuturesOrder(originalEntry.exchange_order_id, 'open');
+    const ordersBeforeBlockedExit = JSON.stringify(venue.futuresOrdersSnapshot());
+    const blockedExit = await post(`/api/futures/positions/${position.venue_position_id}/exit`, { marginCurrency: 'USDT' }, cookie, randomUUID());
+    assert(blockedExit.status === 409, 'a genuinely live entry prevents exit through the real HTTP composition');
+    assert(JSON.stringify(venue.futuresOrdersSnapshot()) === ordersBeforeBlockedExit, 'a blocked exit must not cancel protection or send any order');
+    venue.settleFuturesOrder(originalEntry.exchange_order_id, 'filled');
     const exit = await post(`/api/futures/positions/${position.venue_position_id}/exit`, { marginCurrency: 'USDT' }, cookie, randomUUID());
     assert(exit.status === 200, `hard exit must cancel protection and verify flat: ${JSON.stringify(await exit.json())}`);
+    assert((await ctx.tdb.byId('child_order', originalEntry.id).select('state').executeTakeFirstOrThrow()).state === 'open',
+      'an exact fresh filled read permits exit without changing historical entry records');
+    await ctx.tdb.updateTable('child_order').set({ state: 'filled' }).where('id', '=', originalEntry.id).execute();
     const limitRes = await post('/api/group-trades/preview', { ...intent, groupId: undefined, accountId, orderType: 'limit', limitPrice: '79700' }, cookie);
     const limit = await limitRes.json();
     assert(limitRes.status === 200 && limit.plannedCount === 1, `individual limit preview must plan: ${JSON.stringify(limit)}`);
@@ -163,6 +174,13 @@ export async function run(assert) {
     assert(driftConfirm.status === 200,'changed collateral produces an honest execution report');
     const driftChild = await ctx.tdb.selectFrom('child_order').selectAll().where('group_trade_id','=',drift.groupTradeId).where('leg_kind','=','entry').executeTakeFirstOrThrow();
     assert(driftChild.refusal_code === 'insufficient_collateral' && venue.futuresOrdersSnapshot().length === createsBeforeDrift,'funds changed after preview prevent sending, without resizing or retrying the quantity');
+    venue.setBalance('INR', 0, 0); venue.setBalance('USDT', 0, 0);
+    const zeroSync = await post(`/api/accounts/${accountId}/sync`, {}, cookie);
+    assert(zeroSync.status === 200, 'the production account sync accepts a successful empty wallet read');
+    const zeroList = await (await fetch(`${base}/api/accounts`, { headers: { cookie } })).json();
+    const zeroAccount = zeroList.find(account => account.id === accountId);
+    assert(zeroAccount.allocatedCapitalMinor === '0' && zeroAccount.balancesByCurrency.INR === '0' && zeroAccount.balancesByCurrency.USDT === '0',
+      'the real composition refresh clears legacy allocated capital and both currency balances together');
   } finally {
     if (api && api.exitCode === null) { const stopped = once(api, 'exit'); api.kill(); await stopped; }
     await venue.stop(); await teardown(ctx);
