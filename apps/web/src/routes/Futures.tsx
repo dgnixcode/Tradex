@@ -1445,11 +1445,12 @@ export function PositionManageModal({
     return Math.max(0, currentMarginMajor - minRequiredMargin);
   }, [maxLeverage, leverageNotionalMajor, currentMarginMajor]);
 
+  type EditSource = 'none' | 'amount' | 'leverage' | 'slider' | 'chip';
+  const [lastEditedSource, setLastEditedSource] = useState<EditSource>('none');
   const [amountInput, setAmountInput] = useState<string>('0');
-  const [isEditingAmount, setIsEditingAmount] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!isEditingAmount) {
+    if (lastEditedSource !== 'amount') {
       if (!isTargetLevValid || isSameLeverage) {
         setAmountInput('0');
       } else if (marginDeltaMajor > 0) {
@@ -1458,9 +1459,10 @@ export function PositionManageModal({
         setAmountInput(marginDeltaMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4));
       }
     }
-  }, [targetLeverage, isTargetLevValid, isSameLeverage, marginDeltaMajor, isEditingAmount, position.marginCurrency]);
+  }, [targetLeverage, isTargetLevValid, isSameLeverage, marginDeltaMajor, lastEditedSource, position.marginCurrency]);
 
   const handleApplyAmount = (amountDelta: number) => {
+    setLastEditedSource('amount');
     const nextLev = computeLeverageFromAmountDelta(
       amountDelta,
       currentMarginMajor,
@@ -1469,11 +1471,17 @@ export function PositionManageModal({
       maxLeverage,
     );
     setTargetLeverage(nextLev);
-    setIsEditingAmount(false);
+    if (amountDelta === 0) {
+      setAmountInput('0');
+    } else if (amountDelta > 0) {
+      setAmountInput(`+${amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
+    } else {
+      setAmountInput(amountDelta.toFixed(position.marginCurrency === 'INR' ? 2 : 4));
+    }
   };
 
   const handleAmountInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setIsEditingAmount(true);
+    setLastEditedSource('amount');
     const raw = e.target.value;
 
     const hasMinus = raw.includes('-');
@@ -1519,7 +1527,11 @@ export function PositionManageModal({
   };
 
   const handleAmountBlur = () => {
-    setIsEditingAmount(false);
+    if (amountInput === '' || amountInput === '+' || amountInput === '-' || amountInput === '.') {
+      setAmountInput('0');
+      setLastEditedSource('none');
+      setTargetLeverage(String(currentLev));
+    }
   };
 
   const estNewLiqPrice = useMemo(() => {
@@ -2802,7 +2814,10 @@ export function PositionManageModal({
                         borderColor: Number(targetLeverage) === chip ? '#6366f1' : 'var(--line)',
                         fontWeight: Number(targetLeverage) === chip ? 700 : 500,
                       }}
-                      onClick={() => setTargetLeverage(String(chip))}
+                      onClick={() => {
+                        setLastEditedSource('chip');
+                        setTargetLeverage(String(chip));
+                      }}
                     >
                       {chip}×
                     </button>
@@ -2823,6 +2838,7 @@ export function PositionManageModal({
                         style={{ width: 34, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
                         disabled={maxLeverage === 0 || Number(targetLeverage) <= 1}
                         onClick={() => {
+                          setLastEditedSource('leverage');
                           const cur = Number(targetLeverage) || 1;
                           const next = Math.max(1, Math.round((cur - 1) * 100) / 100);
                           setTargetLeverage(String(next));
@@ -2838,6 +2854,7 @@ export function PositionManageModal({
                           value={targetLeverage}
                           aria-label="Target leverage"
                           onChange={(e) => {
+                            setLastEditedSource('leverage');
                             let val = e.target.value.replace(/[^\d.]/g, '');
                             const parts = val.split('.');
                             if (parts.length > 2) {
@@ -2868,6 +2885,7 @@ export function PositionManageModal({
                         style={{ width: 34, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
                         disabled={maxLeverage === 0 || Number(targetLeverage) >= maxLeverage}
                         onClick={() => {
+                          setLastEditedSource('leverage');
                           const cur = Number(targetLeverage) || 1;
                           const next = Math.min(maxLeverage, Math.round((cur + 1) * 100) / 100);
                           setTargetLeverage(String(next));
@@ -2981,6 +2999,7 @@ export function PositionManageModal({
                       value={effectiveSliderVal}
                       disabled={!balanceSliderValid || isRefreshing || balanceSyncError !== null}
                       onChange={(e) => {
+                        setLastEditedSource('slider');
                         const val = Number(e.target.value);
                         setActiveSliderVal(val);
                         const nextLev = computeCenteredLeverage(
@@ -3034,6 +3053,7 @@ export function PositionManageModal({
                         textDecoration: effectiveSliderVal !== 0 ? 'underline' : 'none',
                       }}
                       onClick={() => {
+                        setLastEditedSource('slider');
                         setTargetLeverage(String(currentLev));
                         setActiveSliderVal(null);
                       }}

@@ -71,8 +71,10 @@ describe('leverage controls', () => {
     // Margin amount delta to leverage conversion
     expect(computeLeverageFromAmountDelta(4.2857, 10, 100, 5, 20)).toBe('7');
     expect(computeLeverageFromAmountDelta(-5, 10, 100, 5, 20)).toBe('20');
-    expect(computeLeverageFromAmountDelta(10, 10, 100, 5, 20)).toBe('6.5'); // clamped to free balance (5)
+    expect(computeLeverageFromAmountDelta(10, 10, 100, 5, 20)).toBe('6.7'); // clamped to free balance (5)
     expect(computeLeverageFromAmountDelta(-10, 10, 100, 5, 20)).toBe('20'); // clamped to max freeable (5)
+    // Preserves 0.1 decimal precision without rounding 1.3 to 1.5
+    expect(computeLeverageFromAmountDelta(5000, 1000, 7800, 10000, 20)).toBe('1.3');
   });
   it('replaces the individual leverage slider with an available-balance slider', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
@@ -115,15 +117,17 @@ describe('leverage controls', () => {
     // Type positive amount (+4.2857) to reduce leverage to 7x
     typeValue(amountInput, '+4.2857');
     expect(host.textContent).toContain('Adjust Leverage to 7×');
+    expect(amountInput.value).toBe('+4.2857');
 
     // Type negative amount (-5) to increase leverage to 20x
     typeValue(amountInput, '-5');
     expect(host.textContent).toContain('Adjust Leverage to 20×');
+    expect(amountInput.value).toBe('-5');
 
     // Type amount exceeding own balance (+10) -> clamped to own balance (+5.0000)
     typeValue(amountInput, '+10');
     expect(amountInput.value).toBe('+5.0000');
-    expect(host.textContent).toContain('Adjust Leverage to 6.5×');
+    expect(host.textContent).toContain('Adjust Leverage to 6.7×');
   });
   it('removes the group leverage slider and filters unsupported presets', async () => {
     await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);

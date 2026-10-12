@@ -128,9 +128,9 @@ export function computeLeverageFromAmountDelta(
   if (targetMargin <= 0) return String(maxLeverage);
   const rawLev = notional / targetMargin;
   const clampedLev = Math.min(maxLeverage, Math.max(1, rawLev));
-  const step = (maxLeverage - 1) <= 3 ? 0.1 : 0.5;
+  const step = 0.1;
   const roundedLev = Math.round(clampedLev / step) * step;
   const finalLev = Math.min(maxLeverage, Math.max(1, roundedLev));
-  const formatted = finalLev.toFixed(step === 0.1 ? 1 : 1);
+  const formatted = finalLev.toFixed(1);
   return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
 }
