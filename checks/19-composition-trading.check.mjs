@@ -100,6 +100,8 @@ export async function run(assert) {
     assert(reservation.status === 'completed' && BigInt(reservation.risk_margin_inr_minor) > 0n, 'successful increase must keep its durable daily margin reservation');
     const leverage = await post(`/api/futures/positions/${position.venue_position_id}/leverage`, { leverage: '10' }, cookie, randomUUID());
     assert(leverage.status === 200, `leverage mutation must work under the action lock: ${JSON.stringify(await leverage.json())}`);
+    const decimalLeverage = await post(`/api/futures/positions/${position.venue_position_id}/leverage`, { leverage: '3.5' }, cookie, randomUUID());
+    assert(decimalLeverage.status === 200, `decimal leverage mutation must succeed: ${JSON.stringify(await decimalLeverage.json())}`);
     const invalidLeverage = await post(`/api/futures/positions/${position.venue_position_id}/leverage`, { leverage: '21' }, cookie, randomUUID());
     assert(invalidLeverage.status === 400 && (await invalidLeverage.json()).message.includes('20'), 'position management rejects leverage above the live coin limit before updating the exchange');
     const protection = await post(`/api/futures/positions/${position.venue_position_id}/tpsl`, { stopLossPrice: '71000', takeProfitPrice: '89000', moveExisting: true }, cookie, randomUUID());

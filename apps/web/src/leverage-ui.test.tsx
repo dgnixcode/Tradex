@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGroups, GroupPositionManageModal, PositionManageModal } from './routes/Futures.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
 import { leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
-import { fetchFuturesInstrument, type FuturesPositionRow } from './api.ts';
+import { fetchAccounts, fetchFuturesInstrument, type FuturesPositionRow } from './api.ts';
 
 vi.mock('./api.ts', async (original) => ({ ...await original<object>(),
   fetchFuturesInstrument: vi.fn(async () => ({ pair: 'B-ETH_USDT', marginCurrency: 'USDT', leverageTiers: [{ upToNotional: '100000', maxLeverage: 20 }] })),
@@ -104,5 +104,21 @@ describe('leverage controls', () => {
     function Limits({ pair }: { pair: string }) { const limits = useLeverageLimits(pair, 'USDT'); return <span>{limits.maxLeverage}</span>; }
     await render(<Limits pair="B-ETH_USDT" />); expect(host.textContent).toBe('20');
     await render(<Limits pair="B-SOL_USDT" />); expect(host.textContent).toBe('0');
+  });
+  it('supports decimal leverage adjustments for individual and group positions', async () => {
+    vi.mocked(fetchAccounts).mockResolvedValue([{ id: 'account', name: 'Test account', balancesByCurrency: { USDT: '5000000000' } } as never]);
+    client.setQueryData(['accounts'], [{ id: 'account', name: 'Test account', balancesByCurrency: { USDT: '5000000000' } }]);
+    await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
+    openLeverage();
+    typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target leverage"]')!, '3.5');
+    expect(host.textContent).toContain('Adjust Leverage to 3.5×');
+    const singleBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage to 3.5×');
+    expect(singleBtn?.disabled).toBe(false);
+
+    await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);
+    openLeverage();
+    typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target group leverage"]')!, '3.5');
+    const groupBtn = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage on 1 Account to 3.5×');
+    expect(groupBtn?.disabled).toBe(false);
   });
 });

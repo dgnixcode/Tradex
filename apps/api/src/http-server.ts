@@ -1553,15 +1553,17 @@ export function createHttpServer(deps: HttpDeps): Server {
       }
       const body = (ctx.body ?? {}) as { leverage?: unknown };
       const rawLev = body.leverage;
+      const levNum = typeof rawLev === 'string' || typeof rawLev === 'number' ? Number(rawLev) : NaN;
+      const levStr = typeof rawLev === 'string' ? rawLev.trim() : typeof rawLev === 'number' ? String(rawLev) : '';
       if (
         rawLev === undefined ||
         (typeof rawLev !== 'string' && typeof rawLev !== 'number') ||
-        Number(rawLev) <= 0 ||
-        Number(rawLev) > 200 ||
-        !Number.isInteger(Number(rawLev)) ||
-        !Number.isFinite(Number(rawLev))
+        !Number.isFinite(levNum) ||
+        levNum < 1 ||
+        levNum > 200 ||
+        !/^\d+(?:\.\d{1,4})?$/.test(levStr)
       ) {
-        throw new HttpError(400, 'leverage must be a whole number between 1 and 200, within the instrument limit');
+        throw new HttpError(400, 'leverage must be between 1 and 200, within the instrument limit');
       }
       const levOwner = await venuePositionOwner(forTenant(deps.db, principal.tenantId), futLevMatch[1] as string);
       if (levOwner === null) throw new HttpError(404, 'no such futures position');

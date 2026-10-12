@@ -11,11 +11,11 @@ const scaled = (s: string): bigint => {
 
 /** Exact margin in INR paise, rounded up when checking a risk limit. */
 export function marginInrMinor(quantity: string, price: string, leverage: number, quote: 'INR' | 'USDT', rate: string): string {
-  if (!Number.isInteger(leverage) || leverage < 1 || leverage > 200) throw new Error('Invalid leverage');
+  if (!Number.isFinite(leverage) || leverage < 1 || leverage > 200) throw new Error('Invalid leverage');
   const fx = quote === 'USDT' ? scaled(rate) : unit;
   if (fx <= 0n) throw new Error('INR/USDT rate must be positive');
   const numerator = scaled(quantity) * scaled(price) * fx * 100n;
-  const denominator = unit ** 3n * BigInt(leverage);
+  const denominator = unit ** 2n * scaled(String(leverage));
   return String((numerator + denominator - 1n) / denominator);
 }
 

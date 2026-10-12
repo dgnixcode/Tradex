@@ -1408,7 +1408,8 @@ export function PositionManageModal({
   const targetLevNum = Number(targetLeverage);
   const leverageLimits = useLeverageLimits(position.pair, position.marginCurrency, [position]);
   const maxLeverage = leverageLimits.maxLeverage;
-  const isTargetLevValid = /^\d+$/.test(targetLeverage) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
+  const isTargetLevValid = /^\d+(?:\.\d{1,2})?$/.test(targetLeverage) && Number.isFinite(targetLevNum) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
+  const isSameLeverage = isTargetLevValid && Math.abs(targetLevNum - currentLev) < 0.001;
 
   const posPeg = (position.marginCurrency === 'INR' && (position.pair.endsWith('_USDT') || position.pair.includes('USDT')))
     ? (position.settlementCurrencyAvgPrice && Number(position.settlementCurrencyAvgPrice) > 0 ? Number(position.settlementCurrencyAvgPrice) : 0)
@@ -1449,7 +1450,7 @@ export function PositionManageModal({
   }, [isTargetLevValid, targetLevNum, posEntryPrice, position.side]);
 
   const handleExecuteAdjustLeverage = async () => {
-    if (!isTargetLevValid || leverageNotionalMajor <= 0 || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || leverageActionPending.current || isHalted) return;
+    if (!isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall || isUpdatingLeverage || leverageActionPending.current || isHalted) return;
     leverageActionPending.current = true;
     setIsUpdatingLeverage(true);
     setLeverageMsg(null);
@@ -2695,7 +2696,7 @@ export function PositionManageModal({
                 </div>
 
                 <p role="status" style={{ margin: '0 0 8px', fontSize: 12, color: maxLeverage > 0 ? 'var(--muted)' : 'var(--danger)' }}>
-                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — choose a whole number within this limit.' : ''}
+                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — enter a valid leverage within this limit.' : ''}
                   {maxLeverage === 0 && <button type="button" className="btn btn-sm secondary" onClick={() => void leverageLimits.query.refetch()}>Retry</button>}
                 </p>
                 {/* Preset Chips */}
@@ -2731,7 +2732,7 @@ export function PositionManageModal({
                     disabled={maxLeverage === 0 || Number(targetLeverage) <= 1}
                     onClick={() => {
                       const cur = Number(targetLeverage) || 1;
-                      const next = Math.max(1, Math.floor(cur) - 1);
+                      const next = Math.max(1, Math.round((cur - 1) * 100) / 100);
                       setTargetLeverage(String(next));
                     }}
                   >
@@ -2740,14 +2741,18 @@ export function PositionManageModal({
                   <div style={{ flex: 1, position: 'relative' }}>
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={targetLeverage}
                       aria-label="Target leverage"
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        let val = e.target.value.replace(/[^\d.]/g, '');
+                        const parts = val.split('.');
+                        if (parts.length > 2) {
+                          val = parts[0] + '.' + parts.slice(1).join('');
+                        }
                         setTargetLeverage(val);
                       }}
-                      placeholder="e.g. 3"
+                      placeholder="e.g. 3.5"
                       style={{
                         width: '100%',
                         padding: '6px 28px 6px 12px',
@@ -2771,7 +2776,7 @@ export function PositionManageModal({
                     disabled={maxLeverage === 0 || Number(targetLeverage) >= maxLeverage}
                     onClick={() => {
                       const cur = Number(targetLeverage) || 1;
-                      const next = Math.min(maxLeverage, Math.floor(cur) + 1);
+                      const next = Math.min(maxLeverage, Math.round((cur + 1) * 100) / 100);
                       setTargetLeverage(String(next));
                     }}
                   >
@@ -2894,12 +2899,12 @@ export function PositionManageModal({
                     type="button"
                     className="btn btn-sm"
                     style={{ background: '#6366f1', color: '#ffffff', fontWeight: 700, border: 'none' }}
-                    disabled={!isTargetLevValid || leverageNotionalMajor <= 0 || targetLevNum === currentLev || isLevShortfall || isUpdatingLeverage || isHalted}
+                    disabled={!isTargetLevValid || leverageNotionalMajor <= 0 || isSameLeverage || isLevShortfall || isUpdatingLeverage || isHalted}
                     onClick={handleExecuteAdjustLeverage}
                   >
                     {isUpdatingLeverage
                       ? 'Updating Leverage…'
-                      : targetLevNum === currentLev
+                      : isSameLeverage
                         ? `Already at ${currentLev}×`
                         : `Adjust Leverage to ${targetLeverage}×`}
                   </button>
@@ -3389,7 +3394,7 @@ export function GroupPositionManageModal({
   const targetLevNum = Number(groupTargetLeverage);
   const leverageLimits = useLeverageLimits(group.pair, group.marginCurrency, group.positions);
   const maxLeverage = leverageLimits.maxLeverage;
-  const isTargetLevValid = /^\d+$/.test(groupTargetLeverage) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
+  const isTargetLevValid = /^\d+(?:\.\d{1,2})?$/.test(groupTargetLeverage) && Number.isFinite(targetLevNum) && targetLevNum >= 1 && targetLevNum <= maxLeverage;
 
   const evaluatedLeverageAccounts = useMemo(() => {
     return group.positions.map((p) => {
@@ -3713,7 +3718,7 @@ export function GroupPositionManageModal({
     let completed = 0;
     await mapConcurrent(selectedLeverageAccounts, 100, async (item) => {
       try {
-        await updateFuturesPositionLeverage(item.position.venuePositionId, targetLevNum);
+        await updateFuturesPositionLeverage(item.position.venuePositionId, groupTargetLeverage);
         succeeded++;
       } catch (err) {
         failed++;
@@ -5013,7 +5018,7 @@ export function GroupPositionManageModal({
                 </div>
 
                 <p role="status" style={{ margin: '0 0 8px', fontSize: 12, color: maxLeverage > 0 ? 'var(--muted)' : 'var(--danger)' }}>
-                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — choose a whole number within this limit.' : ''}
+                  {leverageLimits.message}{maxLeverage > 0 && !isTargetLevValid ? ' — enter a valid leverage within this limit.' : ''}
                   {maxLeverage === 0 && <button type="button" className="btn btn-sm secondary" onClick={() => void leverageLimits.query.refetch()}>Retry</button>}
                 </p>
                 {/* Preset Chips */}
@@ -5049,7 +5054,7 @@ export function GroupPositionManageModal({
                     disabled={maxLeverage === 0 || Number(groupTargetLeverage) <= 1}
                     onClick={() => {
                       const cur = Number(groupTargetLeverage) || 1;
-                      const next = Math.max(1, Math.floor(cur) - 1);
+                      const next = Math.max(1, Math.round((cur - 1) * 100) / 100);
                       setGroupTargetLeverage(String(next));
                     }}
                   >
@@ -5058,11 +5063,15 @@ export function GroupPositionManageModal({
                   <div style={{ flex: 1, position: 'relative' }}>
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode="decimal"
                       value={groupTargetLeverage}
                       aria-label="Target group leverage"
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d.]/g, '');
+                        let val = e.target.value.replace(/[^\d.]/g, '');
+                        const parts = val.split('.');
+                        if (parts.length > 2) {
+                          val = parts[0] + '.' + parts.slice(1).join('');
+                        }
                         setGroupTargetLeverage(val);
                       }}
                       placeholder="e.g. 5"
@@ -5089,7 +5098,7 @@ export function GroupPositionManageModal({
                     disabled={maxLeverage === 0 || Number(groupTargetLeverage) >= maxLeverage}
                     onClick={() => {
                       const cur = Number(groupTargetLeverage) || 1;
-                      const next = Math.min(maxLeverage, Math.floor(cur) + 1);
+                      const next = Math.min(maxLeverage, Math.round((cur + 1) * 100) / 100);
                       setGroupTargetLeverage(String(next));
                     }}
                   >
