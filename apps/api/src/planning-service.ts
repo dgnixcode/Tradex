@@ -37,7 +37,7 @@ import type { Balance, FuturesInstrument, MarketRef, MarketRules, OrderBook } fr
 import type { Kysely } from 'kysely';
 import {
   dailySpentMinor, ensureDefaultGroup, getChildOrders, getEnabledMembers, getGroupTrade, hasInFlightOrder,
-  latestMarketMetadataVersion, loadMarketRules, markPreviewed, persistPlan,
+  latestMarketMetadataVersion, loadMarketRules, markPreviewed, persistPlan, insertFxSnapshot,
   readAccountStates, readBalances, readMarketStates, readPlatformFlags, readTenantCaps,
 } from '@tradex/db';
 import type { DB, SupportedQuote, TenantDb } from '@tradex/db';
@@ -50,6 +50,7 @@ import {
 import type { GateState, Intent, PlanAccountInput } from '@tradex/sizing';
 import { floorQuantityToStep } from './futures/adjust-service.js';
 import { decimalEqual } from './futures/place-protocol.js';
+import type { FuturesCost } from '@tradex/sizing';
 
 /** How long a preview is valid. Short, because the book it was priced against ages. */
 export const PREVIEW_TTL_MS = 60_000;
@@ -207,6 +208,7 @@ export interface PlanningDeps {
   readonly holdings?: ((accountId: string) => Promise<readonly Balance[]>) | undefined;
   /** Phase-15 futures instrument rules (step, precision, min quantity, min notional). */
   readonly getFuturesInstrument?: ((pair: string, marginCurrency: 'INR' | 'USDT') => Promise<{ readonly ok: boolean; readonly instrument?: FuturesInstrument } | null>) | undefined;
+  readonly getFuturesSettlementRate?: (() => Promise<string | null>) | undefined;
   /** The running code version, stamped on every trade for R7 quarantine (20). */
   readonly codeVersion: string;
   /** Whether this tenant is in dry-run (rung 0). True everywhere in this phase. */
@@ -329,6 +331,7 @@ export class PlanningService {
     let candidates = allRules.filter((r) => r.market.asset === req.asset);
 
     let leverageTiers: FuturesInstrument['leverageTiers'] | undefined;
+    let futuresCost: FuturesCost | undefined;
     // When planning futures, enrich candidates with live futures instrument rules
     // (exact quantity_increment step, precision, and min quantity) rather than spot.
     if (req.isFutures && this.deps.getFuturesInstrument !== undefined) {
@@ -342,6 +345,7 @@ export class PlanningService {
         }
         if (instRes?.ok && instRes.instrument && instRes.instrument.quantityIncrement && instRes.instrument.quantityIncrement !== '0') {
           leverageTiers = instRes.instrument.leverageTiers;
+          futuresCost = { leverage: req.leverage!, takerFeeRate: instRes.instrument.takerFee ?? '0.005' };
           const maxLeverage = maxInstrumentLeverage(leverageTiers);
           if (maxLeverage === 0) throw new PlanningError('Current leverage limits are unavailable; try a fresh preview.', 'no_market_data');
           if (Number(req.leverage) > maxLeverage) throw new PlanningError(`This instrument supports at most ${maxLeverage}× leverage.`, 'bad_mode');
@@ -442,13 +446,21 @@ export class PlanningService {
     let usdtInrMid: string | null = null;
     if (req.isFutures || [...marketsToRead.values()].some((market) => market.quote === 'USDT')) {
       try {
-        const usdtInrBook = await this.deps.getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
-        usdtInrMid = bookMid(usdtInrBook);
+        if (req.isFutures && this.deps.getFuturesSettlementRate) {
+          usdtInrMid = await this.deps.getFuturesSettlementRate();
+        } else {
+          const usdtInrBook = await this.deps.getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
+          usdtInrMid = bookMid(usdtInrBook);
+        }
       } catch {
         throw new PlanningError('The INR/USDT rate could not be read; cannot apply margin limits safely.', 'no_market_data');
       }
       if (usdtInrMid === null || !/[1-9]/.test(usdtInrMid)) throw new PlanningError('The INR/USDT rate is unavailable.', 'no_market_data');
     }
+    const fxSnapshotId = usdtInrMid === null ? null : await insertFxSnapshot(this.deps.db, {
+      base: 'USDT', quote: 'INR', rate: usdtInrMid, observedAt: new Date(nowMs),
+      source: req.isFutures && this.deps.getFuturesSettlementRate ? 'coindcx_futures_conversion' : 'coindcx_orderbook_mid',
+    });
 
     // Market-scope switches (phase 05): the operator-set mode for each market the
     // asset resolves to on any member. One read for the whole trade, like the books.
@@ -464,7 +476,7 @@ export class PlanningService {
     for (const member of members) {
       children.push(await this.planMember(member, {
         req, candidates, platform, caps, states, balancesByAccount, books, marketModes, dayStartMs,
-        holdingsByAccount, usdtInrMid,
+        holdingsByAccount, usdtInrMid, futuresCost,
       }));
     }
     if (leverageTiers !== undefined) {
@@ -488,7 +500,7 @@ export class PlanningService {
       sizingValue: this.sizingValueColumn(req),
       limitPrice: req.orderType === 'limit' ? (req.limitPrice ?? null) : null,
       decisionMid,
-      fxSnapshotId: null, // set in Phase 05+ when a cross-currency figure is stored
+      fxSnapshotId,
       marketMetaVersion: version,
       codeVersion: this.deps.codeVersion,
       dryRun: this.deps.dryRun ?? true,
@@ -553,6 +565,7 @@ export class PlanningService {
       marketModes: Readonly<Record<string, MarketStateRow>>;
       dayStartMs: number;
       usdtInrMid: string | null;
+      futuresCost?: FuturesCost | undefined;
     },
   ): Promise<NewChildOrder> {
     const { req } = ctx;
@@ -684,6 +697,7 @@ export class PlanningService {
       // gated against one currency and sent in another.
       ...(quoteFor(req) !== undefined ? { preferredQuote: quoteFor(req) } : {}),
       ...(req.isFutures ? { isFutures: req.isFutures } : {}),
+      ...(ctx.futuresCost ? { futuresCost: ctx.futuresCost } : {}),
       allocatedCapitalMinor: effectiveAllocatedMinor,
       freeQuoteMinor: effectiveFreeMinor,
       equityQuoteMinor: effectiveFreeMinor, // equity == free until holdings are valued (Phase 07)

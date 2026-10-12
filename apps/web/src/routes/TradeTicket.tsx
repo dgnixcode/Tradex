@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveTicker } from '../hooks/useLiveTicker.ts';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, previewTrade } from '../api.ts';
+import { DEFAULT_GROUP_NAME, fetchAccountList, fetchAssets, fetchFuturesPositions, fetchGroups, fetchKillSwitchStatus, fetchMarketPrice, fetchFuturesSettlementRate, previewTrade } from '../api.ts';
 import { useTradeBalances } from '../hooks/useTradeBalances.ts';
 import { useLeverageLimits } from '../hooks/useLeverageLimits.ts';
 import type { AccountListItem, GroupSummary, PlanRequest } from '../api.ts';
@@ -1058,7 +1058,10 @@ export function TradeTicket() {
   const [tpPercent, setTpPercent] = useState<string>(() => draft.tpPercent || '');
   // Stores the latest market price for use as SL/TP reference on market orders.
   const [marketRefPrice, setMarketRefPrice] = useState('');
-  const [usdtInrRate, setUsdtInrRate] = useState<number | null>(null);
+  const settlementRate = useQuery({ queryKey: ['futures-settlement-rate'], queryFn: fetchFuturesSettlementRate,
+    staleTime: 10000, refetchInterval: 30000, retry: false });
+  const rateValue = Number(settlementRate.data?.rate);
+  const usdtInrRate = !settlementRate.isError && rateValue > 0 ? rateValue : null;
   const [showProtectionModal, setShowProtectionModal] = useState(false);
 
   const clearAllProtection = (): void => {
@@ -1158,16 +1161,6 @@ export function TradeTicket() {
       }
     } catch {}
   }, [rightPanelTab]);
-
-  useEffect(() => {
-    fetchMarketPrice('USDT', 'INR').then(p => {
-      const ask = Number(p.bestAsk);
-      const bid = Number(p.bestBid);
-      if (ask > 0 && bid > 0) setUsdtInrRate((ask + bid) / 2);
-      else if (ask > 0) setUsdtInrRate(ask);
-      else if (bid > 0) setUsdtInrRate(bid);
-    }).catch(() => {});
-  }, []);
 
   // ─── Live WebSocket ticker — streams best bid/ask from CoinDCX every 2-3s ───
   const liveTicker = useLiveTicker(asset, quoteCurrency);
@@ -1376,9 +1369,14 @@ export function TradeTicket() {
     if (quoteCurrency === 'USDT' && marginCurrency === 'INR' && usdtInrRate) {
       margin = margin / usdtInrRate;
     }
-    const notional = margin * Number(leverage);
+    const feeRate = Number(leverageLimits.query.data?.takerFeeRate ?? '0.005');
+    const notional = margin * Number(leverage) * 0.99 / (1 + Number(leverage) * feeRate * 1.18);
     const qty = notional / Number(sizingRefPrice);
-    setQuantity(qty.toFixed(8).replace(/\.?0+$/, ''));
+    const increment = leverageLimits.query.data?.quantityIncrement ?? '0.00000001';
+    const step = Number(increment);
+    const precision = Math.min(18, increment.split('.')[1]?.length ?? 0);
+    const floored = step > 0 ? Math.floor(qty / step) * step : 0;
+    setQuantity(floored.toFixed(precision).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''));
   };
 
   const convertQuantityToPercent = (): void => {
@@ -1477,7 +1475,8 @@ export function TradeTicket() {
       if (marginCurrency === 'INR' && usdtInrRate && usdtInrRate > 0) {
         margin = margin / usdtInrRate;
       }
-      const notional = margin * Number(leverage);
+      const feeRate = Number(leverageLimits.query.data?.takerFeeRate ?? '0.005');
+      const notional = margin * Number(leverage) * 0.99 / (1 + Number(leverage) * feeRate * 1.18);
       const q = notional / p;
       return Number.isFinite(q) && q > 0 ? q : 0;
     }
@@ -1490,6 +1489,7 @@ export function TradeTicket() {
     sizingRefPrice,
     marginCurrency,
     availableCapitalMinor,
+    leverageLimits.query.data?.takerFeeRate,
     percent,
     leverage,
     usdtInrRate,
@@ -1540,6 +1540,7 @@ export function TradeTicket() {
 
   const canPreview =
     !isHalted
+    && usdtInrRate !== null && usdtInrRate > 0
     && !balanceRefresh.pending
     && targetValid && asset !== ''
     && leverageValid && sizeValid
@@ -2851,6 +2852,10 @@ export function TradeTicket() {
       {preview.isError && (
         <div className="error" style={{ marginBottom: 6 }}>{(preview.error as Error).message}</div>
       )}
+      {settlementRate.isPending && <p role="status" className="muted">Checking futures settlement rate…</p>}
+      {settlementRate.isError && <div className="error" role="alert">
+        Futures settlement rate is unavailable. <button type="button" className="btn btn-sm secondary" onClick={() => void settlementRate.refetch()}>Retry rate</button>
+      </div>}
 
       <div className="desk-ticket-review" data-side={side}>
         <div className="desk-ticket-review-heading"><strong>{side === 'buy' ? 'LONG' : 'SHORT'} {asset || '—'}</strong><span>{orderType.toUpperCase()} · {leverage}× · {marginCurrency}</span></div>

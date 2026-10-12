@@ -36,6 +36,7 @@ import { signBody, plaintextSigner } from './signing.js';
 import type { BodySigner } from './signing.js';
 import { parseDecimalJson } from './decimal-json.js';
 import { plainDecimal } from './market-rules.js';
+import { div, scaledFromString, toPlainString } from '@tradex/money';
 
 /** The venue expects a JSON number, but a JavaScript number can round a close upward. */
 export function exactQuantityForWire(quantity: string): unknown {
@@ -240,7 +241,11 @@ export async function submitFuturesOrderSigned(
     // futures order fails). The guard that actually works is the CLAMP, applied by
     // the caller before the order is built — see `FuturesPlaceOrderRequest`.
   };
-  if (request.price !== undefined) orderPayload['price'] = request.price;
+  if (request.orderType === 'market' || request.orderType === 'stop_market' || request.orderType === 'take_profit_market') {
+    // The documented market contract requires null, not an execution estimate
+    // or an omitted field that the venue might default to an off-tick price.
+    orderPayload['price'] = null;
+  } else if (request.price !== undefined) orderPayload['price'] = request.price;
   if (request.triggerPrice !== undefined) orderPayload['stop_price'] = request.triggerPrice;
 
   // The venue contract (coindcx-docs lines 8857, 8917) expects the order parameters
@@ -859,8 +864,9 @@ export async function fetchFuturesInstrument(
     maxQuantity: d('max_quantity'),
     minNotional: d('min_notional'),
     maxMarketOrderQuantity: d('max_market_order_quantity'),
-    makerFee: d('maker_fee'),
-    takerFee: d('taker_fee'),
+    // Instrument fees are percentages (0.06 means 0.06%, not a 6% rate).
+    makerFee: toPlainString(div(scaledFromString(d('maker_fee', '0.5'), 18), scaledFromString('100', 0), 18)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''),
+    takerFee: toPlainString(div(scaledFromString(d('taker_fee', '0.5'), 18), scaledFromString('100', 0), 18)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''),
     fundingFrequencyHours: Number.parseInt(s('funding_frequency', s('funding_frequency_hours', '8')), 10) || 8,
     exitOnly: r['exit_only'] === true,
     // Deprecated max_leverage_long/short are explicitly not authoritative.

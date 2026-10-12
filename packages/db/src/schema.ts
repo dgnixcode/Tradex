@@ -342,7 +342,8 @@ export type FxSource =
   | 'coindcx_ticker_last'
   | 'coindcx_ticker_bid'
   | 'coindcx_ticker_ask'
-  | 'coindcx_orderbook_mid';
+  | 'coindcx_orderbook_mid'
+  | 'coindcx_futures_conversion';
 
 /**
  * An immutable rate sample. Insert-only, enforced by a trigger, because a stored

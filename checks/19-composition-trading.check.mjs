@@ -153,6 +153,16 @@ export async function run(assert) {
     await post(`/api/group-trades/${stale.groupTradeId}/confirm`, { previewToken: stale.previewToken }, cookie);
     const refused = await ctx.tdb.selectFrom('child_order').select(['state', 'refusal_code']).where('group_trade_id', '=', stale.groupTradeId).where('leg_kind', '=', 'entry').executeTakeFirstOrThrow();
     assert(venue.futuresOrdersSnapshot().length === createsBeforeChangedLimit && refused.state === 'rejected', 'a leverage limit reduced after preview prevents every new exchange order');
+    venue.setFuturesInstrument('B-BTC_USDT','USDT',rules);
+    const driftRes = await post('/api/group-trades/preview',{ ...intent,trailingStopLoss:false,stopLossPrice:undefined,takeProfitPrice:undefined },cookie);
+    const drift = await driftRes.json();
+    assert(driftRes.status === 200 && drift.plannedCount === 1,'collateral drift scenario has an affordable saved preview');
+    const createsBeforeDrift = venue.futuresOrdersSnapshot().length;
+    venue.setBalance('USDT',0.01,0);
+    const driftConfirm = await post(`/api/group-trades/${drift.groupTradeId}/confirm`,{ previewToken:drift.previewToken },cookie);
+    assert(driftConfirm.status === 200,'changed collateral produces an honest execution report');
+    const driftChild = await ctx.tdb.selectFrom('child_order').selectAll().where('group_trade_id','=',drift.groupTradeId).where('leg_kind','=','entry').executeTakeFirstOrThrow();
+    assert(driftChild.refusal_code === 'insufficient_collateral' && venue.futuresOrdersSnapshot().length === createsBeforeDrift,'funds changed after preview prevent sending, without resizing or retrying the quantity');
   } finally {
     if (api && api.exitCode === null) { const stopped = once(api, 'exit'); api.kill(); await stopped; }
     await venue.stop(); await teardown(ctx);

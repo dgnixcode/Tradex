@@ -34,8 +34,9 @@ import { LocalKms, verifyTotpFromEnvelope } from '../../packages/crypto/dist/ind
 import { Signer } from '../signer/dist/index.js';
 import { deriveFundingCurrencies, futuresPairOf, freeBalanceMinor, maxInstrumentLeverage } from '../../packages/exchange/dist/index.js';
 import { add, cmp, mul, scaledFromString, toPlainString } from '../../packages/money/dist/index.js';
+import { futuresRequiredLeveragedMinor } from '../../packages/sizing/dist/index.js';
 import {
-  mapOrderBook, probeCredential, send,
+  mapOrderBook, probeCredential, send, fetchFuturesSettlementRate,
   submitFuturesOrderSigned, listFuturesOrdersSigned, fetchFuturesPositionsSigned, fetchFuturesInstrument, readBalancesSigned,
   attachStopAndTakeSigned, cancelFuturesOrderSigned, exitFuturesPositionSigned, updateFuturesLeverageSigned,
   listFuturesPositionsTransactionsSigned,
@@ -123,6 +124,13 @@ async function getOrderBookLive(market) {
 
 const live = process.env['TRADEX_LIVE_BOOK'] === '1';
 const getOrderBook = live ? getOrderBookLive : getOrderBookFixture;
+let settlementRead;
+async function getFuturesSettlementRate() {
+  // Coalesce overlapping group reads only; never fall back to a spot price.
+  if (!settlementRead) settlementRead = fetchFuturesSettlementRate({ baseUrl: VENUE_BASE })
+    .then(result => result.ok ? result.rate : null).finally(() => { settlementRead = undefined; });
+  return settlementRead;
+}
 
 // --- the venue, and whether we are allowed to send to it ---------------------
 //
@@ -706,7 +714,7 @@ const accountSync = async ({ tenantId, accountId }) => {
     return result;
   }
 
-Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached,
+Object.assign(enginePorts, { accountSync, refreshPositions, getFuturesInstrument: getFuturesInstrumentCached, getFuturesSettlementRate,
   refreshTrailingPositions: async (targets) => {
     const byTenant = new Map();
     for (const target of targets) {
@@ -736,10 +744,12 @@ if (sending) {
     create: async (intent) => {
       const sendQuantity = intent.quantity;
       try {
-        const [inst, positions, book] = await Promise.all([
+        const [inst, positions, book, wallets, settlementRate] = await Promise.all([
           getFreshFuturesInstrument(intent.pair, spec.marginCurrency),
           spec.allowReduce === true ? null : fetchFuturesPositionsSigned(sign, [spec.marginCurrency], { baseUrl: VENUE_BASE }),
           spec.allowReduce === true ? null : getLeverageBook(intent.pair),
+          spec.allowReduce === true ? null : readBalancesSigned(sign, { baseUrl: VENUE_BASE }),
+          spec.allowReduce === true || spec.marginCurrency !== 'INR' ? null : getFuturesSettlementRate(),
         ]);
         if (!inst?.ok || !inst.instrument) {
           return { kind: 'rejected', orderMayExist: false, code: 'instrument_unavailable', detail: 'Cannot verify futures trading rules; preview again.' };
@@ -757,6 +767,8 @@ if (sending) {
         if (spec.allowReduce !== true) {
           // Re-read at the mutation boundary: a queued preview may outlive a tier change.
           if (!positions?.ok) return { kind: 'rejected', orderMayExist: false, code: 'positions_unreadable', detail: 'Cannot verify current position size against leverage limits.' };
+          if (!wallets?.ok) return { kind: 'rejected', orderMayExist: false, code: 'balances_unreadable', detail: 'Cannot verify current free futures collateral; no order sent.' };
+          if (spec.marginCurrency === 'INR' && !settlementRate) return { kind: 'rejected', orderMayExist: false, code: 'fx_unreadable', detail: 'Cannot verify current INR futures settlement rate; no order sent.' };
           const existing = positions.positions.filter((p) => p.pair === intent.pair && p.marginCurrency === spec.marginCurrency);
           const quantity = existing.reduce((sum, p) => [p.activePos, p.inactivePosBuy ?? '0', p.inactivePosSell ?? '0']
             .reduce((subtotal, q) => add(subtotal, scaledFromString(q.replace(/^-/, ''), 18)), sum), scaledFromString(sendQuantity, 18));
@@ -766,6 +778,19 @@ if (sending) {
           if (reference.v <= 0n) return { kind: 'rejected', orderMayExist: false, code: 'price_unavailable', detail: 'Cannot verify position notional against leverage limits.' };
           const max = maxInstrumentLeverage(inst.instrument.leverageTiers, toPlainString(mul(quantity, reference, 18)));
           if (max === 0 || Number(spec.leverage) > max) return { kind: 'rejected', orderMayExist: false, code: 'leverage_limit', detail: `The current instrument/position limit is ${max}×; preview again with a lower size or leverage.` };
+          const nativeFree = BigInt(freeBalanceMinor(wallets.balances ?? [], spec.marginCurrency));
+          const freeQuote = spec.marginCurrency === 'INR' ? nativeFree * 10n ** 24n / scaledFromString(settlementRate, 18).v : nativeFree;
+          // Existing entry prices are useful for exposure checks, but they are
+          // historical and must never price collateral for a new order.
+          const costPrice = [intent.price, book?.asks[0]?.price, book?.bids[0]?.price, ...existing.map(p => p.markPrice)]
+            .filter(v => typeof v === 'string' && /^\d+(?:\.\d{1,18})?$/.test(v)).map(v => scaledFromString(v, 18))
+            .reduce((a,b) => cmp(a,b) >= 0 ? a : b, scaledFromString('0',18));
+          if (costPrice.v <= 0n) return { kind:'rejected',orderMayExist:false,code:'price_unavailable',detail:'Cannot verify current collateral price; no order sent.' };
+          const amount = scaledFromString(sendQuantity, 18).v * costPrice.v;
+          const notionalMinor = (amount + 10n ** 28n - 1n) / 10n ** 28n;
+          const required = futuresRequiredLeveragedMinor(notionalMinor, { leverage: String(spec.leverage), takerFeeRate: inst.instrument.takerFee });
+          if (required > freeQuote * BigInt(spec.leverage)) return { kind: 'rejected', orderMayExist: false, code: 'insufficient_collateral',
+            detail: 'Free futures collateral no longer covers this quantity, current price and entry fees. Refresh balances and preview again; no order sent.' };
         }
       } catch (e) {
         return { kind: 'rejected', orderMayExist: false, code: 'invalid_order', detail: e instanceof Error ? e.message : 'Cannot verify the futures order.' };
@@ -1219,8 +1244,7 @@ if (sending) {
 
     if (args.direction === 'increase') {
       // Caps are denominated in INR; never compare USDT amounts to INR limits.
-      const fxBook = await getOrderBook({ asset: 'USDT', quote: 'INR' }, 1);
-      const fx = fxBook.asks[0]?.price;
+      const fx = await getFuturesSettlementRate();
       if (!fx) return { ok: false, code: 'fx_unreadable', detail: 'Cannot safely apply margin limits without INR/USDT pricing' };
       try {
         await reservePositionIncrease({ db, tdb: forTenant(db, args.actor.tenantId), requestId: args.executionLockId,
@@ -1401,6 +1425,7 @@ const server = createHttpServer({
   },
   db,
   getOrderBook,
+  getFuturesSettlementRate,
   cookieSecret: cookieSecret(),
   verifySecondFactor,
   kms,
@@ -1553,8 +1578,22 @@ server.listen(PORT, '0.0.0.0', () => {
   }
 });
 
+// Streaming reads must not keep a deploy waiting for systemd's kill timeout.
+// End only SSE clients; ordinary requests, including active confirms, drain.
+const streamResponses = new Set();
+server.on('request', (req, res) => {
+  if (req.method === 'GET' && req.url?.split('?')[0].endsWith('/stream')) {
+    streamResponses.add(res);
+    res.once('close', () => streamResponses.delete(res));
+  }
+});
+let shuttingDown = false;
 const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  for (const res of streamResponses) if (!res.writableEnded) res.end();
   server.close(() => { void db.destroy().then(() => process.exit(0)); });
+  server.closeIdleConnections();
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

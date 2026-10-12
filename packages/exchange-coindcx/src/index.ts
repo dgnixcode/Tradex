@@ -9,3 +9,4 @@ export * from './probe.js';
 export * from './order-client.js';
 export * from './fake-venue.js';
 export * from './futures-order-client.js';
+export * from './futures-conversion.js';

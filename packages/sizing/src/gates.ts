@@ -44,6 +44,7 @@ import { marketOrderSlippage } from './pricing.js';
 import type { SlippageVerdict } from './pricing.js';
 import { size } from './size.js';
 import type { Sized, SizeInput } from './size.js';
+import type { FuturesCost } from './futures-cost.js';
 import type { Refusal } from './refusals.js';
 
 export type PlatformMode = 'normal' | 'cancel_only' | 'read_only';
@@ -77,6 +78,7 @@ export interface GateState {
    */
   readonly preferredQuote?: string | undefined;
   readonly isFutures?: boolean | undefined;
+  readonly futuresCost?: FuturesCost | undefined;
   readonly accountStatus: string;
   readonly credentialStatus: string | null;
   /** Account-frozen scope: non-null when this account is frozen, carrying the reason. */
@@ -231,6 +233,7 @@ export function planAccount(input: PlanAccountInput): GateOutcome {
     price: input.price,
     priceSource: input.priceSource,
     ...(state.isFutures ? { isFutures: state.isFutures } : {}),
+    ...(state.futuresCost ? { futuresCost: state.futuresCost } : {}),
     ...(state.allocatedCapitalMinor !== undefined ? { allocatedCapitalMinor: state.allocatedCapitalMinor } : {}),
     ...(state.freeQuoteMinor !== undefined ? { freeQuoteMinor: state.freeQuoteMinor } : {}),
     ...(state.equityQuoteMinor !== undefined ? { equityQuoteMinor: state.equityQuoteMinor } : {}),

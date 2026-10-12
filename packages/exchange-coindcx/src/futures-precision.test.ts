@@ -26,6 +26,23 @@ async function serve(body: string): Promise<string> {
 const sign = async (_body: string) => ({ apiKey: 'test', signature: 'test' });
 
 describe('futures decimal precision at the exchange boundary', () => {
+  it('normalizes venue fee percentages to fractional notional rates', async () => {
+    const baseUrl = await serve('{"maker_fee":0.02,"taker_fee":0.06}');
+    const result = await fetchFuturesInstrument('B-SOL_USDT','INR',{ baseUrl });
+    expect(result.ok).toBe(true);
+    if (result.ok) { expect(result.instrument.makerFee).toBe('0.0002'); expect(result.instrument.takerFee).toBe('0.0006'); }
+  });
+  it('sends null price for a market order even if a caller supplied an off-tick estimate', async () => {
+    const baseUrl = await serve('{"id":"entry"}');
+    let body = '';
+    await submitFuturesOrderSigned(async payload => { body = payload; return sign(payload); },{
+      pair:'B-BNB_USDT',side:'buy',orderType:'market',quantity:'1',price:'712.1865',leverage:5,
+      marginCurrency:'INR',positionMarginType:'isolated',reduceOnly:false,deadlineMs:Date.now()+10000,
+    },{ baseUrl });
+    const wire = JSON.parse(body).order;
+    expect(wire.price).toBeNull(); expect(wire).not.toHaveProperty('time_in_force');
+    expect(wire.margin_currency_short_name).toBe('INR');
+  });
   it('reads dynamic leverage limits and ignores deprecated 100x fields', async () => {
     const baseUrl = await serve('{"max_leverage_long":100,"max_leverage_short":100,"dynamic_position_leverage_details":{"10":500000,"20":100000}}');
     const result = await fetchFuturesInstrument('B-ETH_USDT', 'USDT', { baseUrl });

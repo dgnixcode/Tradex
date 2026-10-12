@@ -228,6 +228,7 @@ export interface HttpDeps {
   readonly refreshPositions?: ((args: { tenantId: string }) => Promise<{ readonly accounts: number; readonly positions: number }>) | undefined;
   /** Phase-15 futures instrument rules for accurate quantity steps and min notionals. */
   readonly getFuturesInstrument?: ((pair: string, marginCurrency: 'INR' | 'USDT') => Promise<{ readonly ok: boolean; readonly instrument?: FuturesInstrument } | null>) | undefined;
+  readonly getFuturesSettlementRate?: (() => Promise<string | null>) | undefined;
   /**
    * How often to sweep for legs that still need resolving, in ms. 0 or absent
    * disables the sweep (the default, so no test grows a timer).
@@ -374,6 +375,7 @@ export function createHttpServer(deps: HttpDeps): Server {
       codeVersion: deps.codeVersion,
       ...(deps.holdings !== undefined ? { holdings: deps.holdings } : {}),
       ...(deps.getFuturesInstrument !== undefined ? { getFuturesInstrument: deps.getFuturesInstrument } : {}),
+      ...(deps.getFuturesSettlementRate !== undefined ? { getFuturesSettlementRate: deps.getFuturesSettlementRate } : {}),
       ...(deps.now !== undefined ? { now: deps.now } : {}),
     });
 
@@ -1295,6 +1297,13 @@ export function createHttpServer(deps: HttpDeps): Server {
       return;
     }
 
+    if (method === 'GET' && path === '/api/futures/conversion-rate') {
+      requireAction(principal, 'view.dashboards');
+      const rate = await deps.getFuturesSettlementRate?.();
+      if (!rate) throw new HttpError(503, 'Current futures settlement conversion is unavailable; try again.');
+      sendJson(ctx.res, 200, { rate, observedAtMs: deps.now?.() ?? Date.now() });
+      return;
+    }
     if (method === 'GET' && path === '/api/futures/instrument') {
       requireAction(principal, 'view.dashboards');
       const pair = ctx.url.searchParams.get('pair') ?? '';
@@ -1302,7 +1311,9 @@ export function createHttpServer(deps: HttpDeps): Server {
       if (!/^B-[A-Z0-9]{1,30}_(USDT|INR)$/.test(pair) || (margin !== 'INR' && margin !== 'USDT')) throw new HttpError(400, 'invalid futures instrument');
       const result = await deps.getFuturesInstrument?.(pair, margin);
       if (!result?.ok || !result.instrument?.leverageTiers?.length) throw new HttpError(503, 'Current leverage limits are unavailable; try again.');
-      sendJson(ctx.res, 200, { pair, marginCurrency: margin, leverageTiers: result.instrument.leverageTiers });
+      sendJson(ctx.res, 200, { pair, marginCurrency: margin, leverageTiers: result.instrument.leverageTiers,
+        quantityIncrement: result.instrument.quantityIncrement, priceIncrement: result.instrument.priceIncrement,
+        takerFeeRate: result.instrument.takerFee });
       return;
     }
 

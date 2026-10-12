@@ -22,6 +22,8 @@ import { legalise } from './legalise.js';
 import { applyHoldback, floorQuantity, holdbackRates } from './rounding.js';
 import { refuse } from './refusals.js';
 import type { Refusal } from './refusals.js';
+import { futuresRequiredLeveragedMinor, futuresSpendableNotional } from './futures-cost.js';
+import type { FuturesCost } from './futures-cost.js';
 
 export type PriceSource = 'ask' | 'bid' | 'limit';
 
@@ -33,6 +35,7 @@ export interface SizeInput {
   readonly priceSource: PriceSource;
   /** True for futures/derivative trades where sells open short positions using collateral. */
   readonly isFutures?: boolean | undefined;
+  readonly futuresCost?: FuturesCost | undefined;
   /** pct_allocated basis — the capital typed at onboarding, quote minor units. */
   readonly allocatedCapitalMinor?: string | undefined;
   /** pct_free basis — spendable balance in the quote currency, minor units. */
@@ -153,9 +156,11 @@ export function size(input: SizeInput): Sized | Refusal {
     if ('code' in budget) return budget;
     basis = budget.basis;
     basisAmountMinor = budget.basisAmountMinor;
-    const held = applyHoldback(budget.budgetMinor, rules.market.quote);
-    feeRate = rates.feeRate;
-    tdsRate = rates.tdsRate;
+    const held = input.isFutures && input.futuresCost ? { spendableMinor: {
+      ...budget.budgetMinor, v: futuresSpendableNotional(budget.budgetMinor.v, input.futuresCost),
+    } } : applyHoldback(budget.budgetMinor, rules.market.quote);
+    feeRate = input.futuresCost?.takerFeeRate ?? rates.feeRate;
+    tdsRate = input.futuresCost ? '0' : rates.tdsRate;
     rawQty = div(held.spendableMinor, price, GUARD_SCALE);
   } else {
     const q = sellQuantity(input, price, quoteScale);
@@ -190,6 +195,13 @@ export function size(input: SizeInput): Sized | Refusal {
       : {}),
   });
   if ('code' in legal) return legal;
+  if (input.isFutures && input.futuresCost && input.availableQuoteMinor !== undefined) {
+    const required = futuresRequiredLeveragedMinor(legal.notionalMinor.v, input.futuresCost);
+    if (required > BigInt(input.availableQuoteMinor)) return refuse('INSUFFICIENT_BALANCE', {
+      offending: input.availableQuoteMinor, limit: required.toString(),
+    });
+    feeRate = input.futuresCost.takerFeeRate; tdsRate = '0';
+  }
 
   return {
     ok: true,

@@ -487,6 +487,10 @@ export class FakeVenue {
     if (route === '/market_data/trade_history') { this.send(res, 200, this.fixture('trade_history')); return; }
     if (route === '/market_data/candlesticks') { this.send(res, 200, this.fixture('candlesticks')); return; }
 
+    if (route === '/api/v1/derivatives/futures/data/conversions') {
+      this.send(res, 200, '[{"symbol":"USDTINR","margin_currency_short_name":"INR","target_currency_short_name":"USDT","conversion_price":80}]');
+      return;
+    }
     // ---- public: the futures instrument catalogue ----
     // A PUBLIC GET, so it must be handled before the POST-only guard over
     // /exchange/v1/ below. Modelling it matters more than it looks: without it no
@@ -517,8 +521,8 @@ export class FakeVenue {
         max_quantity: '9500',
         min_notional: '100',
         max_market_order_quantity: '9500',
-        maker_fee: '0.0002',
-        taker_fee: '0.0005',
+        maker_fee: '0.02',
+        taker_fee: '0.05',
         funding_frequency_hours: 8,
         exit_only: false,
         dynamic_position_leverage_details: { '100': '1000000000' },
