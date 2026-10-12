@@ -54,12 +54,19 @@ describe('leverage controls', () => {
     expect(leverageForBalance(100, 10, 0, 100, 20)).toBeNull();
     expect(leverageForBalance(100, 1, 1, 10, 20)).toBeNull();
 
-    // Centered slider math: center (0), right (+100 = 20x), left (-100 = 7x using balance)
-    expect(computeCenteredLeverage(0, 10, 20, 100, 10, 5)).toBe('10');
-    expect(computeCenteredLeverage(100, 10, 20, 100, 10, 5)).toBe('20');
-    expect(computeCenteredLeverage(-100, 10, 20, 100, 10, 5)).toBe('7');
-    expect(computeSliderValueFromLeverage(10, 10, 20, 100, 10, 5)).toBe(0);
-    expect(computeSliderValueFromLeverage(20, 10, 20, 100, 10, 5)).toBe(100);
+    // Centered slider math: center (0), right (+100 = 20x), left (-33 = 7x, -100 = 1x)
+    expect(computeCenteredLeverage(0, 10, 20)).toBe('10');
+    expect(computeCenteredLeverage(100, 10, 20)).toBe('20');
+    expect(computeCenteredLeverage(-33, 10, 20)).toBe('7');
+    expect(computeCenteredLeverage(-100, 10, 20)).toBe('1');
+    expect(computeSliderValueFromLeverage(10, 10, 20)).toBe(0);
+    expect(computeSliderValueFromLeverage(20, 10, 20)).toBe(100);
+    expect(computeSliderValueFromLeverage(7, 10, 20)).toBe(-33);
+    expect(computeSliderValueFromLeverage(1, 10, 20)).toBe(-100);
+
+    // Decimal positions (e.g. 2.3x leverage): smooth sliding left in 0.1 increments
+    expect(computeCenteredLeverage(-10, 2.3, 20)).toBe('2.2');
+    expect(computeCenteredLeverage(-50, 2.3, 20)).toBe('1.6');
   });
   it('replaces the individual leverage slider with an available-balance slider', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
@@ -74,12 +81,12 @@ describe('leverage controls', () => {
     expect(slider.min).toBe('-100');
     expect(slider.max).toBe('100');
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '-100');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '-33');
       slider.dispatchEvent(new Event('input', { bubbles: true }));
       slider.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(host.textContent).toContain('Adjust Leverage to 7×');
-    expect(slider.value).toBe('-100');
+    expect(slider.value).toBe('-33');
     expect(host.textContent).toContain('Estimated extra margin: 4.2857 USDT');
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '100');

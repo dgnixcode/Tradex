@@ -31,16 +31,16 @@ export function leverageForBalance(notional: number, currentMargin: number, free
 /**
  * Compute target leverage from a bidirectional centered slider (-100..+100):
  * - Center (0): current leverage
- * - Left (< 0): reduce leverage as per available free balance (up to 100% of balance at -100)
- * - Right (> 0): increase leverage up to maxLeverage (at +100)
+ * - Left (< 0): reduce leverage below current leverage down to 1x
+ * - Right (> 0): increase leverage above current leverage up to maxLeverage
  */
 export function computeCenteredLeverage(
   sliderVal: number,
   currentLev: number,
   maxLeverage: number,
-  notional: number,
-  currentMargin: number,
-  freeBalance: number,
+  _notional?: number,
+  _currentMargin?: number,
+  _freeBalance?: number,
 ): string {
   if (!Number.isFinite(sliderVal) || sliderVal === 0 || !Number.isFinite(currentLev) || currentLev <= 0) {
     return String(currentLev > 0 ? currentLev : 1);
@@ -51,37 +51,36 @@ export function computeCenteredLeverage(
     if (range <= 0) return String(currentLev);
     const fraction = sliderVal / 100;
     const rawTarget = currentLev + fraction * range;
-    const step = range <= 10 ? 0.5 : 1;
+    const step = range <= 3 ? 0.1 : range <= 10 ? 0.5 : 1;
     const rounded = Math.min(maxLeverage, Math.max(currentLev, Math.round(rawTarget / step) * step));
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    const formatted = rounded.toFixed(step === 0.1 ? 1 : 1);
+    return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
   } else {
-    // Sliding LEFT: reduce leverage as per available balance
-    if (freeBalance <= 0 || notional <= 0 || currentMargin <= 0) return String(currentLev);
+    // Sliding LEFT: reduce leverage down to 1x
+    const range = currentLev - 1;
+    if (range <= 0) return '1';
     const fraction = Math.abs(sliderVal) / 100;
-    const budgetedMargin = fraction * freeBalance;
-    const totalMargin = currentMargin + budgetedMargin;
-    if (totalMargin <= 0) return String(currentLev);
-    const rawLev = notional / totalMargin;
-    const step = (currentLev - 1) <= 5 ? 0.5 : 1;
-    // Ceil to ensure extra margin required never exceeds budgeted margin
-    const rounded = Math.max(1, Math.min(currentLev, Math.ceil(rawLev / step) * step));
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    const rawTarget = currentLev - fraction * range;
+    const step = range <= 3 ? 0.1 : range <= 10 ? 0.5 : 1;
+    const rounded = Math.max(1, Math.min(currentLev, Math.round(rawTarget / step) * step));
+    const formatted = rounded.toFixed(step === 0.1 ? 1 : 1);
+    return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
   }
 }
 
 /**
  * Compute the slider knob position (-100..+100) from the target leverage:
  * - 0 = currentLev
- * - > 0 = right (higher leverage)
- * - < 0 = left (lower leverage based on required margin vs available balance)
+ * - > 0 = right (higher leverage, 0..+100)
+ * - < 0 = left (lower leverage, -100..0)
  */
 export function computeSliderValueFromLeverage(
   targetLevNum: number,
   currentLev: number,
   maxLeverage: number,
-  notional: number,
-  currentMargin: number,
-  freeBalance: number,
+  _notional?: number,
+  _currentMargin?: number,
+  _freeBalance?: number,
 ): number {
   if (!Number.isFinite(targetLevNum) || targetLevNum <= 0) return 0;
   if (Math.abs(targetLevNum - currentLev) < 0.001) return 0;
@@ -90,12 +89,9 @@ export function computeSliderValueFromLeverage(
     if (range <= 0) return 0;
     return Math.min(100, Math.max(0, Math.round(((targetLevNum - currentLev) / range) * 100)));
   } else {
-    // targetLevNum < currentLev: left side
-    if (freeBalance <= 0 || notional <= 0) return 0;
-    const reqMargin = notional / targetLevNum;
-    const delta = reqMargin - currentMargin;
-    if (delta <= 0) return 0;
-    const fraction = delta / freeBalance;
-    return -Math.min(100, Math.max(0, Math.round(fraction * 100)));
+    // targetLevNum < currentLev: left side (-100..0)
+    const range = currentLev - 1;
+    if (range <= 0) return 0;
+    return -Math.min(100, Math.max(0, Math.round(((currentLev - targetLevNum) / range) * 100)));
   }
 }

@@ -2791,7 +2791,11 @@ export function PositionManageModal({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label htmlFor="leverage-balance-slider" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
                       {effectiveSliderVal < 0
-                        ? `Reduce Leverage (${targetLeverage}× · uses ~${Math.abs(effectiveSliderVal)}% balance)`
+                        ? (isLevShortfall
+                            ? `Reduce Leverage (${targetLeverage}× · exceeds free balance)`
+                            : freeBalanceMajor > 0 && marginDeltaMajor > 0
+                              ? `Reduce Leverage (${targetLeverage}× · uses ~${Math.min(100, Math.round((marginDeltaMajor / freeBalanceMajor) * 100))}% balance)`
+                              : `Reduce Leverage (${targetLeverage}×)`)
                         : effectiveSliderVal > 0
                           ? `Increase Leverage (${targetLeverage}× · frees margin)`
                           : `Adjust Leverage (Current: ${currentLev}×)`}
@@ -2828,7 +2832,7 @@ export function PositionManageModal({
                       onKeyUp={() => setActiveSliderVal(null)}
                       style={{
                         width: '100%',
-                        accentColor: effectiveSliderVal < 0 ? '#f59e0b' : effectiveSliderVal > 0 ? '#10b981' : '#818cf8',
+                        accentColor: effectiveSliderVal < 0 ? (isLevShortfall ? '#ef4444' : '#f59e0b') : effectiveSliderVal > 0 ? '#10b981' : '#818cf8',
                         cursor: balanceSliderValid ? 'pointer' : 'not-allowed',
                       }}
                     />
@@ -2848,8 +2852,8 @@ export function PositionManageModal({
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    <span style={{ color: effectiveSliderVal < 0 ? '#f59e0b' : 'inherit' }}>
-                      ← Reduce (Uses Balance)
+                    <span style={{ color: effectiveSliderVal < 0 ? (isLevShortfall ? '#ef4444' : '#f59e0b') : 'inherit' }}>
+                      ← 1× (Reduce)
                     </span>
                     <button
                       type="button"
@@ -2872,22 +2876,28 @@ export function PositionManageModal({
                       Center ({currentLev}×)
                     </button>
                     <span style={{ color: effectiveSliderVal > 0 ? '#10b981' : 'inherit', textAlign: 'right' }}>
-                      Increase (Frees Margin) →
+                      {maxLeverage}× (Increase) →
                     </span>
                   </div>
 
                   <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--muted)' }}>
                     {effectiveSliderVal < 0 ? (
-                      <>
-                        Estimated extra margin: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>.
-                      </>
+                      isLevShortfall ? (
+                        <>
+                          Estimated extra margin: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong> (exceeds free balance by <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{levShortfallMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>).
+                        </>
+                      ) : (
+                        <>
+                          Estimated extra margin: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>{freeBalanceMajor > 0 ? ` (${position.marginCurrency === 'INR' ? '₹' : ''}${Math.max(0, freeBalanceMajor - marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}${position.marginCurrency === 'USDT' ? ' USDT' : ''} free remaining)` : ''}.
+                        </>
+                      )
                     ) : effectiveSliderVal > 0 ? (
                       <>
                         Estimated margin to be freed: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.abs(Math.min(0, marginDeltaMajor)).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>.
                       </>
                     ) : (
                       <>
-                        Slide left to reduce leverage using available balance, or slide right to increase leverage up to {maxLeverage}×.
+                        Slide left to reduce leverage down to 1× using available balance, or slide right to increase leverage up to {maxLeverage}×.
                       </>
                     )}
                   </p>
