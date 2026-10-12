@@ -12,7 +12,7 @@ import { parseCoinFromPair } from './TradeTicket.tsx';
 import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 import { planPositionAddition, planPositionReduction } from '../position-addition.ts';
 import { PositionCurrencyBadge } from '../components/PositionCurrencyBadge.tsx';
-import { computeCenteredLeverage, computeSliderValueFromLeverage, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
+import { computeCenteredLeverage, computeLeverageFromAmountDelta, computeSliderValueFromLeverage, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -1439,6 +1439,89 @@ export function PositionManageModal({
   const effectiveSliderVal = activeSliderVal ?? computedSliderVal;
   const levShortfallMajor = isLevShortfall ? (marginDeltaMajor - freeBalanceMajor) : 0;
 
+  const maxFreeableMajor = useMemo(() => {
+    if (maxLeverage <= 0 || leverageNotionalMajor <= 0) return 0;
+    const minRequiredMargin = leverageNotionalMajor / maxLeverage;
+    return Math.max(0, currentMarginMajor - minRequiredMargin);
+  }, [maxLeverage, leverageNotionalMajor, currentMarginMajor]);
+
+  const [amountInput, setAmountInput] = useState<string>('0');
+  const [isEditingAmount, setIsEditingAmount] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isEditingAmount) {
+      if (!isTargetLevValid || isSameLeverage) {
+        setAmountInput('0');
+      } else if (marginDeltaMajor > 0) {
+        setAmountInput(`+${marginDeltaMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
+      } else {
+        setAmountInput(marginDeltaMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4));
+      }
+    }
+  }, [targetLeverage, isTargetLevValid, isSameLeverage, marginDeltaMajor, isEditingAmount, position.marginCurrency]);
+
+  const handleApplyAmount = (amountDelta: number) => {
+    const nextLev = computeLeverageFromAmountDelta(
+      amountDelta,
+      currentMarginMajor,
+      leverageNotionalMajor,
+      freeBalanceMajor,
+      maxLeverage,
+    );
+    setTargetLeverage(nextLev);
+    setIsEditingAmount(false);
+  };
+
+  const handleAmountInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsEditingAmount(true);
+    const raw = e.target.value;
+
+    const hasMinus = raw.includes('-');
+    const hasPlus = raw.includes('+');
+    let sign = '';
+    if (hasMinus) sign = '-';
+    else if (hasPlus) sign = '+';
+    let rest = raw.replace(/[^\d.]/g, '');
+    const dotParts = rest.split('.');
+    if (dotParts.length > 2) {
+      rest = dotParts[0] + '.' + dotParts.slice(1).join('');
+    }
+    const cleanRaw = sign + rest;
+    setAmountInput(cleanRaw);
+
+    if (cleanRaw === '' || cleanRaw === '+' || cleanRaw === '-' || cleanRaw === '.') {
+      return;
+    }
+
+    let deltaNum = parseFloat(cleanRaw);
+    if (!Number.isFinite(deltaNum)) return;
+
+    // Constraint: cannot exceed own available balance
+    if (deltaNum > 0 && freeBalanceMajor >= 0 && deltaNum > freeBalanceMajor) {
+      deltaNum = freeBalanceMajor;
+      setAmountInput(`+${freeBalanceMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
+    }
+
+    // Constraint: for negative, cannot exceed max freeable margin at maxLeverage
+    if (deltaNum < 0 && Math.abs(deltaNum) > maxFreeableMajor) {
+      deltaNum = -maxFreeableMajor;
+      setAmountInput(`-${maxFreeableMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}`);
+    }
+
+    const nextLev = computeLeverageFromAmountDelta(
+      deltaNum,
+      currentMarginMajor,
+      leverageNotionalMajor,
+      freeBalanceMajor,
+      maxLeverage,
+    );
+    setTargetLeverage(nextLev);
+  };
+
+  const handleAmountBlur = () => {
+    setIsEditingAmount(false);
+  };
+
   const estNewLiqPrice = useMemo(() => {
     if (!isTargetLevValid || targetLevNum <= 0 || posEntryPrice <= 0) return null;
     const mmr = 0.005;
@@ -2726,64 +2809,147 @@ export function PositionManageModal({
                   ))}
                 </div>
 
-                {/* Stepper + Direct Input */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm secondary"
-                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={maxLeverage === 0 || Number(targetLeverage) <= 1}
-                    onClick={() => {
-                      const cur = Number(targetLeverage) || 1;
-                      const next = Math.max(1, Math.round((cur - 1) * 100) / 100);
-                      setTargetLeverage(String(next));
-                    }}
-                  >
-                    −
-                  </button>
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={targetLeverage}
-                      aria-label="Target leverage"
-                      onChange={(e) => {
-                        let val = e.target.value.replace(/[^\d.]/g, '');
-                        const parts = val.split('.');
-                        if (parts.length > 2) {
-                          val = parts[0] + '.' + parts.slice(1).join('');
-                        }
-                        setTargetLeverage(val);
-                      }}
-                      placeholder="e.g. 3.5"
-                      style={{
-                        width: '100%',
-                        padding: '6px 28px 6px 12px',
-                        fontSize: 13,
-                        fontWeight: 700,
-                        textAlign: 'center',
-                        background: 'var(--surface-3)',
-                        borderColor: isTargetLevValid ? 'var(--line)' : 'var(--danger)',
-                        borderRadius: 'var(--radius-sm)',
-                        color: 'var(--text)',
-                      }}
-                    />
-                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-                      ×
-                    </span>
+                {/* Dual Inputs: Target Leverage & Margin Amount Change */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
+                  {/* Column 1: Target Leverage with steppers */}
+                  <div>
+                    <label htmlFor="target-leverage-input" style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+                      Target Leverage:
+                    </label>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm secondary"
+                        style={{ width: 34, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                        disabled={maxLeverage === 0 || Number(targetLeverage) <= 1}
+                        onClick={() => {
+                          const cur = Number(targetLeverage) || 1;
+                          const next = Math.max(1, Math.round((cur - 1) * 100) / 100);
+                          setTargetLeverage(String(next));
+                        }}
+                      >
+                        −
+                      </button>
+                      <div style={{ flex: 1, position: 'relative' }}>
+                        <input
+                          id="target-leverage-input"
+                          type="text"
+                          inputMode="decimal"
+                          value={targetLeverage}
+                          aria-label="Target leverage"
+                          onChange={(e) => {
+                            let val = e.target.value.replace(/[^\d.]/g, '');
+                            const parts = val.split('.');
+                            if (parts.length > 2) {
+                              val = parts[0] + '.' + parts.slice(1).join('');
+                            }
+                            setTargetLeverage(val);
+                          }}
+                          placeholder="e.g. 3.5"
+                          style={{
+                            width: '100%',
+                            padding: '6px 24px 6px 8px',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            background: 'var(--surface-3)',
+                            borderColor: isTargetLevValid ? 'var(--line)' : 'var(--danger)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: 'var(--text)',
+                          }}
+                        />
+                        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                          ×
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm secondary"
+                        style={{ width: 34, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
+                        disabled={maxLeverage === 0 || Number(targetLeverage) >= maxLeverage}
+                        onClick={() => {
+                          const cur = Number(targetLeverage) || 1;
+                          const next = Math.min(maxLeverage, Math.round((cur + 1) * 100) / 100);
+                          setTargetLeverage(String(next));
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Column 2: Margin Amount Change */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label htmlFor="margin-amount-input" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                        Margin Amount Change:
+                      </label>
+                      <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                        {freeBalanceMajor > 0 ? `Max: +${freeBalanceMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)}` : '0 free'}
+                      </span>
+                    </div>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        id="margin-amount-input"
+                        type="text"
+                        inputMode="text"
+                        value={amountInput}
+                        aria-label="Margin amount change"
+                        placeholder="+add / -free"
+                        onChange={handleAmountInputChange}
+                        onBlur={handleAmountBlur}
+                        style={{
+                          width: '100%',
+                          height: 34,
+                          padding: '6px 46px 6px 10px',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          textAlign: 'center',
+                          background: 'var(--surface-3)',
+                          borderColor: isLevShortfall ? 'var(--danger)' : 'var(--line)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: marginDeltaMajor < 0 ? '#10b981' : marginDeltaMajor > 0 ? '#f59e0b' : 'var(--text)',
+                        }}
+                      />
+                      <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>
+                        {position.marginCurrency}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Amount Quick Helper Chips */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  {freeBalanceMajor > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{ fontSize: 10.5, padding: '3px 8px', color: '#f59e0b' }}
+                      title="Add full available balance to reduce leverage as much as possible"
+                      onClick={() => handleApplyAmount(freeBalanceMajor)}
+                    >
+                      +Max Balance ({position.marginCurrency === 'INR' ? '₹' : ''}{freeBalanceMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)})
+                    </button>
+                  )}
+                  {maxFreeableMajor > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm secondary"
+                      style={{ fontSize: 10.5, padding: '3px 8px', color: '#10b981' }}
+                      title="Free maximum margin by increasing leverage to max"
+                      onClick={() => handleApplyAmount(-maxFreeableMajor)}
+                    >
+                      -Max Margin ({position.marginCurrency === 'INR' ? '₹' : ''}{maxFreeableMajor.toFixed(position.marginCurrency === 'INR' ? 2 : 4)})
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-sm secondary"
-                    style={{ width: 38, height: 34, fontSize: 16, fontWeight: 700, padding: 0 }}
-                    disabled={maxLeverage === 0 || Number(targetLeverage) >= maxLeverage}
-                    onClick={() => {
-                      const cur = Number(targetLeverage) || 1;
-                      const next = Math.min(maxLeverage, Math.round((cur + 1) * 100) / 100);
-                      setTargetLeverage(String(next));
-                    }}
+                    style={{ fontSize: 10.5, padding: '3px 8px', color: 'var(--muted)' }}
+                    title="Reset margin change to 0"
+                    onClick={() => handleApplyAmount(0)}
                   >
-                    +
+                    Reset (0)
                   </button>
                 </div>
 

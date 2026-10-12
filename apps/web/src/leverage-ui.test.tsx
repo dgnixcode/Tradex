@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGroups, GroupPositionManageModal, PositionManageModal } from './routes/Futures.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
-import { computeCenteredLeverage, computeSliderValueFromLeverage, leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
+import { computeCenteredLeverage, computeLeverageFromAmountDelta, computeSliderValueFromLeverage, leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
 import { fetchAccounts, fetchFuturesInstrument, type FuturesPositionRow } from './api.ts';
 
 vi.mock('./api.ts', async (original) => ({ ...await original<object>(),
@@ -67,6 +67,12 @@ describe('leverage controls', () => {
     // Decimal positions (e.g. 2.3x leverage): smooth sliding left in 0.1 increments
     expect(computeCenteredLeverage(-10, 2.3, 20)).toBe('2.2');
     expect(computeCenteredLeverage(-50, 2.3, 20)).toBe('1.6');
+
+    // Margin amount delta to leverage conversion
+    expect(computeLeverageFromAmountDelta(4.2857, 10, 100, 5, 20)).toBe('7');
+    expect(computeLeverageFromAmountDelta(-5, 10, 100, 5, 20)).toBe('20');
+    expect(computeLeverageFromAmountDelta(10, 10, 100, 5, 20)).toBe('6.5'); // clamped to free balance (5)
+    expect(computeLeverageFromAmountDelta(-10, 10, 100, 5, 20)).toBe('20'); // clamped to max freeable (5)
   });
   it('replaces the individual leverage slider with an available-balance slider', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
@@ -98,6 +104,26 @@ describe('leverage controls', () => {
     expect(host.textContent).toContain('Estimated margin to be freed: 5.0000 USDT');
     typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target leverage"]')!, '21');
     expect([...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage to 21×')?.disabled).toBe(true);
+  });
+  it('allows entering positive or negative margin amounts without exceeding own balance', async () => {
+    await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
+    openLeverage();
+    const amountInput = host.querySelector<HTMLInputElement>('#margin-amount-input')!;
+    expect(amountInput).toBeTruthy();
+    expect(amountInput.value).toBe('0');
+
+    // Type positive amount (+4.2857) to reduce leverage to 7x
+    typeValue(amountInput, '+4.2857');
+    expect(host.textContent).toContain('Adjust Leverage to 7×');
+
+    // Type negative amount (-5) to increase leverage to 20x
+    typeValue(amountInput, '-5');
+    expect(host.textContent).toContain('Adjust Leverage to 20×');
+
+    // Type amount exceeding own balance (+10) -> clamped to own balance (+5.0000)
+    typeValue(amountInput, '+10');
+    expect(amountInput.value).toBe('+5.0000');
+    expect(host.textContent).toContain('Adjust Leverage to 6.5×');
   });
   it('removes the group leverage slider and filters unsupported presets', async () => {
     await render(<GroupPositionManageModal group={buildGroups([position])[0]!} onClose={() => {}} onRefreshPositions={() => {}} />);

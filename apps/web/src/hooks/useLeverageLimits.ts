@@ -95,3 +95,42 @@ export function computeSliderValueFromLeverage(
     return -Math.min(100, Math.max(0, Math.round(((currentLev - targetLevNum) / range) * 100)));
   }
 }
+
+/**
+ * Compute target leverage from a margin change amount:
+ * - Positive (+): add margin from available free balance to decrease leverage
+ * - Negative (-): free margin from position to increase leverage
+ * Clamps positive amounts to freeBalance (cannot exceed user's available balance)
+ * Clamps negative amounts to maxFreeable (margin cannot drop below margin at maxLeverage)
+ */
+export function computeLeverageFromAmountDelta(
+  deltaNum: number,
+  currentMargin: number,
+  notional: number,
+  freeBalance: number,
+  maxLeverage: number,
+): string {
+  if (!Number.isFinite(deltaNum) || !Number.isFinite(currentMargin) || currentMargin <= 0 || notional <= 0 || maxLeverage <= 0) {
+    return '1';
+  }
+  let clamped = deltaNum;
+  // Positive delta uses free balance: cannot exceed available balance
+  if (clamped > 0 && freeBalance >= 0 && clamped > freeBalance) {
+    clamped = freeBalance;
+  }
+  // Negative delta frees margin: cannot reduce margin below margin at maxLeverage
+  const minRequiredMargin = notional / maxLeverage;
+  const maxFreeable = Math.max(0, currentMargin - minRequiredMargin);
+  if (clamped < 0 && Math.abs(clamped) > maxFreeable) {
+    clamped = -maxFreeable;
+  }
+  const targetMargin = currentMargin + clamped;
+  if (targetMargin <= 0) return String(maxLeverage);
+  const rawLev = notional / targetMargin;
+  const clampedLev = Math.min(maxLeverage, Math.max(1, rawLev));
+  const step = (maxLeverage - 1) <= 3 ? 0.1 : 0.5;
+  const roundedLev = Math.round(clampedLev / step) * step;
+  const finalLev = Math.min(maxLeverage, Math.max(1, roundedLev));
+  const formatted = finalLev.toFixed(step === 0.1 ? 1 : 1);
+  return formatted.endsWith('.0') ? formatted.slice(0, -2) : formatted;
+}
