@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { confirmTrade, fetchKillSwitchStatus, fetchTrade } from '../api.ts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError, confirmTrade, fetchExecutionReport, fetchKillSwitchStatus, fetchTrade } from '../api.ts';
 import type { PreviewResult, PreviewRow } from '../api.ts';
 import { Countdown } from '../components/Countdown.tsx';
+import { executionStarted } from '../execution-status.ts';
 
 // The confirmation screen (T04.8 / 21 F3). The per-account preview table renders
 // the persisted child_order rows one-for-one (U2): what the customer sees is
@@ -22,6 +23,10 @@ import { Countdown } from '../components/Countdown.tsx';
 export function Confirmation() {
   const { groupTradeId = '' } = useParams();
   const navigate = useNavigate();
+  const client = useQueryClient();
+  const [submitted, setSubmitted] = useState(false);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const killSwitchQuery = useQuery({
     queryKey: ['kill-switch'],
@@ -41,9 +46,25 @@ export function Confirmation() {
   const [acknowledged, setAcknowledged] = useState(false);
   const confirmLock = useRef(false);
   const onExpire = useCallback(() => setExpired(true), []);
+  const execution = useQuery({
+    queryKey: ['execution-report', groupTradeId],
+    queryFn: () => fetchExecutionReport(groupTradeId),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: submitted ? 1000 : false,
+    refetchIntervalInBackground: true,
+    retry: false,
+  });
+  useEffect(() => {
+    if (execution.data && !execution.data.dryRun && executionStarted(execution.data)) {
+      try { localStorage.removeItem('tradex_ticket_draft'); } catch {}
+      navigate(`/app/trades/${groupTradeId}/progress`, { replace: true });
+    }
+  }, [execution.data, groupTradeId, navigate]);
 
   const confirm = useMutation({
     mutationFn: (result: PreviewResult) => confirmTrade(result.groupTradeId, result.previewToken),
+    retry: false,
     // A real send navigates to the live-progress screen, where the SSE stream
     // reports each leg as the worker settles it. A dry run (no engine wired)
     // stays here with the recorded-plan confirmation below.
@@ -51,9 +72,19 @@ export function Confirmation() {
       try {
         localStorage.removeItem('tradex_ticket_draft');
       } catch {}
-      if (data.dryRun === false) navigate(`/app/trades/${result.groupTradeId}/progress`);
+      if (data.report) client.setQueryData(['execution-report', result.groupTradeId], {
+        status: data.status, dryRun: data.dryRun, report: data.report,
+      });
+      if (data.dryRun === false && mounted.current) navigate(`/app/trades/${result.groupTradeId}/progress`, { replace: true });
     },
-    onError: () => { confirmLock.current = false; },
+    onError: (error) => {
+      // A lost response can follow a real send. Never offer a second send for an
+      // uncertain outcome; keep checking the durable report for this same trade.
+      if (error instanceof ApiError && [400, 403, 410, 422, 429].includes(error.status)) {
+        confirmLock.current = false; setSubmitted(false);
+      }
+      void execution.refetch();
+    },
   });
 
   if (trade.isLoading) return <div className="panel">Loading the plan…</div>;
@@ -64,9 +95,10 @@ export function Confirmation() {
   const skippedCount = result.rows.filter((r: PreviewRow) => r.state === 'skipped').length;
   const plannedCount = result.rows.filter((r: PreviewRow) => r.state === 'planned').length;
   const hasSkips = skippedCount > 0;
-  const confirmed = confirm.isSuccess;
+  const confirmed = (confirm.isSuccess && confirm.data.dryRun === true) || (execution.data?.dryRun === true && execution.data.status === 'completed');
 
-  const canConfirm = !expired && !isHalted && plannedCount > 0 && (!hasSkips || acknowledged) && !confirmed;
+  const canConfirm = !execution.isPending && !execution.isError && !submitted && !expired && !isHalted && plannedCount > 0
+    && (!hasSkips || acknowledged) && !confirmed && !(execution.data && executionStarted(execution.data));
 
   const leverage = result.leverage ?? null;
   const side = result.side ?? null;
@@ -139,7 +171,7 @@ export function Confirmation() {
           </span>
         </div>
         <div>
-          {!confirmed && <Countdown expiresAtMs={result.previewExpiresAtMs} onExpire={onExpire} />}
+          {!confirmed && !submitted && <Countdown expiresAtMs={result.previewExpiresAtMs} onExpire={onExpire} />}
         </div>
       </div>
 
@@ -346,7 +378,16 @@ export function Confirmation() {
         </label>
       )}
 
-      {confirm.isError && <div className="error">{(confirm.error as Error).message}</div>}
+      {confirm.isError && !submitted && <div className="error">{(confirm.error as Error).message}</div>}
+      {execution.isError && !submitted && !confirmed && <div className="error" role="alert">
+        Current order status could not be verified. Refresh its status before confirming.
+        <button type="button" className="btn secondary" disabled={execution.isFetching} onClick={() => void execution.refetch()}>Refresh status</button>
+      </div>}
+      {submitted && !confirmed && <div className="spread-warning" role="status" aria-live="polite">
+        <strong>{confirm.isError ? 'Submission outcome is being checked.' : 'Submitting order — checking execution status…'}</strong>
+        <p>{execution.isError ? 'Status updates are temporarily unavailable. ' : ''}The order may already be executing. Do not submit it again.</p>
+        <button type="button" className="btn secondary" onClick={() => navigate(`/app/trades/${groupTradeId}/progress`, { replace: true })}>View execution status</button>
+      </div>}
 
       {confirmed ? (
         // A real fan-out navigates to the progress screen, so reaching this box
@@ -369,10 +410,11 @@ export function Confirmation() {
             onClick={() => {
               if (!canConfirm || confirmLock.current || confirm.isPending) return;
               confirmLock.current = true;
+              setSubmitted(true);
               confirm.mutate(result);
             }}
           >
-            {isHalted
+            {submitted ? 'Checking execution…' : isHalted
               ? 'Trading halted (Kill Switch)'
               : expired
                 ? 'Preview expired'

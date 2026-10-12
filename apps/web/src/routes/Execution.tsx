@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { fetchTrade, retryFailedTrade } from '../api.ts';
-import type { PreviewRow } from '../api.ts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchExecutionReport, fetchTrade, retryFailedTrade } from '../api.ts';
+import type { ExecutionReportResponse, PreviewRow } from '../api.ts';
+import { EXECUTION_PENDING, executionFinished } from '../execution-status.ts';
 
 // The live-execution progress screen (T08.6 / 21 F4). After a REAL confirm the
 // operator lands here and the page opens an EventSource to
@@ -21,7 +22,7 @@ import type { PreviewRow } from '../api.ts';
 // a retry CTA offers to re-plan JUST those accounts as a fresh trade (T08.7).
 
 /** A settle that is not a working state — worth announcing. */
-const PENDING: ReadonlySet<string> = new Set(['planned', 'sending', 'ambiguous']);
+const PENDING: ReadonlySet<string> = EXECUTION_PENDING;
 /** States that mean the leg never got placed and may be retried (T08.7). */
 const RETRYABLE: ReadonlySet<string> = new Set(['skipped', 'rejected', 'not_placed']);
 /** States that count as a placed order for the summary. */
@@ -46,7 +47,22 @@ type StreamPhase = 'connecting' | 'live' | 'done' | 'error';
 
 export function Execution() {
   const { groupTradeId = '' } = useParams();
+  return <ExecutionView key={groupTradeId} groupTradeId={groupTradeId} />;
+}
+
+function ExecutionView({ groupTradeId }: { groupTradeId: string }) {
   const navigate = useNavigate();
+  const client = useQueryClient();
+  const report = useQuery({
+    queryKey: ['execution-report', groupTradeId],
+    queryFn: () => fetchExecutionReport(groupTradeId),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: query => query.state.data && executionFinished(query.state.data) ? false : 1500,
+    refetchIntervalInBackground: true,
+    retry: false,
+  });
+  const finished = report.data ? executionFinished(report.data) : false;
 
   // The plan provides the account names + markets to label the stream's rows.
   // The plan is fixed once previewed, so it is fetched once and never refetched.
@@ -63,8 +79,11 @@ export function Execution() {
   // The previous state per account, so a terminal transition is announced exactly
   // when it happens (never for the opening seed).
   const lastState = useRef(new Map<string, string>());
+  const lastStreamUpdate = useRef(0);
 
   useEffect(() => {
+    if (finished) { setPhase('done'); return; }
+    if (typeof EventSource === 'undefined') { setPhase('error'); return; }
     let gotHeader = false;
     const es = new EventSource(`/api/group-trades/${groupTradeId}/stream`);
 
@@ -78,6 +97,7 @@ export function Execution() {
       }
       const { accountId, state } = frame;
       if (typeof accountId !== 'string' || typeof state !== 'string') return;
+      lastStreamUpdate.current = Date.now();
       setLive((prev) => {
         const next = new Map(prev);
         next.set(accountId, {
@@ -117,11 +137,20 @@ export function Execution() {
       }
     };
 
-    /** `report` then `done` close the stream after the last settle. */
+    // A report can contain final states never received as individual events.
+    const onReport = (raw: Event) => {
+      try {
+        const snapshot = JSON.parse((raw as MessageEvent).data as string) as ExecutionReportResponse;
+        if (typeof snapshot.status !== 'string' || typeof snapshot.dryRun !== 'boolean' || !Array.isArray(snapshot.report?.rows)) return;
+        client.setQueryData(['execution-report', groupTradeId], snapshot);
+      } catch { /* the read-only poll will recover an incomplete stream */ }
+    };
+    /** `done` closes this stream; open limit orders still use report polling. */
     const onDone = () => {
       clearTimeout(timer);
       setPhase('done');
       es.close();
+      void report.refetch();
     };
 
     // If no header arrives in 12s the stream is not going to come up — show that
@@ -135,7 +164,7 @@ export function Execution() {
 
     es.addEventListener('state', onState);
     es.addEventListener('header', onHeader);
-    es.addEventListener('report', onDone);
+    es.addEventListener('report', onReport);
     es.addEventListener('done', onDone);
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) {
@@ -150,7 +179,7 @@ export function Execution() {
       clearTimeout(timer);
       es.close();
     };
-  }, [groupTradeId]);
+  }, [groupTradeId, finished, client]);
 
   const retry = useMutation({
     mutationFn: () => retryFailedTrade(groupTradeId),
@@ -172,18 +201,28 @@ export function Execution() {
 
   // Merge the plan row with the latest streamed state for that account. A leg the
   // stream has not spoken about yet keeps its planned/skipped row state.
-  const rowState = (row: PreviewRow): LiveRow =>
-    live.get(row.accountId) ?? {
+  const rowState = (row: PreviewRow): LiveRow => {
+    const persisted = report.data?.report.rows.find(entry => entry.accountId === row.accountId);
+    // Polling is authoritative when the stream is unavailable or has finished.
+    return ((!finished && lastStreamUpdate.current > report.dataUpdatedAt) ? live.get(row.accountId) : undefined) ?? (persisted ? {
+      state: persisted.state, exchangeOrderId: persisted.exchangeOrderId,
+      refusalCode: persisted.refusalCode, refusalDetail: persisted.reason,
+    } : live.get(row.accountId)) ?? {
       state: row.state,
       exchangeOrderId: null,
       refusalCode: row.refusalCode,
       refusalDetail: row.refusalDetail,
     };
+  };
 
   const placed = plan.rows.filter((r) => PLACED.has(rowState(r).state)).length;
   const working = plan.rows.filter((r) => PENDING.has(rowState(r).state)).length;
   const failed = plan.rows.filter((r) => RETRYABLE.has(rowState(r).state)).length;
-  const allSettled = phase === 'done';
+  const filled = plan.rows.filter(r => rowState(r).state === 'filled').length;
+  const awaitingFill = plan.rows.filter(r => ['acked', 'open', 'partially_filled'].includes(rowState(r).state)).length;
+  const needsReview = plan.rows.filter(r => ['ambiguous', 'unknown', 'needs_human'].includes(rowState(r).state)).length;
+  const recordedDryRun = report.data?.dryRun === true && report.data.status === 'completed';
+  const allSettled = finished;
   const canRetry = failed > 0 && allSettled && !retry.isPending;
 
   return (
@@ -193,14 +232,18 @@ export function Execution() {
         <span className="mono muted">{plan.groupTradeId.slice(0, 8)}…</span>
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {phase !== 'connecting' && <span className={`badge ${phaseBadge(phase)}`}>{phaseLabel(phase)}</span>}
-          {header !== null && <span className="badge state">{header.status}</span>}
+          {(report.data || header) && <span className="badge state">{report.data?.status ?? header?.status}</span>}
         </span>
       </div>
 
       {/* The summary strip — "placing… · N placed · M failed" updates live. */}
-      <div className="row" style={{ marginBottom: 12, gap: 8 }}>
-        <span className="muted">{working > 0 ? 'placing…' : allSettled ? 'settled' : 'settling'}</span>
-        <span style={{ color: 'var(--ok)' }}>{placed} placed</span>
+      <div className="row" role="status" aria-live="polite" style={{ marginBottom: 12, gap: 8 }}>
+        <strong>{recordedDryRun ? 'Dry run recorded — no orders sent' : needsReview > 0 ? 'Execution needs review'
+          : filled === plan.rows.length && filled > 0 ? 'Trade executed successfully'
+          : awaitingFill > 0 ? 'Orders placed — awaiting fills' : allSettled ? 'Execution finished' : 'Checking execution…'}</strong>
+        <span style={{ color: 'var(--ok)' }}>{placed} placed · {filled} filled</span>
+        {working > 0 && !recordedDryRun && <span className="muted">{working} pending</span>}
+        {needsReview > 0 && <span style={{ color: 'var(--warn)' }}>{needsReview} need review · do not resubmit</span>}
         {failed > 0 && <span style={{ color: 'var(--danger)' }}>{failed} failed</span>}
       </div>
 
@@ -289,10 +332,11 @@ export function Execution() {
         ))}
       </div>
 
-      {phase === 'error' && (
+      {!finished && (phase === 'error' || phase === 'connecting' || report.isError) && (
         <div className="error" style={{ marginTop: 8 }}>
-          Live progress is unavailable — the execution engine may not be wired in this build.
-          {header === null && ' The stream could not be opened.'}
+          {report.isError ? 'Status updates are temporarily unavailable. The order may still be executing; do not resubmit.'
+            : 'Checking saved execution status automatically while the live connection recovers.'}
+          <button type="button" className="btn secondary" disabled={report.isFetching} onClick={() => void report.refetch()}>Refresh status</button>
         </div>
       )}
 
@@ -309,9 +353,8 @@ export function Execution() {
         </div>
       ) : (
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="btn secondary" onClick={() => navigate(`/app/trades/${plan.groupTradeId}`)}>
-            Back to the confirmation
-          </button>
+          <button className="btn secondary" onClick={() => navigate('/app/positions')}>View positions</button>
+          <button className="btn secondary" onClick={() => navigate('/app/activity')}>View orders</button>
         </div>
       )}
       {retry.isError && <div className="error" style={{ marginTop: 8 }}>{(retry.error as Error).message}</div>}
@@ -325,7 +368,7 @@ function describeBasis(row: PreviewRow): string {
 }
 
 function phaseLabel(phase: StreamPhase): string {
-  return phase === 'connecting' ? 'connecting…' : phase === 'live' ? 'live' : phase === 'done' ? 'done' : 'unavailable';
+  return phase === 'connecting' ? 'connecting…' : phase === 'live' ? 'live' : phase === 'done' ? 'saved status' : 'unavailable';
 }
 
 function phaseBadge(phase: StreamPhase): string {

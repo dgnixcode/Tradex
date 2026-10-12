@@ -8,6 +8,8 @@ import { confirmTrade, type PreviewResult, type PreviewRow } from './api.ts';
 
 vi.mock('./api.ts', () => ({
   fetchTrade: vi.fn(), fetchKillSwitchStatus: vi.fn(async () => ({ active: false })),
+  fetchExecutionReport: vi.fn(async () => ({ status: 'previewed', dryRun: false, report: { rows: [] } })),
+  ApiError: class extends Error {},
   confirmTrade: vi.fn(() => new Promise(() => {})),
 }));
 
@@ -41,6 +43,7 @@ function plan(patch: Partial<PreviewResult> = {}): PreviewResult {
 }
 async function render(savedPlan: PreviewResult) {
   client.setQueryData(['trade', 'plan'], savedPlan);
+  client.setQueryData(['execution-report', 'plan'], { status: 'previewed', dryRun: false, report: { rows: [] } });
   await act(async () => root.render(<QueryClientProvider client={client}>
     <MemoryRouter initialEntries={['/app/trades/plan']}><Routes>
       <Route path="/app/trades/:groupTradeId" element={<Confirmation />} />
