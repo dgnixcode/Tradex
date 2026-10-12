@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGroups, GroupPositionManageModal, PositionManageModal } from './routes/Futures.tsx';
 import { TradeTicket } from './routes/TradeTicket.tsx';
-import { leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
+import { computeCenteredLeverage, computeSliderValueFromLeverage, leverageForBalance, useLeverageLimits } from './hooks/useLeverageLimits.ts';
 import { fetchAccounts, fetchFuturesInstrument, type FuturesPositionRow } from './api.ts';
 
 vi.mock('./api.ts', async (original) => ({ ...await original<object>(),
@@ -53,6 +53,13 @@ describe('leverage controls', () => {
     expect(leverageForBalance(100, 10, 1000, 100, 20)).toBe(1);
     expect(leverageForBalance(100, 10, 0, 100, 20)).toBeNull();
     expect(leverageForBalance(100, 1, 1, 10, 20)).toBeNull();
+
+    // Centered slider math: center (0), right (+100 = 20x), left (-100 = 7x using balance)
+    expect(computeCenteredLeverage(0, 10, 20, 100, 10, 5)).toBe('10');
+    expect(computeCenteredLeverage(100, 10, 20, 100, 10, 5)).toBe('20');
+    expect(computeCenteredLeverage(-100, 10, 20, 100, 10, 5)).toBe('7');
+    expect(computeSliderValueFromLeverage(10, 10, 20, 100, 10, 5)).toBe(0);
+    expect(computeSliderValueFromLeverage(20, 10, 20, 100, 10, 5)).toBe(100);
   });
   it('replaces the individual leverage slider with an available-balance slider', async () => {
     await render(<PositionManageModal position={position} onClose={() => {}} onExit={() => {}} onAdjust={() => {}} onProtection={() => {}} isExiting={false} isAdjusting={false} isProtecting={false} />);
@@ -64,14 +71,24 @@ describe('leverage controls', () => {
     expect([...host.querySelectorAll('button')].some((b) => b.textContent === '100×')).toBe(false);
     const slider = host.querySelector<HTMLInputElement>('#leverage-balance-slider')!;
     expect(slider.disabled).toBe(false);
+    expect(slider.min).toBe('-100');
+    expect(slider.max).toBe('100');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '-100');
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      slider.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.textContent).toContain('Adjust Leverage to 7×');
+    expect(slider.value).toBe('-100');
+    expect(host.textContent).toContain('Estimated extra margin: 4.2857 USDT');
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider, '100');
       slider.dispatchEvent(new Event('input', { bubbles: true }));
       slider.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(host.textContent).toContain('Adjust Leverage to 7×');
+    expect(host.textContent).toContain('Adjust Leverage to 20×');
     expect(slider.value).toBe('100');
-    expect(host.textContent).toContain('Estimated extra margin: 4.2857 USDT');
+    expect(host.textContent).toContain('Estimated margin to be freed: 5.0000 USDT');
     typeValue(host.querySelector<HTMLInputElement>('input[aria-label="Target leverage"]')!, '21');
     expect([...host.querySelectorAll('button')].find((b) => b.textContent === 'Adjust Leverage to 21×')?.disabled).toBe(true);
   });

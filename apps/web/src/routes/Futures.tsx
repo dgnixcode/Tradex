@@ -12,7 +12,7 @@ import { parseCoinFromPair } from './TradeTicket.tsx';
 import { useSafeDialog } from '../hooks/useSafeDialog.ts';
 import { planPositionAddition, planPositionReduction } from '../position-addition.ts';
 import { PositionCurrencyBadge } from '../components/PositionCurrencyBadge.tsx';
-import { leverageForBalance, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
+import { computeCenteredLeverage, computeSliderValueFromLeverage, useLeverageLimits } from '../hooks/useLeverageLimits.ts';
 
 // The Positions page — modern UI/UX overhaul.
 //
@@ -1395,10 +1395,10 @@ export function PositionManageModal({
   // Adjust Leverage State & Calculations
   const currentLev = position.leverage !== null && Number(position.leverage) > 0 ? Number(position.leverage) : 1;
   const [targetLeverage, setTargetLeverageValue] = useState<string>(() => String(currentLev));
-  const [balanceBudgetPercent, setBalanceBudgetPercent] = useState<number | null>(null);
+  const [activeSliderVal, setActiveSliderVal] = useState<number | null>(null);
   const setTargetLeverage = (value: string) => {
     setTargetLeverageValue(value);
-    setBalanceBudgetPercent(null);
+    setActiveSliderVal(null);
   };
   const [isUpdatingLeverage, setIsUpdatingLeverage] = useState(false);
   const leverageActionPending = useRef(false);
@@ -1432,8 +1432,11 @@ export function PositionManageModal({
   const marginDeltaMajor = newMarginMajor - currentMarginMajor;
 
   const isLevShortfall = marginDeltaMajor > 0 && freeBalanceMajor < marginDeltaMajor;
-  const balanceSliderValid = maxLeverage > 0 && leverageNotionalMajor > 0 && lockedMarginMajor > 0 && freeBalanceMajor > 0;
-  const balanceSliderPercent = isTargetLevValid && freeBalanceMajor > 0 ? Math.min(100, Math.max(0, marginDeltaMajor / freeBalanceMajor * 100)) : 0;
+  const balanceSliderValid = maxLeverage > 0 && leverageNotionalMajor > 0;
+  const computedSliderVal = useMemo(() => {
+    return computeSliderValueFromLeverage(targetLevNum, currentLev, maxLeverage, leverageNotionalMajor, currentMarginMajor, freeBalanceMajor);
+  }, [targetLevNum, currentLev, maxLeverage, leverageNotionalMajor, currentMarginMajor, freeBalanceMajor]);
+  const effectiveSliderVal = activeSliderVal ?? computedSliderVal;
   const levShortfallMajor = isLevShortfall ? (marginDeltaMajor - freeBalanceMajor) : 0;
 
   const estNewLiqPrice = useMemo(() => {
@@ -2784,24 +2787,109 @@ export function PositionManageModal({
                   </button>
                 </div>
 
-                <div style={{ marginBottom: 12 }}>
-                  <label htmlFor="leverage-balance-slider" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <span>Available balance to use</span><strong>{(balanceBudgetPercent ?? balanceSliderPercent).toFixed(0)}%</strong>
-                  </label>
-                  <input id="leverage-balance-slider" type="range" min="0" max="100" step="1"
-                    value={balanceBudgetPercent ?? balanceSliderPercent} disabled={!balanceSliderValid || isRefreshing || balanceSyncError !== null}
-                    onChange={(e) => {
-                      const target = leverageForBalance(leverageNotionalMajor, currentMarginMajor, freeBalanceMajor, Number(e.target.value), maxLeverage);
-                      if (target !== null) {
-                        setTargetLeverage(String(target));
-                        setBalanceBudgetPercent(Number(e.target.value));
-                      }
-                    }} style={{ width: '100%', accentColor: '#818cf8' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)' }}>
-                    <span>0%</span><span>100% of available balance</span>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label htmlFor="leverage-balance-slider" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                      {effectiveSliderVal < 0
+                        ? `Reduce Leverage (${targetLeverage}× · uses ~${Math.abs(effectiveSliderVal)}% balance)`
+                        : effectiveSliderVal > 0
+                          ? `Increase Leverage (${targetLeverage}× · frees margin)`
+                          : `Adjust Leverage (Current: ${currentLev}×)`}
+                    </label>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      Available balance to use: <strong>{position.marginCurrency === 'INR' ? `₹${freeBalanceMajor.toFixed(2)}` : `${freeBalanceMajor.toFixed(4)} USDT`}</strong>
+                    </span>
                   </div>
-                  <p style={{ margin: '6px 0', fontSize: 11, color: 'var(--muted)' }}>
-                    Estimated extra margin: {position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}. Whole-number leverage may use less than selected.
+
+                  <div style={{ position: 'relative', margin: '8px 0 4px' }}>
+                    <input
+                      id="leverage-balance-slider"
+                      type="range"
+                      min="-100"
+                      max="100"
+                      step="1"
+                      value={effectiveSliderVal}
+                      disabled={!balanceSliderValid || isRefreshing || balanceSyncError !== null}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setActiveSliderVal(val);
+                        const nextLev = computeCenteredLeverage(
+                          val,
+                          currentLev,
+                          maxLeverage,
+                          leverageNotionalMajor,
+                          currentMarginMajor,
+                          freeBalanceMajor,
+                        );
+                        setTargetLeverageValue(nextLev);
+                      }}
+                      onPointerUp={() => setActiveSliderVal(null)}
+                      onTouchEnd={() => setActiveSliderVal(null)}
+                      onKeyUp={() => setActiveSliderVal(null)}
+                      style={{
+                        width: '100%',
+                        accentColor: effectiveSliderVal < 0 ? '#f59e0b' : effectiveSliderVal > 0 ? '#10b981' : '#818cf8',
+                        cursor: balanceSliderValid ? 'pointer' : 'not-allowed',
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: 2,
+                        height: 12,
+                        background: 'var(--line)',
+                        pointerEvents: 'none',
+                        borderRadius: 1,
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    <span style={{ color: effectiveSliderVal < 0 ? '#f59e0b' : 'inherit' }}>
+                      ← Reduce (Uses Balance)
+                    </span>
+                    <button
+                      type="button"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: effectiveSliderVal === 0 ? 'var(--text)' : 'var(--muted)',
+                        textDecoration: effectiveSliderVal !== 0 ? 'underline' : 'none',
+                      }}
+                      onClick={() => {
+                        setTargetLeverage(String(currentLev));
+                        setActiveSliderVal(null);
+                      }}
+                      title="Reset to current position leverage"
+                    >
+                      Center ({currentLev}×)
+                    </button>
+                    <span style={{ color: effectiveSliderVal > 0 ? '#10b981' : 'inherit', textAlign: 'right' }}>
+                      Increase (Frees Margin) →
+                    </span>
+                  </div>
+
+                  <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                    {effectiveSliderVal < 0 ? (
+                      <>
+                        Estimated extra margin: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.max(0, marginDeltaMajor).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>.
+                      </>
+                    ) : effectiveSliderVal > 0 ? (
+                      <>
+                        Estimated margin to be freed: <strong>{position.marginCurrency === 'INR' ? '₹' : ''}{Math.abs(Math.min(0, marginDeltaMajor)).toFixed(position.marginCurrency === 'INR' ? 2 : 4)}{position.marginCurrency === 'USDT' ? ' USDT' : ''}</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Slide left to reduce leverage using available balance, or slide right to increase leverage up to {maxLeverage}×.
+                      </>
+                    )}
                   </p>
                   {balanceSyncError && <p role="alert" style={{ color: 'var(--danger)', fontSize: 12 }}>{balanceSyncError}</p>}
                 </div>
